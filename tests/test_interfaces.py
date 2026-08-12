@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from common.contracts import AuditRecord, TelemetryEvent, TelemetryKind
+from common.contracts import AuditRecord
 from common.interfaces import (
     AuditSink,
     BusClient,

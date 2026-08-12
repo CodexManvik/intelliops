@@ -1,6 +1,5 @@
 import pytest
 
-from common.contracts import TelemetryEvent, TelemetryKind
 from common.interfaces import BusClient
 
 
