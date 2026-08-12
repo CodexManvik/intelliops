@@ -111,7 +111,7 @@ Every named tool sits behind an interface, so it is swappable — see
 
 ## Quickstart
 
-> Applies once **Slice 0** is built. Until then this repo is documentation only.
+> Slice 0 is built: the command below brings up Redis and six health-checked service stubs.
 
 ```bash
 # 1. Bring up the dev stack (Redis bus + the six service stubs)
@@ -130,7 +130,7 @@ increment and is approved before it is built.
 
 | Slice | Phase | Outcome | Status |
 |-------|-------|---------|--------|
-| 0 | — | Skeleton: contracts, bus, `docker compose up`, health endpoints | ⏳ planned |
+| 0 | — | Skeleton: contracts, bus, `docker compose up`, health endpoints | ✅ done |
 | 1 | Phase 1 | Noise reduction: telemetry in → one `Situation` out | ⏳ planned |
 | 2 | Phase 2 | RCA suggestions + governance audit/RBAC | ⏳ planned |
 | 3 | Phase 3 | HITL-gated reversible remediation, end to end | ⏳ planned |

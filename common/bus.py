@@ -1,0 +1,43 @@
+"""Event-bus client. Redis Streams is the dev binding of the BusClient protocol.
+
+Consumer groups make delivery durable and load-balanced. `consume` blocks for
+new entries and yields decoded field dicts. A `make_bus` factory lets services
+stay unaware of the concrete implementation (see ADR-001, ADR-005).
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterator
+
+import redis
+
+from common.config import Settings
+
+_CONSUMER = "c1"
+
+
+class RedisBus:
+    def __init__(self, client: redis.Redis) -> None:
+        self._r = client
+
+    def publish(self, topic: str, message: dict) -> None:
+        self._r.xadd(topic, message)
+
+    def consume(self, topic: str, group: str) -> Iterator[dict]:
+        try:
+            self._r.xgroup_create(topic, group, id="0", mkstream=True)
+        except redis.ResponseError as exc:  # group already exists
+            if "BUSYGROUP" not in str(exc):
+                raise
+        while True:
+            resp = self._r.xreadgroup(group, _CONSUMER, {topic: ">"}, count=1, block=1000)
+            if not resp:
+                continue
+            for _stream, entries in resp:
+                for entry_id, fields in entries:
+                    self._r.xack(topic, group, entry_id)
+                    yield fields
+
+
+def make_bus(settings: Settings) -> RedisBus:
+    return RedisBus(client=redis.from_url(settings.redis_url, decode_responses=True))
