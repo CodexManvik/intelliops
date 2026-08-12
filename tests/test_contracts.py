@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -16,7 +16,7 @@ from common.contracts import (
     TelemetryKind,
 )
 
-NOW = datetime(2026, 8, 13, tzinfo=timezone.utc)
+NOW = datetime(2026, 8, 13, tzinfo=UTC)
 
 
 def _telemetry_event() -> TelemetryEvent:

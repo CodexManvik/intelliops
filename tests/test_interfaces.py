@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from common.contracts import AuditRecord
 from common.interfaces import (
@@ -45,7 +45,7 @@ def test_fake_audit_satisfies_protocol():
             action="b",
             resource="c",
             decision="allow",
-            ts=datetime(2026, 8, 13, tzinfo=timezone.utc),
+            ts=datetime(2026, 8, 13, tzinfo=UTC),
             correlation_id="x",
         )
     )
