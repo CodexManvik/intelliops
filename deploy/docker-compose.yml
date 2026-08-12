@@ -1,0 +1,76 @@
+name: intelliops
+
+x-service: &service
+  build:
+    context: ..
+    dockerfile: deploy/Dockerfile
+  environment:
+    INTELLIOPS_REDIS_URL: redis://redis:6379
+  depends_on:
+    redis:
+      condition: service_healthy
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  ingestion:
+    <<: *service
+    environment:
+      INTELLIOPS_REDIS_URL: redis://redis:6379
+      SERVICE_MODULE: services.ingestion.app:app
+      PORT: "8000"
+    ports:
+      - "8001:8000"
+
+  correlation:
+    <<: *service
+    environment:
+      INTELLIOPS_REDIS_URL: redis://redis:6379
+      SERVICE_MODULE: services.correlation.app:app
+      PORT: "8000"
+    ports:
+      - "8002:8000"
+
+  rca:
+    <<: *service
+    environment:
+      INTELLIOPS_REDIS_URL: redis://redis:6379
+      SERVICE_MODULE: services.rca.app:app
+      PORT: "8000"
+    ports:
+      - "8003:8000"
+
+  action:
+    <<: *service
+    environment:
+      INTELLIOPS_REDIS_URL: redis://redis:6379
+      SERVICE_MODULE: services.action.app:app
+      PORT: "8000"
+    ports:
+      - "8004:8000"
+
+  governance:
+    <<: *service
+    environment:
+      INTELLIOPS_REDIS_URL: redis://redis:6379
+      SERVICE_MODULE: services.governance.app:app
+      PORT: "8000"
+    ports:
+      - "8005:8000"
+
+  feedback:
+    <<: *service
+    environment:
+      INTELLIOPS_REDIS_URL: redis://redis:6379
+      SERVICE_MODULE: services.feedback.app:app
+      PORT: "8000"
+    ports:
+      - "8006:8000"
