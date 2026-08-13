@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from typing import Protocol, runtime_checkable
 
-from common.contracts import AuditRecord, Playbook, Situation, TelemetryEvent
+from common.contracts import ApprovalRequest, AuditRecord, Playbook, Situation, TelemetryEvent
 
 
 @runtime_checkable
@@ -77,3 +77,23 @@ class ContextProvider(Protocol):
     def topology_for(self, labels: dict[str, str]) -> dict: ...
 
     def config_changes(self) -> list[dict]: ...
+
+
+@runtime_checkable
+class GovernanceGate(Protocol):
+    """The synchronous action→governance seam: RBAC, approvals, audit (ADR-003)."""
+
+    def check_rbac(self, actor: str, action: str, resource: str) -> bool: ...
+
+    def request_approval(self, request: ApprovalRequest) -> ApprovalRequest: ...
+
+    def await_decision(self, approval_id: str, timeout_seconds: float) -> ApprovalRequest: ...
+
+    def write_audit(self, record: AuditRecord) -> None: ...
+
+
+@runtime_checkable
+class HealthChecker(Protocol):
+    """Post-remediation health signal (ADR-007 verify step)."""
+
+    def check(self, situation: Situation) -> bool: ...

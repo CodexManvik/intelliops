@@ -16,8 +16,9 @@ def _client():
     app.state.audit_sink = InMemoryAuditSink()
     app.state.playbook_store = InMemoryPlaybookStore()
     app.state.rbac = RbacPolicy(
-        roles={"operator": [{"action": "diagnose", "resource": "situation:*"}]},
-        actors={"rca-service": ["operator"]},
+        roles={"operator": [{"action": "diagnose", "resource": "situation:*"}],
+               "approver": [{"action": "approve", "resource": "playbook:*"}]},
+        actors={"rca-service": ["operator"], "oncall-alice": ["approver"]},
     )
     app.state.approvals = {}
     return TestClient(app)
