@@ -105,3 +105,21 @@ class AuditRecord(BaseModel):
     decision: str
     ts: datetime
     correlation_id: str
+
+
+class EnrichmentContext(BaseModel):
+    """Change/deploy/topology context gathered for a Situation during RCA."""
+
+    recent_deploys: list[dict] = Field(default_factory=list)
+    topology: dict = Field(default_factory=dict)
+    config_changes: list[dict] = Field(default_factory=list)
+
+
+class DiagnosedSituation(BaseModel):
+    """The currency of situations.diagnosed: a diagnosed Situation plus ranked
+    root-cause hypotheses and the top suggested runbook. Additive — does not
+    mutate the frozen Situation contract."""
+
+    situation: Situation
+    hypotheses: list[RootCauseHypothesis] = Field(default_factory=list)
+    suggested_runbook_id: str | None = None
