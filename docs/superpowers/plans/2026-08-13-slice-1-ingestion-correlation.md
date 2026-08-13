@@ -1032,11 +1032,30 @@ def _raw_event(value, fp, ts_sec):
     return {"data": ev.model_dump_json()}
 
 
-def _baseline_script(n=200, seed=42):
-    """Jittered baseline events (non-anomalous). A flat baseline drives std dev
-    to ~0 and would make normal values falsely flag as anomalies."""
+def _event(value, fp, ts_sec):
+    return TelemetryEvent(
+        source="prom", kind=TelemetryKind.METRIC, name="cpu", value=value,
+        labels={}, ts=datetime(2026, 8, 13, 0, 0, ts_sec, tzinfo=timezone.utc),
+        fingerprint=fp,
+    )
+
+
+def _prime_and_flush(engine, n=200, seed=42):
+    """Warm the engine's per-metric baseline with jittered values, then flush.
+
+    A dead-flat baseline drives std dev to ~0 and makes any deviation explode
+    into a huge z-score. Even with jitter, river.stats.Var is UNSTABLE during
+    warm-up (the first ~50 samples): a few early baseline values legitimately
+    cross the z-threshold and get buffered as spurious anomalies. Since those
+    baseline events all share ts_sec=0, the window never advances to flush them.
+    So we prime the engine directly, then flush() once to DISCARD that warm-up
+    noise — mirroring a real deployment that warms up before trusting anomalies.
+    Seeded for determinism. Verified empirically against river 0.25.
+    """
     rng = random.Random(seed)
-    return [_raw_event(round(rng.gauss(10.0, 1.0), 3), f"b{i}", 0) for i in range(n)]
+    for i in range(n):
+        engine.add(_event(round(rng.gauss(10.0, 1.0), 3), f"b{i}", 0))
+    engine.flush()  # discard warm-up noise; return value intentionally ignored
 
 
 class ScriptedBus:
@@ -1054,12 +1073,11 @@ class ScriptedBus:
 
 
 def test_consumer_emits_situation_for_correlated_anomalies():
-    # baseline (near mean, non-anomalous) then two spikes in-window
-    script = _baseline_script()
-    script += [_raw_event(100.0, "a", 1), _raw_event(120.0, "b", 2)]
-    bus = ScriptedBus(script)
+    # Pre-warm the engine, THEN feed only the two spikes through the consumer.
     engine = CorrelationEngine(RiverCorrelator(z_threshold=3.0), window_seconds=30)
+    _prime_and_flush(engine)
 
+    bus = ScriptedBus([_raw_event(100.0, "a", 1), _raw_event(120.0, "b", 2)])
     run_consumer(bus, engine, threading.Event())
 
     situations = [m for (t, m) in bus.published if t == "situations.detected"]
@@ -1069,8 +1087,11 @@ def test_consumer_emits_situation_for_correlated_anomalies():
 
 
 def test_consumer_publishes_nothing_without_anomalies():
-    bus = ScriptedBus(_baseline_script(n=50))
-    engine = CorrelationEngine(RiverCorrelator(), window_seconds=30)
+    # Pre-warm, then feed only normal (near-mean) events -> no anomalies emitted.
+    engine = CorrelationEngine(RiverCorrelator(z_threshold=3.0), window_seconds=30)
+    _prime_and_flush(engine)
+
+    bus = ScriptedBus([_raw_event(10.0, "n1", 1), _raw_event(10.1, "n2", 2)])
     run_consumer(bus, engine, threading.Event())
     assert [m for (t, m) in bus.published if t == "situations.detected"] == []
 
@@ -1246,34 +1267,45 @@ class InMemoryBus:
         yield from list(self.topics.get(topic, []))
 
 
+def _prime_and_flush(engine, n=200, seed=42):
+    """Warm the engine's baseline with jittered values, then flush warm-up noise.
+
+    A dead-flat baseline drives std dev to ~0 (any deviation → huge z). And even
+    with jitter, river.stats.Var is unstable during warm-up, so a few early
+    baseline values legitimately cross the z-threshold and buffer as spurious
+    anomalies; sharing one timestamp, they never window-flush on their own. So we
+    warm the engine directly, then flush() once to discard that noise — as a real
+    deployment warms up before trusting anomalies. Seeded for determinism.
+    """
+    rng = random.Random(seed)
+    for i in range(n):
+        engine.add(
+            TelemetryEvent.model_validate(
+                {"source": "prom", "kind": "metric", "name": "cpu",
+                 "value": round(rng.gauss(10.0, 1.0), 3), "labels": {},
+                 "ts": "2026-08-13T00:00:00+00:00", "fingerprint": f"base{i}"}
+            )
+        )
+    engine.flush()
+
+
 def test_ingestion_to_correlation_emits_one_situation():
     bus = InMemoryBus()
 
-    # 1. Ingestion side: read the sample file, publish normalized events.
-    #    Prime with a JITTERED baseline so the two spikes read as anomalies but
-    #    the normal sample rows do not. A dead-flat baseline drives std dev to
-    #    ~0 and makes even a 9.9-vs-10.0 deviation score as a huge z. Seeded
-    #    for determinism.
-    rng = random.Random(42)
-    baseline = [
-        TelemetryEvent.model_validate(
-            {"source": "prom", "kind": "metric", "name": "cpu",
-             "value": round(rng.gauss(10.0, 1.0), 3),
-             "labels": {}, "ts": "2026-08-13T00:00:00+00:00", "fingerprint": f"base{i}"}
-        )
-        for i in range(200)
-    ]
-    for ev in baseline:
-        publish_model(bus, "telemetry.raw", ev)
+    # 1. Correlation side: build the engine and warm its baseline (so the two
+    #    sample spikes read as anomalies but the normal sample rows do not).
+    engine = CorrelationEngine(RiverCorrelator(z_threshold=3.0), window_seconds=60)
+    _prime_and_flush(engine)
 
+    # 2. Ingestion side: read the sample file through the real FileTelemetrySource
+    #    and publish the normalized events onto the bus (the ingestion->bus path).
     events = FileTelemetrySource(
         "services/ingestion/sample_data/telemetry_sample.jsonl"
     ).poll()
     for ev in events:
         publish_model(bus, "telemetry.raw", ev)
 
-    # 2. Correlation side: consume telemetry.raw, emit Situation(s).
-    engine = CorrelationEngine(RiverCorrelator(z_threshold=3.0), window_seconds=60)
+    # 3. Correlation consumer drains telemetry.raw and emits Situation(s).
     run_consumer(bus, engine, threading.Event())
 
     # 3. Assert exactly one Situation, containing the two spike events.
