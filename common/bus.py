@@ -13,12 +13,11 @@ import redis
 
 from common.config import Settings
 
-_CONSUMER = "c1"
-
 
 class RedisBus:
-    def __init__(self, client: redis.Redis) -> None:
+    def __init__(self, client: redis.Redis, consumer_name: str = "c1") -> None:
         self._r = client
+        self._consumer = consumer_name
 
     def publish(self, topic: str, message: dict) -> None:
         self._r.xadd(topic, message)
@@ -30,7 +29,7 @@ class RedisBus:
             if "BUSYGROUP" not in str(exc):
                 raise
         while True:
-            resp = self._r.xreadgroup(group, _CONSUMER, {topic: ">"}, count=1, block=1000)
+            resp = self._r.xreadgroup(group, self._consumer, {topic: ">"}, count=1, block=1000)
             if not resp:
                 continue
             for _stream, entries in resp:
@@ -39,5 +38,8 @@ class RedisBus:
                     yield fields
 
 
-def make_bus(settings: Settings) -> RedisBus:
-    return RedisBus(client=redis.from_url(settings.redis_url, decode_responses=True))
+def make_bus(settings: Settings, consumer_name: str = "c1") -> RedisBus:
+    return RedisBus(
+        client=redis.from_url(settings.redis_url, decode_responses=True),
+        consumer_name=consumer_name,
+    )

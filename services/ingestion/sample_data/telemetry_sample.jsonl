@@ -1,0 +1,5 @@
+{"source":"prom","kind":"metric","name":"cpu","value":10.0,"labels":{"pod":"web-1"},"ts":"2026-08-13T00:00:00+00:00"}
+{"source":"prom","kind":"metric","name":"cpu","value":10.1,"labels":{"pod":"web-1"},"ts":"2026-08-13T00:00:01+00:00"}
+{"source":"prom","kind":"metric","name":"cpu","value":9.9,"labels":{"pod":"web-1"},"ts":"2026-08-13T00:00:02+00:00"}
+{"source":"prom","kind":"metric","name":"cpu","value":98.0,"labels":{"pod":"web-1"},"ts":"2026-08-13T00:00:03+00:00"}
+{"source":"prom","kind":"metric","name":"cpu","value":102.0,"labels":{"pod":"web-2"},"ts":"2026-08-13T00:00:04+00:00"}
