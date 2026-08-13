@@ -25,3 +25,7 @@ Thumbs.db
 data/
 models/
 *.log
+
+# Claude Code harness local state
+.claude/
+.superpowers/
