@@ -1,6 +1,6 @@
 import random
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from common.contracts import Situation, TelemetryEvent, TelemetryKind
 from common.envelope import decode_model
@@ -12,7 +12,7 @@ from services.correlation.engine import CorrelationEngine
 def _raw_event(value, fp, ts_sec):
     ev = TelemetryEvent(
         source="prom", kind=TelemetryKind.METRIC, name="cpu", value=value,
-        labels={}, ts=datetime(2026, 8, 13, 0, 0, ts_sec, tzinfo=timezone.utc),
+        labels={}, ts=datetime(2026, 8, 13, 0, 0, ts_sec, tzinfo=UTC),
         fingerprint=fp,
     )
     return {"data": ev.model_dump_json()}
@@ -21,7 +21,7 @@ def _raw_event(value, fp, ts_sec):
 def _event(value, fp, ts_sec):
     return TelemetryEvent(
         source="prom", kind=TelemetryKind.METRIC, name="cpu", value=value,
-        labels={}, ts=datetime(2026, 8, 13, 0, 0, ts_sec, tzinfo=timezone.utc),
+        labels={}, ts=datetime(2026, 8, 13, 0, 0, ts_sec, tzinfo=UTC),
         fingerprint=fp,
     )
 
