@@ -1,0 +1,12 @@
+roles:
+  operator:
+    - {action: enrich, resource: "situation:*"}
+    - {action: diagnose, resource: "situation:*"}
+    - {action: read, resource: "*"}
+  approver:
+    - {action: approve, resource: "playbook:*"}
+    - {action: reject, resource: "playbook:*"}
+actors:
+  rca-service: [operator]
+  action-service: [operator]
+  oncall-alice: [operator, approver]
