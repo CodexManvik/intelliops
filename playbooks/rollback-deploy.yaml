@@ -1,0 +1,9 @@
+id: rollback-deploy
+name: Rollback Deployment
+match_rule: "hypothesis == 'recent-deploy'"
+steps:
+  - "kubectl rollout undo deploy/{service}"
+hitl_mode: hitl
+reversible: true
+rollback_steps:
+  - "kubectl rollout undo deploy/{service} --to-revision={prev}"

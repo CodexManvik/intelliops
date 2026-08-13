@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from typing import Protocol, runtime_checkable
 
-from common.contracts import AuditRecord, Situation, TelemetryEvent
+from common.contracts import AuditRecord, Playbook, Situation, TelemetryEvent
 
 
 @runtime_checkable
@@ -55,3 +55,25 @@ class AuditSink(Protocol):
     """An append-only audit store (Postgres, file)."""
 
     def write(self, record: AuditRecord) -> None: ...
+
+
+@runtime_checkable
+class PlaybookStore(Protocol):
+    """The CoE playbook registry (in-memory / file / Postgres)."""
+
+    def register(self, playbook: Playbook) -> None: ...
+
+    def get(self, playbook_id: str) -> Playbook | None: ...
+
+    def list(self) -> list[Playbook]: ...
+
+
+@runtime_checkable
+class ContextProvider(Protocol):
+    """A source of RCA enrichment context (file / Prometheus / CMDB / git)."""
+
+    def recent_deploys(self) -> list[dict]: ...
+
+    def topology_for(self, labels: dict[str, str]) -> dict: ...
+
+    def config_changes(self) -> list[dict]: ...
