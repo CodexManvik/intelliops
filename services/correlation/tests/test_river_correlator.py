@@ -79,3 +79,53 @@ def test_severity_band():
 
 def test_retrain_is_noop():
     RiverCorrelator().retrain([])  # must not raise
+
+
+def test_detect_suppresses_anomalies_during_warmup():
+    """A spike seen before the metric's baseline is warm must NOT flag.
+
+    river.stats.Var is unstable during warm-up (the running variance is tiny
+    after only a handful of samples), so a normal-looking value can score a
+    huge z. Until the metric has seen `warmup_samples` observations, detect
+    returns 0.0 regardless of value — a cold-started service must not emit
+    spurious anomalies. See the cold-start note in the Slice-1 review.
+    """
+    c = RiverCorrelator(z_threshold=3.0, warmup_samples=50)
+    # Feed a few jittered baseline samples, then inject a large spike while
+    # still inside the warm-up window.
+    rng = random.Random(42)
+    for _ in range(10):
+        c.detect(_event(value=round(rng.gauss(10.0, 1.0), 3)))
+    assert c.detect(_event(value=1000.0)) == 0.0
+    assert c.is_anomaly(_event(value=1000.0)) is False
+
+
+def test_detect_flags_outlier_once_warm():
+    """After warmup_samples observations, a genuine outlier scores normally."""
+    c = RiverCorrelator(z_threshold=3.0, warmup_samples=50)
+    _feed_baseline(c, n=60)  # > warmup_samples jittered baseline samples
+    assert c.is_anomaly(_event(value=100.0)) is True
+    assert c.is_anomaly(_event(value=10.1)) is False
+
+
+def test_warmup_baseline_keeps_learning():
+    """Values fed during warm-up still train the baseline, so it's ready the
+    moment warm-up ends (the metric isn't scored, but it is learned)."""
+    c = RiverCorrelator(z_threshold=3.0, warmup_samples=50)
+    rng = random.Random(7)
+    for _ in range(50):  # exactly warmup_samples jittered values around 10
+        c.detect(_event(value=round(rng.gauss(10.0, 1.0), 3)))
+    # The 51st observation is scored against a baseline built from all 50.
+    near_mean = c.detect(_event(value=10.0))
+    outlier = c.detect(_event(value=100.0))
+    assert near_mean < 3.0
+    assert outlier > 3.0
+
+
+def test_warmup_is_per_metric():
+    """Each metric name warms up independently."""
+    c = RiverCorrelator(z_threshold=3.0, warmup_samples=50)
+    _feed_baseline(c, n=60)  # warms only "cpu"
+    # "cpu" is warm and flags; a fresh metric "mem" is still in warm-up.
+    assert c.is_anomaly(_event(name="cpu", value=100.0)) is True
+    assert c.detect(_event(name="mem", value=1000.0)) == 0.0

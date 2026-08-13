@@ -5,6 +5,14 @@ event scores high when its value is many std devs from that metric's running
 mean. correlate() collapses a set of anomalous events into one Situation with
 a stable signature so recurring storms are recognizable (see flow.md 5.2).
 
+A per-metric warm-up gate suppresses scoring until the baseline has seen
+`warmup_samples` observations, because river.stats.Var is unreliable early on
+(a normal value can score a huge z). This greatly reduces — but does not fully
+eliminate — cold-start false positives: the running variance keeps settling for
+a while past the gate, so a marginal crossing just beyond warmup_samples is
+still possible. Callers that need zero spurious startup anomalies should also
+gate downstream (e.g. discard the first correlation window after a cold start).
+
 NOTE (river 0.25): stats objects update in place via .update(v) and read via
 .get(); they are not chained.
 """
@@ -19,10 +27,12 @@ from common.contracts import Situation, SituationStatus, TelemetryEvent
 
 
 class RiverCorrelator:
-    def __init__(self, z_threshold: float = 3.0) -> None:
+    def __init__(self, z_threshold: float = 3.0, warmup_samples: int = 50) -> None:
         self._z_threshold = z_threshold
+        self._warmup_samples = warmup_samples
         self._mean: dict[str, stats.Mean] = {}
         self._var: dict[str, stats.Var] = {}
+        self._count: dict[str, int] = {}
 
     def detect(self, event: TelemetryEvent) -> float:
         if event.value is None:
@@ -30,11 +40,21 @@ class RiverCorrelator:
         name = event.name
         mean = self._mean.setdefault(name, stats.Mean())
         var = self._var.setdefault(name, stats.Var())
+        seen = self._count.get(name, 0)
+        # Score against the CURRENT baseline before folding this value in.
         m = mean.get()
         sd = var.get() ** 0.5
-        score = 0.0 if sd == 0 else abs(event.value - m) / sd
+        # Warm-up gate: river.stats.Var is unstable for the first few samples,
+        # so a normal value can score a huge z. Until the metric's baseline has
+        # seen `warmup_samples` observations we keep learning but never flag —
+        # otherwise a cold-started service emits spurious anomalies on startup.
+        if seen < self._warmup_samples or sd == 0:
+            score = 0.0
+        else:
+            score = abs(event.value - m) / sd
         mean.update(event.value)
         var.update(event.value)
+        self._count[name] = seen + 1
         return score
 
     def is_anomaly(self, event: TelemetryEvent) -> bool:
