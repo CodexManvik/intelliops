@@ -1,0 +1,9 @@
+id: scale-service
+name: Scale Service Horizontally
+match_rule: "hypothesis == 'resource-exhaustion'"
+steps:
+  - "kubectl scale deploy/{service} --replicas={target}"
+hitl_mode: hitl
+reversible: true
+rollback_steps:
+  - "kubectl scale deploy/{service} --replicas={original}"
