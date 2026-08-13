@@ -86,6 +86,8 @@ def decide_approval(approval_id: str, decision: Decision) -> ApprovalRequest:
     req = app.state.approvals.get(approval_id)
     if req is None:
         raise HTTPException(status_code=404, detail="approval not found")
+    if not app.state.rbac.check(decision.decided_by, "approve", f"playbook:{req.playbook_id}"):
+        raise HTTPException(status_code=403, detail="decider lacks approve permission")
     updated = req.model_copy(update={"status": decision.decision, "decided_by": decision.decided_by})
     app.state.approvals[approval_id] = updated
     return updated
