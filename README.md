@@ -112,6 +112,7 @@ Every named tool sits behind an interface, so it is swappable — see
 ## Quickstart
 
 > Slice 0 is built: the command below brings up Redis and six health-checked service stubs.
+> Slice 1 adds `POST /ingest` on ingestion (8001) and a correlation consumer that emits `Situation`s onto the bus.
 
 ```bash
 # 1. Bring up the dev stack (Redis bus + the six service stubs)
@@ -131,7 +132,7 @@ increment and is approved before it is built.
 | Slice | Phase | Outcome | Status |
 |-------|-------|---------|--------|
 | 0 | — | Skeleton: contracts, bus, `docker compose up`, health endpoints | ✅ done |
-| 1 | Phase 1 | Noise reduction: telemetry in → one `Situation` out | ⏳ planned |
+| 1 | Phase 1 | Noise reduction: telemetry in → one `Situation` out | ✅ done |
 | 2 | Phase 2 | RCA suggestions + governance audit/RBAC | ⏳ planned |
 | 3 | Phase 3 | HITL-gated reversible remediation, end to end | ⏳ planned |
 | 4 | Phase 4 | Closed feedback loop + metrics + first `auto` playbook | ⏳ planned |
