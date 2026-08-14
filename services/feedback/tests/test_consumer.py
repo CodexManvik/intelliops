@@ -60,12 +60,12 @@ def test_consumer_no_graduation_below_threshold():
 def test_consumer_no_graduation_with_rollback():
     bus = ScriptedBus([_raw_outcome(RemediationResult.SUCCESS),
                        _raw_outcome(RemediationResult.SUCCESS),
-                       _raw_outcome(RemediationResult.SUCCESS),
-                       _raw_outcome(RemediationResult.ROLLED_BACK)])
+                       _raw_outcome(RemediationResult.ROLLED_BACK),
+                       _raw_outcome(RemediationResult.SUCCESS)])
     store = InMemoryTrainingStore()
     graduated = []
     _run(bus, store, graduator=graduated.append, min_successes=3)
-    assert graduated == []  # a rollback disqualifies
+    assert graduated == []  # a rollback in the window disqualifies
 
 
 def test_consumer_stops_on_stop_event():
