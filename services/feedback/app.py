@@ -17,12 +17,13 @@ from services.feedback.metrics import compute_metrics
 
 def _make_graduator(rbac_actor: str = "feedback-service"):
     # In the running service, graduation calls governance's REST endpoint.
-    # governance runs on port 8005 (see docker-compose). Best-effort, fire-and-
+    # Inside the docker-compose network, governance listens on its internal
+    # PORT=8000 (8005 is only the host-side port mapping). Best-effort, fire-and-
     # forget: a failed graduation is logged by governance's own audit, and the
     # next matching outcome will retry on a fresh process. Kept simple here.
     def graduate(playbook_id: str) -> None:
         try:
-            httpx.post(f"http://governance:8005/playbooks/{playbook_id}/graduate",
+            httpx.post(f"http://governance:8000/playbooks/{playbook_id}/graduate",
                        json={"decided_by": rbac_actor}, timeout=5.0)
         except Exception:  # noqa: BLE001, S110 — best-effort; governance's own audit is the record
             pass

@@ -11,9 +11,10 @@ It is built to **augment** your existing observability, CI/CD, and ticketing sta
 it, and it is **open-source-first** to avoid vendor lock-in.
 
 > **Project status: all four implementation slices complete — the loop is closed.**
-> This repository currently contains the design (`README.md`, [architectural.md](architectural.md),
+> This repository now contains the full implementation — all six services across four delivery
+> slices — alongside the design docs (`README.md`, [architectural.md](architectural.md),
 > [flow.md](flow.md), and the [spec](docs/superpowers/specs/2026-08-13-intelliops-coe-design.md)).
-> Code is built in slices — see [Roadmap](#roadmap). Origin: a 2026 capstone proposal; the
+> Code was built in slices — see [Roadmap](#roadmap). Origin: a 2026 capstone proposal; the
 > engineering decisions that turn that proposal into a buildable system are recorded as ADRs in
 > [architectural.md](architectural.md).
 
