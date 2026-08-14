@@ -33,6 +33,7 @@ class RiverCorrelator:
         self._mean: dict[str, stats.Mean] = {}
         self._var: dict[str, stats.Var] = {}
         self._count: dict[str, int] = {}
+        self._reliability: dict[str, float] = {}
 
     def detect(self, event: TelemetryEvent) -> float:
         if event.value is None:
@@ -75,9 +76,26 @@ class RiverCorrelator:
         )
 
     def retrain(self, training_data: list[dict]) -> None:
-        # Feedback-driven retraining lands in Slice 4; the method exists so the
-        # Correlator protocol is satisfied now.
-        return None
+        # The closed loop: aggregate per-signature reliability from labeled
+        # outcomes. A signature whose remediation reliably works becomes a
+        # candidate for suppression (see should_suppress); one that fails stays
+        # sensitive. Recomputes from the given data each call.
+        worked: dict[str, int] = {}
+        total: dict[str, int] = {}
+        for record in training_data:
+            sig = record["signature"]
+            total[sig] = total.get(sig, 0) + 1
+            if record.get("worked"):
+                worked[sig] = worked.get(sig, 0) + 1
+        self._reliability = {
+            sig: worked.get(sig, 0) / n for sig, n in total.items()
+        }
+
+    def reliability(self, signature: str) -> float:
+        return self._reliability.get(signature, 0.0)
+
+    def should_suppress(self, signature: str, threshold: float) -> bool:
+        return self.reliability(signature) >= threshold
 
     def _severity_band(self, score: float) -> str:
         if score >= 8:

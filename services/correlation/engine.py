@@ -4,7 +4,10 @@ The engine scores each event via the correlator; anomalies accumulate in a
 rolling time window keyed on event timestamps. When the window's span exceeds
 window_seconds (or on an explicit flush), the buffer collapses into a single
 Situation. Timestamps come from events, so behavior is deterministic.
-"""
+
+The closed loop (Slice 4): a Situation whose signature has a proven
+self-healing track record (reliability >= suppress_threshold) is suppressed —
+not emitted — because the system has learned that when this fires, it is fixed."""
 
 from __future__ import annotations
 
@@ -13,9 +16,11 @@ from services.correlation.adapters.river_correlator import RiverCorrelator
 
 
 class CorrelationEngine:
-    def __init__(self, correlator: RiverCorrelator, window_seconds: float = 30.0) -> None:
+    def __init__(self, correlator: RiverCorrelator, window_seconds: float = 30.0,
+                 suppress_threshold: float = 0.8) -> None:
         self._correlator = correlator
         self._window = window_seconds
+        self._suppress_threshold = suppress_threshold
         self._buffer: list[TelemetryEvent] = []
         self._max_score = 0.0
 
@@ -37,9 +42,12 @@ class CorrelationEngine:
             return None
         return self._correlate_buffer()
 
-    def _correlate_buffer(self) -> Situation:
+    def _correlate_buffer(self) -> Situation | None:
         severity = self._correlator._severity_band(self._max_score)
         sit = self._correlator.correlate(self._buffer, severity=severity)
         self._buffer = []
         self._max_score = 0.0
+        # Closed loop: suppress a Situation whose signature reliably self-heals.
+        if self._correlator.should_suppress(sit.signature, self._suppress_threshold):
+            return None
         return sit
