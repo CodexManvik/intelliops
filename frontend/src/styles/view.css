@@ -1,0 +1,72 @@
+/* View entrance — pure CSS keyframe. Always resolves to full opacity,
+   unlike a JS-driven mount animation that can strand under StrictMode.
+   Resting state is fully visible (opacity:1); the keyframe only ADDS the
+   entrance motion. If the animation clock is frozen — e.g. the tab is in a
+   background/hidden compositing context — the element still shows at full
+   opacity rather than stranding at 0. */
+@keyframes viewEnter {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.view-enter {
+  opacity: 1;
+  animation: viewEnter 0.5s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Section reveal — also pure CSS. Sections start hidden and are revealed by an
+   IntersectionObserver toggling `.in` (see useReveal). CSS guarantees the final
+   state even if observation is late. */
+.reveal-css {
+  opacity: 0;
+  transform: translateY(22px);
+  filter: blur(6px);
+  transition:
+    opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+    filter 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform;
+}
+.reveal-css.in {
+  opacity: 1;
+  transform: translateY(0);
+  filter: blur(0);
+}
+
+/* graduation progress fill — grows from 0 on mount, pure CSS */
+@keyframes barGrow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+.bar-fill {
+  transform-origin: left;
+  /* resting state is full width; the keyframe only plays the grow-in. A frozen
+     clock leaves the bar at its true width rather than collapsed to zero. */
+  transform: scaleX(1);
+  animation: barGrow 1s cubic-bezier(0.32, 0.72, 0, 1) 0.15s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .view-enter {
+    animation: none;
+  }
+  .bar-fill {
+    animation: none;
+  }
+  .reveal-css {
+    opacity: 1;
+    transform: none;
+    filter: none;
+    transition: none;
+  }
+}
