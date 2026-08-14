@@ -6,7 +6,10 @@ roles:
   approver:
     - {action: approve, resource: "playbook:*"}
     - {action: reject, resource: "playbook:*"}
+  coe-admin:
+    - {action: graduate, resource: "playbook:*"}
 actors:
   rca-service: [operator]
   action-service: [operator]
   oncall-alice: [operator, approver]
+  feedback-service: [coe-admin]
