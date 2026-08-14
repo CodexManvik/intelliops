@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from fastapi import HTTPException
 from pydantic import BaseModel
 
 from common.config import get_settings
-from common.contracts import ApprovalRequest, AuditRecord, Playbook
+from common.contracts import ApprovalRequest, AuditRecord, HitlMode, Playbook
 from services.base import create_app
 from services.governance.adapters.audit_sink import FileAuditSink
 from services.governance.adapters.playbook_store import FilePlaybookStore
@@ -34,6 +36,10 @@ class RbacCheck(BaseModel):
 
 class Decision(BaseModel):
     decision: str
+    decided_by: str
+
+
+class Graduate(BaseModel):
     decided_by: str
 
 
@@ -90,4 +96,20 @@ def decide_approval(approval_id: str, decision: Decision) -> ApprovalRequest:
         raise HTTPException(status_code=403, detail="decider lacks approve permission")
     updated = req.model_copy(update={"status": decision.decision, "decided_by": decision.decided_by})
     app.state.approvals[approval_id] = updated
+    return updated
+
+
+@app.post("/playbooks/{playbook_id}/graduate")
+def graduate_playbook(playbook_id: str, body: Graduate) -> Playbook:
+    pb = app.state.playbook_store.get(playbook_id)
+    if pb is None:
+        raise HTTPException(status_code=404, detail="playbook not found")
+    if not app.state.rbac.check(body.decided_by, "graduate", f"playbook:{playbook_id}"):
+        raise HTTPException(status_code=403, detail="actor lacks graduate permission")
+    updated = pb.model_copy(update={"hitl_mode": HitlMode.AUTO})
+    app.state.playbook_store.register(updated)
+    app.state.audit_sink.write(AuditRecord(
+        actor=body.decided_by, action="graduate", resource=f"playbook:{playbook_id}",
+        decision="allow", ts=datetime.now(UTC), correlation_id=f"playbook:{playbook_id}",
+    ))
     return updated

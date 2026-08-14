@@ -10,10 +10,11 @@ outcome feeds back into the model, so the system gets more accurate the longer i
 It is built to **augment** your existing observability, CI/CD, and ticketing stack, not replace
 it, and it is **open-source-first** to avoid vendor lock-in.
 
-> **Project status: documentation complete, implementation phased.**
-> This repository currently contains the design (`README.md`, [architectural.md](architectural.md),
+> **Project status: all four implementation slices complete — the loop is closed.**
+> This repository now contains the full implementation — all six services across four delivery
+> slices — alongside the design docs (`README.md`, [architectural.md](architectural.md),
 > [flow.md](flow.md), and the [spec](docs/superpowers/specs/2026-08-13-intelliops-coe-design.md)).
-> Code is built in slices — see [Roadmap](#roadmap). Origin: a 2026 capstone proposal; the
+> Code was built in slices — see [Roadmap](#roadmap). Origin: a 2026 capstone proposal; the
 > engineering decisions that turn that proposal into a buildable system are recorded as ADRs in
 > [architectural.md](architectural.md).
 
@@ -115,6 +116,7 @@ Every named tool sits behind an interface, so it is swappable — see
 > Slice 1 adds `POST /ingest` on ingestion (8001) and a correlation consumer that emits `Situation`s onto the bus.
 > Slice 2 adds rca-service (diagnoses Situations → `situations.diagnosed`) and governance-service (audit log, playbook registry, RBAC at 8005).
 > Slice 3 adds action-service (8004): HITL-gated, reversible remediation of `situations.diagnosed` → `remediation.outcomes`, with RBAC-enforced approvals.
+> Slice 4 adds feedback-service (8006): labels `remediation.outcomes` into a training store that closes the loop (proven self-healing signatures get suppressed), computes metrics at `GET /metrics`, and graduates playbooks hitl→auto on evidence.
 
 ```bash
 # 1. Bring up the dev stack (Redis bus + the six service stubs)
@@ -137,7 +139,7 @@ increment and is approved before it is built.
 | 1 | Phase 1 | Noise reduction: telemetry in → one `Situation` out | ✅ done |
 | 2 | Phase 2 | RCA suggestions + governance audit/RBAC | ✅ done |
 | 3 | Phase 3 | HITL-gated reversible remediation, end to end | ✅ done |
-| 4 | Phase 4 | Closed feedback loop + metrics + first `auto` playbook | ⏳ planned |
+| 4 | Phase 4 | Closed feedback loop + metrics + first `auto` playbook | ✅ done |
 
 ## Security, compliance & safety
 

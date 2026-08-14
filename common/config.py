@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     rca_context_path: str = "data/rca_context"
     hitl_poll_timeout_seconds: float = 30.0
     hitl_poll_interval_seconds: float = 0.5
+    training_store_path: str = "data/training.jsonl"
+    reliability_suppress_threshold: float = 0.8
+    graduation_min_successes: int = 3
 
 
 @lru_cache

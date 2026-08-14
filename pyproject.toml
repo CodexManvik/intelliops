@@ -10,12 +10,12 @@ dependencies = [
     "pydantic-settings>=2.5",
     "redis>=5.1",
     "river>=0.25.0",
+    "httpx>=0.28.1",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=8.3",
-    "httpx>=0.27",
     "ruff>=0.7",
     "fakeredis>=2.37.0",
 ]
