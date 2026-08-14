@@ -123,3 +123,18 @@ class DiagnosedSituation(BaseModel):
     situation: Situation
     hypotheses: list[RootCauseHypothesis] = Field(default_factory=list)
     suggested_runbook_id: str | None = None
+
+
+class TrainingRecord(BaseModel):
+    """A labeled remediation outcome — training data that closes the loop.
+
+    `worked` is True when the remediation succeeded; feedback derives `signature`
+    from the situation id (the "sit-" prefix convention). Correlation reads these
+    at retrain time to learn which signatures reliably self-heal."""
+
+    situation_id: str
+    signature: str
+    playbook_id: str
+    result: RemediationResult
+    worked: bool
+    ts: datetime

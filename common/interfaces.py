@@ -9,7 +9,14 @@ from __future__ import annotations
 from collections.abc import Iterator
 from typing import Protocol, runtime_checkable
 
-from common.contracts import ApprovalRequest, AuditRecord, Playbook, Situation, TelemetryEvent
+from common.contracts import (
+    ApprovalRequest,
+    AuditRecord,
+    Playbook,
+    Situation,
+    TelemetryEvent,
+    TrainingRecord,
+)
 
 
 @runtime_checkable
@@ -97,3 +104,12 @@ class HealthChecker(Protocol):
     """Post-remediation health signal (ADR-007 verify step)."""
 
     def check(self, situation: Situation) -> bool: ...
+
+
+@runtime_checkable
+class TrainingStore(Protocol):
+    """The closed-loop training store: feedback appends, correlation reads (see ADR-001)."""
+
+    def append(self, record: TrainingRecord) -> None: ...
+
+    def read_all(self) -> list[TrainingRecord]: ...
