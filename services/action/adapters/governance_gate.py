@@ -9,6 +9,9 @@ caller fail closed (ADR-003). An HTTP gate is a deferred alternative."""
 from __future__ import annotations
 
 import time
+import time as _time
+
+import httpx
 
 from common.contracts import ApprovalRequest, AuditRecord
 
@@ -39,3 +42,42 @@ class InProcessGovernanceGate:
 
     def write_audit(self, record: AuditRecord) -> None:
         self._audit_sink.write(record)
+
+
+class HttpGovernanceGate:
+    """The cross-process gate: action talks to governance over REST.
+
+    Closes the compose gap where an in-process approvals dict cannot span
+    containers. Same interface remediate.py already calls on the in-process gate.
+    """
+
+    def __init__(self, base_url: str, poll_interval_seconds: float = 0.5,
+                 http_client: httpx.Client | None = None) -> None:
+        self._base = base_url.rstrip("/")
+        self._poll = poll_interval_seconds
+        self._client = http_client or httpx.Client(timeout=5.0)
+
+    def check_rbac(self, actor: str, action: str, resource: str) -> bool:
+        resp = self._client.post(f"{self._base}/rbac/check",
+                                 json={"actor": actor, "action": action, "resource": resource})
+        if resp.status_code != 200:
+            return False
+        return bool(resp.json().get("allowed", False))
+
+    def request_approval(self, request: ApprovalRequest) -> ApprovalRequest:
+        resp = self._client.post(f"{self._base}/approvals", json=request.model_dump())
+        return ApprovalRequest.model_validate(resp.json())
+
+    def await_decision(self, approval_id: str, timeout_seconds: float) -> ApprovalRequest:
+        deadline = _time.monotonic() + timeout_seconds
+        while True:
+            resp = self._client.get(f"{self._base}/approvals/{approval_id}")
+            req = ApprovalRequest.model_validate(resp.json())
+            if req.status != "pending":
+                return req
+            if _time.monotonic() >= deadline:
+                return req
+            _time.sleep(self._poll)
+
+    def write_audit(self, record: AuditRecord) -> None:
+        self._client.post(f"{self._base}/audit", json=record.model_dump(mode="json"))
