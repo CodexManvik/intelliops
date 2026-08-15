@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence } from "framer-motion";
 import {
   ArrowsClockwise,
@@ -13,7 +13,8 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { Bezel, Eyebrow, SevChip, StatusChip, timeAgo, motion as m } from "../components/primitives";
-import { situations as seed } from "../data/mock";
+import { loadSituations, decideApproval } from "../data/source";
+import { useData } from "../hooks/useData";
 import type { Situation, SituationStatus } from "../data/types";
 
 const stageDefs = [
@@ -26,27 +27,54 @@ const stageDefs = [
 const order: SituationStatus[] = ["detected", "diagnosed", "acting", "resolved"];
 
 export function Incidents() {
-  const [list, setList] = useState<Situation[]>(seed);
-  const [selId, setSelId] = useState(seed[0].id);
-  const sel = useMemo(() => list.find((s) => s.id === selId)!, [list, selId]);
+  const { data: seed } = useData(loadSituations, [] as Situation[]);
+  const [overrides, setOverrides] = useState<Record<string, Partial<Situation>>>({});
+  const [selId, setSelId] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
 
+  // merge server data with local optimistic overrides
+  const list = useMemo<Situation[]>(
+    () => seed.map((s) => ({ ...s, ...overrides[s.id] })),
+    [seed, overrides],
+  );
+
+  // keep a valid selection as data streams in
+  useEffect(() => {
+    if ((selId === null || !list.some((s) => s.id === selId)) && list.length > 0) {
+      setSelId(list[0].id);
+    }
+  }, [list, selId]);
+
+  const sel = useMemo(() => list.find((s) => s.id === selId) ?? null, [list, selId]);
+
   function update(id: string, patch: Partial<Situation>) {
-    setList((l) => l.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+    setOverrides((o) => ({ ...o, [id]: { ...o[id], ...patch } }));
   }
 
-  function approve() {
-    if (working) return;
+  async function approve() {
+    if (working || !sel) return;
     setWorking(true);
-    update(sel.id, { status: "acting" });
+    update(sel.id, { status: "acting" }); // optimistic fast-path (mock + live)
+    try {
+      await decideApproval(`appr-${sel.id}`, "approved");
+    } catch {
+      /* mock mode no-ops; live poll will converge to server truth */
+    }
     setTimeout(() => update(sel.id, { status: "resolved" }), 1400);
     setTimeout(() => setWorking(false), 1500);
   }
-  function reject() {
+
+  async function reject() {
+    if (!sel) return;
     update(sel.id, { status: "failed" });
+    try {
+      await decideApproval(`appr-${sel.id}`, "rejected");
+    } catch {
+      /* mock mode no-ops */
+    }
   }
 
-  const stageIndex = order.indexOf(sel.status === "failed" ? "acting" : sel.status);
+  const stageIndex = sel ? order.indexOf(sel.status === "failed" ? "acting" : sel.status) : 0;
 
   return (
     <div className="space-y-5">
@@ -105,6 +133,7 @@ export function Incidents() {
         </div>
 
         {/* detail */}
+        {sel ? (
         <div className="lg:col-span-7">
           <AnimatePresence mode="wait">
             <m.div key={sel.id} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}>
@@ -230,6 +259,11 @@ export function Incidents() {
             </m.div>
           </AnimatePresence>
         </div>
+        ) : (
+          <div className="lg:col-span-7 flex items-center justify-center rounded-4xl border border-white/[0.06] p-12 text-ink-3">
+            Waiting for situations…
+          </div>
+        )}
       </div>
     </div>
   );

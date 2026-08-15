@@ -1,0 +1,59 @@
+import httpx
+
+from services.action.adapters.governance_gate import HttpGovernanceGate
+
+
+def _gate(handler, poll=0.0):
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(transport=transport)
+    return HttpGovernanceGate("http://gov:8000", poll_interval_seconds=poll, http_client=client)
+
+
+def test_check_rbac_true():
+    def h(req):
+        assert req.url.path == "/rbac/check"
+        return httpx.Response(200, json={"allowed": True})
+    assert _gate(h).check_rbac("action-service", "execute", "playbook:x") is True
+
+
+def test_await_decision_returns_when_approved():
+    calls = {"n": 0}
+
+    def h(req):
+        if req.url.path == "/approvals/appr-1" and req.method == "GET":
+            calls["n"] += 1
+            status = "approved" if calls["n"] >= 2 else "pending"
+            return httpx.Response(200, json={
+                "id": "appr-1", "situation_id": "sit-1", "playbook_id": "p",
+                "requested_by": "action-service", "status": status, "decided_by": None,
+            })
+        return httpx.Response(404)
+
+    decided = _gate(h).await_decision("appr-1", timeout_seconds=5.0)
+    assert decided.status == "approved"
+    assert calls["n"] >= 2
+
+
+def test_await_decision_times_out_still_pending():
+    def h(req):
+        return httpx.Response(200, json={
+            "id": "appr-1", "situation_id": "sit-1", "playbook_id": "p",
+            "requested_by": "action-service", "status": "pending", "decided_by": None,
+        })
+    decided = _gate(h).await_decision("appr-1", timeout_seconds=0.05)
+    assert decided.status == "pending"
+
+
+def test_await_decision_survives_connection_errors_and_stays_pending():
+    # Fail-closed guard: a persistent network error during polling must never
+    # raise out of await_decision. It runs inside action's consumer thread
+    # under GOVERNANCE_MODE=http, so an unguarded raise there would kill
+    # remediation processing instead of degrading safely. Every poll fails
+    # with a connection error; on timeout we must still get back a pending
+    # ApprovalRequest (fail closed), not an exception.
+    def h(req):
+        raise httpx.ConnectError("connection refused", request=req)
+
+    decided = _gate(h, poll=0.01).await_decision("appr-1", timeout_seconds=0.05)
+    assert decided.status == "pending"
+    assert decided.id == "appr-1"

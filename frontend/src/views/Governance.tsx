@@ -1,7 +1,9 @@
 import { LockKey, Prohibit, Scroll, ShieldCheck, UserCheck } from "@phosphor-icons/react";
 import { Bezel, Eyebrow, timeAgo } from "../components/primitives";
-import { audit, playbooks } from "../data/mock";
+import { loadAudit, loadPlaybooks } from "../data/source";
+import { useData } from "../hooks/useData";
 import { Reveal as Section } from "../hooks/useReveal";
+import type { AuditRow, Playbook } from "../data/types";
 
 const gates = [
   {
@@ -31,6 +33,9 @@ const actorTone: Record<string, string> = {
 };
 
 export function Governance() {
+  const { data: audit } = useData(loadAudit, [] as AuditRow[]);
+  const { data: playbooks } = useData(loadPlaybooks, [] as Playbook[]);
+
   return (
     <div className="space-y-6">
       <Section>

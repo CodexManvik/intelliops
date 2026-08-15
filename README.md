@@ -128,6 +128,49 @@ curl localhost:8002/health   # correlation
 # ... rca 8003, action 8004, governance 8005, feedback 8006
 ```
 
+## Run it live (real data, local, free)
+
+Beyond the mock-data quickstart above, the full stack can run against **real** telemetry —
+Prometheus actually scraping a demo app, a real anomaly detector, and a real (dry-run)
+remediation — entirely on your machine, at no cost.
+
+1. **Start the stack** (adds `demo-app`, `prometheus`, and `read` to the six core services):
+
+   ```bash
+   docker compose -f deploy/docker-compose.yml up --build
+   ```
+
+2. **Start the frontend in live mode:**
+
+   ```bash
+   cd frontend
+   cp .env.example .env.local
+   # edit .env.local: set VITE_DATA_MODE=live
+   npm run dev
+   ```
+
+   Open [http://localhost:5173](http://localhost:5173).
+
+3. **Drive an incident end to end:**
+
+   ```bash
+   ./scripts/chaos.sh
+   ```
+
+   This breaks the demo app (`POST /break` on the demo app, [http://localhost:8080](http://localhost:8080)),
+   generates error traffic, and waits for the stack to detect and diagnose it. Detection takes
+   **~15–30 seconds** — that's expected: it's a real Prometheus scrape (every 5s) + ingestion
+   poll (every 5s) + River needing a few samples to flag an anomaly, not instant. The script then
+   prints the open Situation from the read service ([http://localhost:8007/situations](http://localhost:8007/situations))
+   and tells you when to switch to the console.
+
+4. **Approve the fix in the UI.** Open the console, find the open Situation, and click **Approve**.
+   Once you're done, recover the demo app with `curl -X POST http://localhost:8080/fix`.
+
+> **Dry-run safety note:** Remediation runs in dry-run mode (ADR-007): the action service logs
+> the remediation steps and a simulated health check reports healthy. "Resolved" means the fix
+> was logged and simulated — no real infrastructure is ever touched.
+
 ## Roadmap
 
 Delivered in vertical slices mapped to the proposal's phased rollout. Each slice is a working

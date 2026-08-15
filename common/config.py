@@ -21,6 +21,18 @@ class Settings(BaseSettings):
     reliability_suppress_threshold: float = 0.8
     graduation_min_successes: int = 3
 
+    # --- live-stack settings (test-safe defaults) ---
+    telemetry_mode: str = "file"  # "file" | "prometheus"
+    prometheus_url: str = "http://localhost:9090"
+    prometheus_query: str = (
+        "rate(http_request_errors_total[1m]) or on() vector(0)"
+    )
+    telemetry_poll_seconds: float = 5.0
+    governance_mode: str = "in_process"  # "in_process" | "http"
+    governance_url: str = "http://localhost:8005"
+    read_outcomes_max: int = 200
+    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+
 
 @lru_cache
 def get_settings() -> Settings:

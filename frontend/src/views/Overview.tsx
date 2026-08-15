@@ -1,9 +1,11 @@
 import { ArrowDown, ArrowUp, CheckCircle, GraduationCap, WarningCircle } from "@phosphor-icons/react";
 import { Bezel, Eyebrow, Sparkline } from "../components/primitives";
-import { metrics, outcomes, playbooks, series, services } from "../data/mock";
+import { metrics, series, services } from "../data/mock";
+import { loadOutcomes, loadPlaybooks } from "../data/source";
+import { useData } from "../hooks/useData";
 import { timeAgo } from "../components/primitives";
 import { Reveal as Section } from "../hooks/useReveal";
-import type { OutcomeReason } from "../data/types";
+import type { OutcomeReason, OutcomeRow, Playbook } from "../data/types";
 
 const reasonTone: Record<OutcomeReason, string> = {
   healthy: "text-sev-ok",
@@ -43,6 +45,9 @@ function MiniStat({ label, value, unit, delta, up, spark, color }: {
 }
 
 export function Overview() {
+  const { data: outcomes } = useData(loadOutcomes, [] as OutcomeRow[]);
+  const { data: playbooks } = useData(loadPlaybooks, [] as Playbook[]);
+
   return (
     <div className="space-y-5">
       <Section>
