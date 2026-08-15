@@ -1,8 +1,15 @@
 """Read-model consumer: tail the event stream, keep the projection current.
 
-Subscribes to the three topics the dashboard reads. Reads each topic from the
-stream's beginning on start (rebuild-on-restart), then tails live. One thread
-per topic keeps the loop simple; all share the same ReadModel instance.
+Subscribes to the three topics the dashboard reads. On first start against a
+fresh stream (no consumer group yet), each topic is read from the beginning
+and the full projection is built up. On a process restart where the consumer
+group already exists, consumption resumes from the last acknowledged entry —
+the stream is NOT re-read from the beginning (see RedisBus.consume in
+common/bus.py, which creates the group at id="0" only when it doesn't already
+exist). A fresh `docker compose up` that provisions a new Redis instance has
+no pre-existing group, so that case does rebuild the projection from scratch.
+One thread per topic keeps the loop simple; all share the same ReadModel
+instance.
 """
 
 from __future__ import annotations
