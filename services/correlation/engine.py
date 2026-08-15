@@ -11,6 +11,8 @@ not emitted — because the system has learned that when this fires, it is fixed
 
 from __future__ import annotations
 
+import threading
+
 from common.contracts import Situation, TelemetryEvent
 from services.correlation.adapters.river_correlator import RiverCorrelator
 
@@ -23,24 +25,30 @@ class CorrelationEngine:
         self._suppress_threshold = suppress_threshold
         self._buffer: list[TelemetryEvent] = []
         self._max_score = 0.0
+        # Guards _buffer/_max_score so a background time-flush (see the service
+        # lifespan) can run concurrently with add() on the consumer thread.
+        # Single-threaded callers (tests) are unaffected — the lock is uncontended.
+        self._lock = threading.Lock()
 
     def add(self, event: TelemetryEvent) -> Situation | None:
         score = self._correlator.detect(event)
         if score <= self._correlator._z_threshold:
             return None
-        emitted: Situation | None = None
-        if self._buffer:
-            span = (event.ts - self._buffer[0].ts).total_seconds()
-            if span > self._window:
-                emitted = self._correlate_buffer()
-        self._buffer.append(event)
-        self._max_score = max(self._max_score, score)
-        return emitted
+        with self._lock:
+            emitted: Situation | None = None
+            if self._buffer:
+                span = (event.ts - self._buffer[0].ts).total_seconds()
+                if span > self._window:
+                    emitted = self._correlate_buffer()
+            self._buffer.append(event)
+            self._max_score = max(self._max_score, score)
+            return emitted
 
     def flush(self) -> Situation | None:
-        if not self._buffer:
-            return None
-        return self._correlate_buffer()
+        with self._lock:
+            if not self._buffer:
+                return None
+            return self._correlate_buffer()
 
     def _correlate_buffer(self) -> Situation | None:
         severity = self._correlator._severity_band(self._max_score)

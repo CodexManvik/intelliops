@@ -29,6 +29,7 @@ services:
       PORT: "8000"
       INTELLIOPS_TELEMETRY_MODE: prometheus
       INTELLIOPS_PROMETHEUS_URL: http://prometheus:9090
+      INTELLIOPS_PROMETHEUS_QUERY: cpu_usage
     ports:
       - "8001:8000"
 
@@ -38,6 +39,12 @@ services:
       INTELLIOPS_REDIS_URL: redis://redis:6379
       SERVICE_MODULE: services.correlation.app:app
       PORT: "8000"
+      # Demo-friendly detection: shorter warm-up/window and a lower z-threshold
+      # so the injected 18->92 cpu spike reliably clears detection and surfaces
+      # within a minute or two (production would run higher/stricter).
+      INTELLIOPS_CORRELATION_WARMUP_SAMPLES: "8"
+      INTELLIOPS_CORRELATION_WINDOW_SECONDS: "15"
+      INTELLIOPS_CORRELATION_Z_THRESHOLD: "2.0"
     ports:
       - "8002:8000"
 
@@ -90,7 +97,8 @@ services:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
       interval: 5s
       timeout: 3s
-      retries: 5
+      retries: 10
+      start_period: 20s
 
   prometheus:
     image: prom/prometheus

@@ -5,3 +5,9 @@ scrape_configs:
   - job_name: demo-app
     static_configs:
       - targets: ["demo-app:8080"]
+        labels:
+          # Attach a `service` label so downstream RCA (which keys on
+          # event.labels["service"]) can classify the situation and pick a
+          # matching playbook. Without it, hypotheses fall to the low-confidence
+          # fallback with no suggested runbook and the HITL gate never fires.
+          service: demo-app
