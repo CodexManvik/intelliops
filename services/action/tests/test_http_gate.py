@@ -1,6 +1,5 @@
 import httpx
 
-from common.contracts import ApprovalRequest
 from services.action.adapters.governance_gate import HttpGovernanceGate
 
 

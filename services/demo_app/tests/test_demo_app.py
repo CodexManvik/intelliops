@@ -1,7 +1,7 @@
 # services/demo_app/tests/test_demo_app.py
 from fastapi.testclient import TestClient
 
-from services.demo_app.app import app, _state
+from services.demo_app.app import _state, app
 
 
 def _client():

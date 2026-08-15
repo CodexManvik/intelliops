@@ -1,5 +1,5 @@
-from services.action.app import _make_gate
 from services.action.adapters.governance_gate import HttpGovernanceGate, InProcessGovernanceGate
+from services.action.app import _make_gate
 
 
 class _S:

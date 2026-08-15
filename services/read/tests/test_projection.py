@@ -1,8 +1,12 @@
 from datetime import UTC, datetime
 
 from common.contracts import (
-    DiagnosedSituation, RemediationOutcome, RemediationResult,
-    RootCauseHypothesis, Situation, SituationStatus,
+    DiagnosedSituation,
+    RemediationOutcome,
+    RemediationResult,
+    RootCauseHypothesis,
+    Situation,
+    SituationStatus,
 )
 from services.read.projection import ReadModel
 
