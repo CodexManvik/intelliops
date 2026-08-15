@@ -85,7 +85,7 @@ class HttpGovernanceGate:
             try:
                 resp = self._client.get(f"{self._base}/approvals/{approval_id}")
                 req = ApprovalRequest.model_validate(resp.json())
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — fail closed: any poll error degrades to still-pending
                 logger.debug("await_decision poll failed for %s: %s", approval_id, exc)
             else:
                 last_known = req
