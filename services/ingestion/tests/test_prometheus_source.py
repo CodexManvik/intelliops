@@ -42,3 +42,33 @@ def test_poll_returns_empty_on_connection_error():
 def test_poll_returns_empty_on_error_status():
     src = _source(lambda req: httpx.Response(200, json={"status": "error"}))
     assert src.poll() == []
+
+
+def test_poll_returns_empty_on_non_json_body():
+    # e.g. a reverse proxy returning an HTML error page with status 200.
+    src = _source(lambda req: httpx.Response(200, text="<html>not json</html>"))
+    assert src.poll() == []
+
+
+def test_poll_skips_entry_with_short_value_array():
+    bad_body = {
+        "status": "success",
+        "data": {
+            "resultType": "vector",
+            "result": [
+                {
+                    "metric": {"__name__": "bad_metric", "job": "demo-app"},
+                    "value": [1723700000.0],  # missing the value element
+                },
+                {
+                    "metric": {"__name__": "good_metric", "job": "demo-app"},
+                    "value": [1723700000.0, "42"],
+                },
+            ],
+        },
+    }
+    src = _source(lambda req: httpx.Response(200, json=bad_body))
+    events = src.poll()
+    assert len(events) == 1
+    assert events[0].name == "good_metric"
+    assert events[0].value == 42.0
