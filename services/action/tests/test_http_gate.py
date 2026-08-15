@@ -43,3 +43,18 @@ def test_await_decision_times_out_still_pending():
         })
     decided = _gate(h).await_decision("appr-1", timeout_seconds=0.05)
     assert decided.status == "pending"
+
+
+def test_await_decision_survives_connection_errors_and_stays_pending():
+    # Fail-closed guard: a persistent network error during polling must never
+    # raise out of await_decision. It runs inside action's consumer thread
+    # under GOVERNANCE_MODE=http, so an unguarded raise there would kill
+    # remediation processing instead of degrading safely. Every poll fails
+    # with a connection error; on timeout we must still get back a pending
+    # ApprovalRequest (fail closed), not an exception.
+    def h(req):
+        raise httpx.ConnectError("connection refused", request=req)
+
+    decided = _gate(h, poll=0.01).await_decision("appr-1", timeout_seconds=0.05)
+    assert decided.status == "pending"
+    assert decided.id == "appr-1"

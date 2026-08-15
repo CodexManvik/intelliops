@@ -8,12 +8,14 @@ caller fail closed (ADR-003). An HTTP gate is a deferred alternative."""
 
 from __future__ import annotations
 
+import logging
 import time
-import time as _time
 
 import httpx
 
 from common.contracts import ApprovalRequest, AuditRecord
+
+logger = logging.getLogger(__name__)
 
 
 class InProcessGovernanceGate:
@@ -69,15 +71,29 @@ class HttpGovernanceGate:
         return ApprovalRequest.model_validate(resp.json())
 
     def await_decision(self, approval_id: str, timeout_seconds: float) -> ApprovalRequest:
-        deadline = _time.monotonic() + timeout_seconds
+        # Fail-closed contract: this loop must NEVER raise. It runs inside
+        # action's consumer thread (GOVERNANCE_MODE=http), so an unguarded
+        # exception here would kill remediation processing instead of just
+        # degrading to "stay pending" (ADR-003/ADR-008). Any transient
+        # network error, governance 5xx, or malformed body during a poll is
+        # treated as "still pending" and polling continues until deadline.
+        last_known = ApprovalRequest(
+            id=approval_id, situation_id="", playbook_id="", requested_by="", status="pending",
+        )
+        deadline = time.monotonic() + timeout_seconds
         while True:
-            resp = self._client.get(f"{self._base}/approvals/{approval_id}")
-            req = ApprovalRequest.model_validate(resp.json())
-            if req.status != "pending":
-                return req
-            if _time.monotonic() >= deadline:
-                return req
-            _time.sleep(self._poll)
+            try:
+                resp = self._client.get(f"{self._base}/approvals/{approval_id}")
+                req = ApprovalRequest.model_validate(resp.json())
+            except Exception as exc:
+                logger.debug("await_decision poll failed for %s: %s", approval_id, exc)
+            else:
+                last_known = req
+                if req.status != "pending":
+                    return req
+            if time.monotonic() >= deadline:
+                return last_known
+            time.sleep(self._poll)
 
     def write_audit(self, record: AuditRecord) -> None:
         self._client.post(f"{self._base}/audit", json=record.model_dump(mode="json"))
