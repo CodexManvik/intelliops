@@ -7,6 +7,8 @@ from common.contracts import (
     RootCauseHypothesis,
     Situation,
     SituationStatus,
+    TelemetryEvent,
+    TelemetryKind,
 )
 from services.read.projection import ReadModel
 
@@ -58,3 +60,28 @@ def test_outcomes_capped_most_recent_first():
     outs = rm.outcomes()
     assert len(outs) == 2
     assert outs[0]["situation_id"] == "sit-2"
+
+
+def _sit_with_labels(labels):
+    ev = TelemetryEvent(source="prometheus", kind=TelemetryKind.METRIC, name="cpu_usage",
+                        value=90.0, labels=labels, ts=datetime(2026,8,16,tzinfo=UTC),
+                        fingerprint="fp")
+    return Situation(id="sit-x", status=SituationStatus.DETECTED, member_events=[ev],
+                     severity="high", first_seen=datetime(2026,8,16,tzinfo=UTC),
+                     last_seen=datetime(2026,8,16,tzinfo=UTC), signature="x")
+
+
+def test_service_of_precedence_service():
+    from services.read.projection import ReadModel
+    assert ReadModel._service_of(_sit_with_labels({"service":"web","job":"j","instance":"i"})) == "web"
+
+
+def test_service_of_precedence_job_then_instance():
+    from services.read.projection import ReadModel
+    assert ReadModel._service_of(_sit_with_labels({"job":"api"})) == "api"
+    assert ReadModel._service_of(_sit_with_labels({"instance":"host:9100"})) == "host:9100"
+
+
+def test_service_of_unknown_when_no_labels():
+    from services.read.projection import ReadModel
+    assert ReadModel._service_of(_sit_with_labels({})) == "unknown"

@@ -90,7 +90,8 @@ class ReadModel:
     @staticmethod
     def _service_of(s: Situation) -> str:
         for ev in s.member_events:
-            svc = ev.labels.get("service") or ev.labels.get("job")
-            if svc:
-                return svc
-        return "demo-app"
+            for key in ("service", "job", "instance"):
+                val = ev.labels.get(key)
+                if val:
+                    return val
+        return "unknown"
