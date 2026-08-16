@@ -11,7 +11,7 @@ from common.config import get_settings
 from common.envelope import publish_model
 from services.base import create_app
 from services.correlation.adapters.river_correlator import RiverCorrelator
-from services.correlation.consumer import run_consumer
+from services.correlation.consumer import _drain_suppressed, run_consumer
 from services.correlation.engine import CorrelationEngine
 
 
@@ -25,11 +25,17 @@ def run_flusher(bus, engine: CorrelationEngine, period_seconds: float,
     could sit buffered indefinitely. This timer closes the window on elapsed
     wall-clock time. flush() is a no-op when the buffer is empty and is
     lock-guarded against the consumer's add().
+
+    A timer-triggered flush can suppress a situation just as the consumer's own
+    flush can (closed-loop signatures don't care which code path collapsed the
+    window), so this must drain and publish suppressed situations too — otherwise
+    a suppression that only ever happens on a timer-flush is silently lost.
     """
     while not stop_event.wait(period_seconds):
         emitted = engine.flush()
         if emitted is not None:
             publish_model(bus, "situations.detected", emitted)
+        _drain_suppressed(bus, engine)
 
 
 @asynccontextmanager
@@ -43,6 +49,7 @@ async def lifespan(app: FastAPI):
         ),
         window_seconds=settings.correlation_window_seconds,
     )
+    app.state.engine = engine
     thread = threading.Thread(
         target=run_consumer, args=(app.state.bus, engine, stop_event), daemon=True
     )
@@ -64,3 +71,11 @@ async def lifespan(app: FastAPI):
 
 app = create_app("correlation-service")
 app.router.lifespan_context = lifespan
+
+
+@app.post("/reset-baseline")
+def reset_baseline() -> dict:
+    engine = getattr(app.state, "engine", None)
+    if engine is not None:
+        engine.reset()
+    return {"reset": True}

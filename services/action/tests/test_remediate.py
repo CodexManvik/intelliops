@@ -111,6 +111,7 @@ def test_auto_approved_executes_healthy_success():
     out = _run(_playbook(hitl=HitlMode.AUTO), FakeGate(), r, FixedHealthChecker(True))
     assert out.result == RemediationResult.SUCCESS
     assert out.health_after == "healthy"
+    assert out.hitl_mode == HitlMode.AUTO  # stamped from the playbook
     assert r.executed_steps == ["do-thing"]  # executed
     assert r.rolled_back_steps == []  # no rollback
 

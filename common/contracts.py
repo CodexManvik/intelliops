@@ -96,6 +96,7 @@ class RemediationOutcome(BaseModel):
     result: RemediationResult
     health_after: str
     ts: datetime
+    hitl_mode: HitlMode = HitlMode.HITL
 
 
 class AuditRecord(BaseModel):

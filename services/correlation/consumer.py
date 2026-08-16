@@ -14,6 +14,12 @@ from common.envelope import iter_models, publish_model
 from services.correlation.engine import CorrelationEngine
 
 
+def _drain_suppressed(bus, engine: CorrelationEngine) -> None:
+    s = engine.pop_suppressed()
+    if s is not None:
+        publish_model(bus, "situations.suppressed", s)
+
+
 def run_consumer(bus, engine: CorrelationEngine, stop_event: threading.Event) -> None:
     for event in iter_models(bus, "telemetry.raw", "correlation", TelemetryEvent):
         if stop_event.is_set():
@@ -21,7 +27,9 @@ def run_consumer(bus, engine: CorrelationEngine, stop_event: threading.Event) ->
         emitted = engine.add(event)
         if emitted is not None:
             publish_model(bus, "situations.detected", emitted)
+        _drain_suppressed(bus, engine)
     # Finite/interrupted stream: publish any final buffered Situation.
     tail: Situation | None = engine.flush()
     if tail is not None:
         publish_model(bus, "situations.detected", tail)
+    _drain_suppressed(bus, engine)
