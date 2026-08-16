@@ -49,6 +49,7 @@ async def lifespan(app: FastAPI):
         ),
         window_seconds=settings.correlation_window_seconds,
     )
+    app.state.engine = engine
     thread = threading.Thread(
         target=run_consumer, args=(app.state.bus, engine, stop_event), daemon=True
     )
@@ -70,3 +71,11 @@ async def lifespan(app: FastAPI):
 
 app = create_app("correlation-service")
 app.router.lifespan_context = lifespan
+
+
+@app.post("/reset-baseline")
+def reset_baseline() -> dict:
+    engine = getattr(app.state, "engine", None)
+    if engine is not None:
+        engine.reset()
+    return {"reset": True}

@@ -21,6 +21,10 @@ class CorrelationEngine:
     def __init__(self, correlator: RiverCorrelator, window_seconds: float = 30.0,
                  suppress_threshold: float = 0.8) -> None:
         self._correlator = correlator
+        self._correlator_factory = lambda: type(correlator)(
+            z_threshold=correlator._z_threshold,
+            warmup_samples=correlator._warmup_samples,
+        )
         self._window = window_seconds
         self._suppress_threshold = suppress_threshold
         self._buffer: list[TelemetryEvent] = []
@@ -67,3 +71,10 @@ class CorrelationEngine:
             s = self._suppressed
             self._suppressed = None
             return s
+
+    def reset(self) -> None:
+        with self._lock:
+            self._correlator = self._correlator_factory()
+            self._buffer = []
+            self._max_score = 0.0
+            self._suppressed = None
