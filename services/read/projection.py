@@ -39,6 +39,7 @@ class ReadModel:
         self._max = max_outcomes
         self._ttl_ms = ttl_seconds * 1000
         self._max_sits = max_situations
+        self._suppressed_count = 0
 
     def apply_detected(self, s: Situation) -> None:
         existing = self._sits.get(s.id, {})
@@ -78,13 +79,19 @@ class ReadModel:
             self._sits[o.situation_id]["status"] = _RESULT_STATUS.get(o.result, "failed")
             self._sits[o.situation_id]["last_activity"] = _epoch_ms(o.ts)
         result = o.result.value if isinstance(o.result, RemediationResult) else str(o.result)
+        sit = self._sits.get(o.situation_id, {})
+        mttr_ms = None
+        if sit and o.result == RemediationResult.SUCCESS:
+            mttr_ms = _epoch_ms(o.ts) - sit["first_seen"]
         self._outcomes.insert(0, {
             "situation_id": o.situation_id,
             "playbook_id": o.playbook_id,
             "result": result,
             "reason": o.health_after,
             "ts": _epoch_ms(o.ts),
-            "service": self._sits.get(o.situation_id, {}).get("service", "unknown"),
+            "service": sit.get("service", "unknown"),
+            "hitl_mode": o.hitl_mode.value if hasattr(o.hitl_mode, "value") else str(o.hitl_mode),
+            "mttr_ms": mttr_ms,
         })
         del self._outcomes[self._max:]
 
@@ -122,6 +129,32 @@ class ReadModel:
 
     def outcomes(self) -> list[dict]:
         return list(self._outcomes)
+
+    _OPEN: ClassVar[set[str]] = {"detected", "diagnosed", "acting"}
+
+    def metrics(self) -> dict:
+        sits = list(self._sits.values())
+        outs = self._outcomes
+        total_out = len(outs)
+        successes = sum(1 for o in outs if o["result"] == "success")
+        autos = sum(1 for o in outs if o.get("hitl_mode") == "auto")
+        mttrs = [o["mttr_ms"] for o in outs if o.get("mttr_ms") is not None]
+        alerts = sum(s["memberCount"] for s in sits)
+        n_sits = len(sits)
+        open_sits = [s for s in sits if s["status"] in self._OPEN]
+        pending = [s for s in open_sits
+                   if s.get("hitl_mode") == "hitl" and s["status"] in ("diagnosed", "acting")]
+        noise = ((1 - n_sits / alerts) * 100) if alerts else 0.0
+        return {
+            "alertsIngested": alerts,
+            "situationsOpen": len(open_sits),
+            "noiseReductionPct": round(max(0.0, noise), 1),
+            "mttrMinutes": round((sum(mttrs) / len(mttrs) / 60000), 2) if mttrs else 0.0,
+            "autoRemediatedPct": round(autos / total_out * 100, 1) if total_out else 0.0,
+            "suppressedToday": self._suppressed_count,
+            "approvalsPending": len(pending),
+            "successRate": round(successes / total_out, 3) if total_out else 0.0,
+        }
 
     @staticmethod
     def _service_of(s: Situation) -> str:
