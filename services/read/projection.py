@@ -133,6 +133,11 @@ class ReadModel:
     def outcomes(self) -> list[dict]:
         return list(self._outcomes)
 
+    def reset(self) -> None:
+        self._sits.clear()
+        self._outcomes.clear()
+        self._suppressed_count = 0
+
     _OPEN: ClassVar[set[str]] = {"detected", "diagnosed", "acting"}
 
     def metrics(self) -> dict:
