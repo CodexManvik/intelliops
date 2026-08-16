@@ -27,7 +27,7 @@ def _outcome(situation: Situation, playbook: Playbook, result: RemediationResult
              health_after: str) -> RemediationOutcome:
     return RemediationOutcome(
         situation_id=situation.id, playbook_id=playbook.id, result=result,
-        health_after=health_after, ts=datetime.now(UTC),
+        health_after=health_after, ts=datetime.now(UTC), hitl_mode=playbook.hitl_mode,
     )
 
 
