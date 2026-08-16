@@ -1,7 +1,7 @@
 import { ArrowDown, ArrowUp, CheckCircle, GraduationCap, WarningCircle } from "@phosphor-icons/react";
 import { Bezel, Eyebrow, Sparkline } from "../components/primitives";
-import { metrics, series, services } from "../data/mock";
-import { loadOutcomes, loadPlaybooks } from "../data/source";
+import { metrics as mockMetrics, series, services } from "../data/mock";
+import { loadMetrics, loadOutcomes, loadPlaybooks } from "../data/source";
 import { useData } from "../hooks/useData";
 import { timeAgo } from "../components/primitives";
 import { Reveal as Section } from "../hooks/useReveal";
@@ -47,6 +47,7 @@ function MiniStat({ label, value, unit, delta, up, spark, color }: {
 export function Overview() {
   const { data: outcomes } = useData(loadOutcomes, [] as OutcomeRow[]);
   const { data: playbooks } = useData(loadPlaybooks, [] as Playbook[]);
+  const { data: metrics } = useData(loadMetrics, mockMetrics);
 
   return (
     <div className="space-y-5">

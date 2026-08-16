@@ -9,6 +9,7 @@ export const loadSituations = LIVE
 export const loadOutcomes = LIVE ? api.loadOutcomes : async () => mock.outcomes;
 export const loadAudit = LIVE ? api.loadAudit : async () => mock.audit;
 export const loadPlaybooks = LIVE ? api.loadPlaybooks : async () => mock.playbooks;
+export const loadMetrics = LIVE ? api.loadMetrics : async () => mock.metrics;
 export const decideApproval = LIVE
   ? api.decideApproval
   : async () => {
