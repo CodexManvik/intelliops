@@ -1,0 +1,10 @@
+id: rollback-deploy
+name: Roll back recent deployment
+match_rule: "recent deploy preceded the incident"
+steps:
+  - "kubectl rollout undo deployment/${service}"
+  - "verify health after rollback"
+hitl_mode: hitl
+reversible: true
+rollback_steps:
+  - "kubectl rollout undo deployment/${service} --to-revision=previous"

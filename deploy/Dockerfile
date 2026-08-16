@@ -10,8 +10,15 @@ RUN uv sync --frozen --no-dev --no-install-project
 
 COPY common/ ./common/
 COPY services/ ./services/
+COPY policies/ ./policies/
+COPY deploy/playbooks/ ./data/playbooks/
 RUN uv sync --frozen --no-dev
 
+# Launch uvicorn directly from the built venv. Using `uv run` here would try to
+# re-sync the environment at container startup (re-resolving/downloading deps),
+# which delays or hangs the server bind and trips healthchecks. The venv is
+# already populated by `uv sync` above, so call its uvicorn directly.
+ENV PATH="/app/.venv/bin:${PATH}"
 ENV SERVICE_MODULE=services.ingestion.app:app
 ENV PORT=8000
-CMD uv run uvicorn "$SERVICE_MODULE" --host 0.0.0.0 --port "$PORT"
+CMD ["sh", "-c", "uvicorn \"$SERVICE_MODULE\" --host 0.0.0.0 --port \"$PORT\""]

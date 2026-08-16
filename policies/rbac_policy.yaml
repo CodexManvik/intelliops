@@ -3,6 +3,8 @@ roles:
     - {action: enrich, resource: "situation:*"}
     - {action: diagnose, resource: "situation:*"}
     - {action: read, resource: "*"}
+  executor:
+    - {action: execute, resource: "playbook:*"}
   approver:
     - {action: approve, resource: "playbook:*"}
     - {action: reject, resource: "playbook:*"}
@@ -10,6 +12,6 @@ roles:
     - {action: graduate, resource: "playbook:*"}
 actors:
   rca-service: [operator]
-  action-service: [operator]
+  action-service: [operator, executor]
   oncall-alice: [operator, approver]
   feedback-service: [coe-admin]

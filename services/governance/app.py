@@ -87,6 +87,19 @@ def create_approval(request: ApprovalRequest) -> ApprovalRequest:
     return request
 
 
+@app.get("/approvals")
+def list_approvals() -> list[ApprovalRequest]:
+    return [a for a in app.state.approvals.values() if a.status == "pending"]
+
+
+@app.get("/approvals/{approval_id}")
+def get_approval(approval_id: str) -> ApprovalRequest:
+    req = app.state.approvals.get(approval_id)
+    if req is None:
+        raise HTTPException(status_code=404, detail="approval not found")
+    return req
+
+
 @app.post("/approvals/{approval_id}/decide")
 def decide_approval(approval_id: str, decision: Decision) -> ApprovalRequest:
     req = app.state.approvals.get(approval_id)
