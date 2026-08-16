@@ -15,7 +15,10 @@ import {
 import { Bezel, Eyebrow, SevChip, StatusChip, timeAgo, motion as m } from "../components/primitives";
 import { loadSituations, decideApproval } from "../data/source";
 import { useData } from "../hooks/useData";
+import { pushToast } from "../hooks/useToast";
 import type { Situation, SituationStatus } from "../data/types";
+
+const LIVE = import.meta.env.VITE_DATA_MODE === "live";
 
 const stageDefs = [
   { key: "detected", label: "ingestion → correlation", icon: <FlowArrow size={15} weight="light" />, note: "214 alerts → 1 Situation" },
@@ -54,13 +57,16 @@ export function Incidents() {
   async function approve() {
     if (working || !sel) return;
     setWorking(true);
-    update(sel.id, { status: "acting" }); // optimistic fast-path (mock + live)
+    update(sel.id, { status: "acting" });
     try {
       await decideApproval(`appr-${sel.id}`, "approved");
-    } catch {
-      /* mock mode no-ops; live poll will converge to server truth */
+      pushToast("success", `Approved — remediating ${sel.suggested_runbook_id ?? "playbook"}`);
+      if (!LIVE) setTimeout(() => update(sel.id, { status: "resolved" }), 1400);
+      // live mode: let the 5s poll converge to the real server status
+    } catch (e) {
+      pushToast("error", `Approval failed: ${e instanceof Error ? e.message : "unknown"}`);
+      update(sel.id, { status: "diagnosed" }); // roll the optimistic flip back
     }
-    setTimeout(() => update(sel.id, { status: "resolved" }), 1400);
     setTimeout(() => setWorking(false), 1500);
   }
 
@@ -69,8 +75,9 @@ export function Incidents() {
     update(sel.id, { status: "failed" });
     try {
       await decideApproval(`appr-${sel.id}`, "rejected");
-    } catch {
-      /* mock mode no-ops */
+      pushToast("success", "Rejected — no action taken");
+    } catch (e) {
+      pushToast("error", `Reject failed: ${e instanceof Error ? e.message : "unknown"}`);
     }
   }
 

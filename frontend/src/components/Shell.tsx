@@ -2,6 +2,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Pulse, ShieldCheck, SquaresFour, Waveform } from "@phosphor-icons/react";
 import { fluid } from "./primitives";
+import { ToastHost } from "../hooks/useToast";
 
 export type View = "overview" | "incidents" | "governance";
 
@@ -128,6 +129,7 @@ export function Shell({
 
       {/* view content */}
       <main className="relative z-10 mx-auto w-full max-w-6xl px-4 pb-24 pt-8 sm:px-6">{children}</main>
+      <ToastHost />
     </div>
   );
 }
