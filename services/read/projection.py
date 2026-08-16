@@ -8,6 +8,8 @@ translation layer.
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from common.contracts import (
     DiagnosedSituation,
     RemediationOutcome,
@@ -30,10 +32,13 @@ def _epoch_ms(dt) -> int:
 
 
 class ReadModel:
-    def __init__(self, max_outcomes: int = 200) -> None:
+    def __init__(self, max_outcomes: int = 200, ttl_seconds: float = 600.0,
+                 max_situations: int = 50) -> None:
         self._sits: dict[str, dict] = {}
         self._outcomes: list[dict] = []
         self._max = max_outcomes
+        self._ttl_ms = ttl_seconds * 1000
+        self._max_sits = max_situations
 
     def apply_detected(self, s: Situation) -> None:
         existing = self._sits.get(s.id, {})
@@ -53,6 +58,7 @@ class ReadModel:
             "reversible": existing.get("reversible", True),
             "reliability": existing.get("reliability", 0.0),
             "suppressed": False,
+            "last_activity": existing.get("last_activity", _epoch_ms(s.first_seen)),
         }
 
     def apply_diagnosed(self, d: DiagnosedSituation) -> None:
@@ -70,6 +76,7 @@ class ReadModel:
     def apply_outcome(self, o: RemediationOutcome) -> None:
         if o.situation_id in self._sits:
             self._sits[o.situation_id]["status"] = _RESULT_STATUS.get(o.result, "failed")
+            self._sits[o.situation_id]["last_activity"] = _epoch_ms(o.ts)
         result = o.result.value if isinstance(o.result, RemediationResult) else str(o.result)
         self._outcomes.insert(0, {
             "situation_id": o.situation_id,
@@ -81,7 +88,36 @@ class ReadModel:
         })
         del self._outcomes[self._max:]
 
-    def situations(self) -> list[dict]:
+    _TERMINAL: ClassVar[set[str]] = {"resolved", "failed"}
+
+    def _age_out(self, now_ms: int) -> None:
+        # age-out terminal situations older than ttl (needs a clock)
+        for sid in list(self._sits):
+            s = self._sits[sid]
+            if s["status"] in self._TERMINAL and now_ms - s.get("last_activity", 0) > self._ttl_ms:
+                del self._sits[sid]
+
+    def _enforce_cap(self) -> None:
+        # cap: if over max, evict oldest-terminal-first (never active). Pure
+        # relative ordering by stored last_activity, so no clock is needed.
+        if len(self._sits) > self._max_sits:
+            terminal = sorted(
+                (s for s in self._sits.values() if s["status"] in self._TERMINAL),
+                key=lambda s: s.get("last_activity", 0),
+            )
+            n_to_drop = len(self._sits) - self._max_sits
+            for s in terminal[:n_to_drop]:
+                del self._sits[s["id"]]
+
+    def _prune(self, now_ms: int) -> None:
+        self._age_out(now_ms)
+        self._enforce_cap()
+
+    def situations(self, now_ms: int | None = None) -> list[dict]:
+        if now_ms is not None:
+            self._prune(now_ms)
+        else:
+            self._enforce_cap()
         return list(self._sits.values())
 
     def outcomes(self) -> list[dict]:

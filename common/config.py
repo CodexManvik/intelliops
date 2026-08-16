@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     governance_mode: str = "in_process"  # "in_process" | "http"
     governance_url: str = "http://localhost:8005"
     read_outcomes_max: int = 200
+    read_situation_ttl_seconds: float = 600.0
+    read_situations_max: int = 50
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
 
