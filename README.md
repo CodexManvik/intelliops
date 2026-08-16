@@ -167,9 +167,17 @@ remediation — entirely on your machine, at no cost.
 4. **Approve the fix in the UI.** Open the console, find the open Situation, and click **Approve**.
    Once you're done, recover the demo app with `curl -X POST http://localhost:8080/fix`.
 
+**Resetting between runs:** `./scripts/reset.sh` (or `./scripts/chaos.sh reset`) gives a clean
+slate without `docker compose down` — recovers the demo app, clears the detector's learned
+baseline, and empties the read model.
+
 > **Dry-run safety note:** Remediation runs in dry-run mode (ADR-007): the action service logs
 > the remediation steps and a simulated health check reports healthy. "Resolved" means the fix
 > was logged and simulated — no real infrastructure is ever touched.
+
+> **Simulation controls note:** The `/reset`, `/reset-baseline`, `/break`, and `/fix` endpoints
+> are simulation controls, not production endpoints. When this stack is pointed at a real system,
+> they must be gated or removed.
 
 ## Roadmap
 

@@ -6,6 +6,13 @@ set -euo pipefail
 DEMO=${DEMO_URL:-http://localhost:8080}
 READ=${READ_URL:-http://localhost:8007}
 
+if [ "${1:-}" = "reset" ]; then
+  exec "$(dirname "$0")/reset.sh"
+fi
+
+echo "→ Resetting to a clean slate first…"
+"$(dirname "$0")/reset.sh" >/dev/null 2>&1 || true
+
 echo "→ Breaking demo-app (error rate + CPU spike)…"
 curl -fsS -X POST "$DEMO/break" >/dev/null
 echo "  broken. Generating error traffic…"
