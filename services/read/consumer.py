@@ -26,6 +26,7 @@ _TOPICS = [
     ("situations.detected", Situation, "apply_detected"),
     ("situations.diagnosed", DiagnosedSituation, "apply_diagnosed"),
     ("remediation.outcomes", RemediationOutcome, "apply_outcome"),
+    ("situations.suppressed", Situation, "apply_suppressed"),
 ]
 
 

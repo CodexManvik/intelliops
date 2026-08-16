@@ -62,6 +62,9 @@ class ReadModel:
             "last_activity": existing.get("last_activity", _epoch_ms(s.first_seen)),
         }
 
+    def apply_suppressed(self, s: Situation) -> None:
+        self._suppressed_count += 1
+
     def apply_diagnosed(self, d: DiagnosedSituation) -> None:
         self.apply_detected(d.situation)
         self._sits[d.situation.id].update({

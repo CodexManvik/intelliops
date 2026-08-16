@@ -25,6 +25,7 @@ class CorrelationEngine:
         self._suppress_threshold = suppress_threshold
         self._buffer: list[TelemetryEvent] = []
         self._max_score = 0.0
+        self._suppressed: Situation | None = None
         # Guards _buffer/_max_score so a background time-flush (see the service
         # lifespan) can run concurrently with add() on the consumer thread.
         # Single-threaded callers (tests) are unaffected — the lock is uncontended.
@@ -57,5 +58,12 @@ class CorrelationEngine:
         self._max_score = 0.0
         # Closed loop: suppress a Situation whose signature reliably self-heals.
         if self._correlator.should_suppress(sit.signature, self._suppress_threshold):
+            self._suppressed = sit
             return None
         return sit
+
+    def pop_suppressed(self) -> Situation | None:
+        with self._lock:
+            s = self._suppressed
+            self._suppressed = None
+            return s

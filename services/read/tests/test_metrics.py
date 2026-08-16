@@ -42,6 +42,13 @@ def test_mttr_and_rates():
     assert m["successRate"] == 1.0
     assert m["autoRemediatedPct"] == 100.0
 
+def test_suppressed_count_increments():
+    from services.read.projection import ReadModel
+    rm = ReadModel()
+    rm.apply_suppressed(_sit("sit-9"))
+    rm.apply_suppressed(_sit("sit-10"))
+    assert rm.metrics()["suppressedToday"] == 2
+
 def test_open_and_pending_counts():
     rm = ReadModel()
     d = DiagnosedSituation(situation=_sit("sit-2", status=SituationStatus.DIAGNOSED),
