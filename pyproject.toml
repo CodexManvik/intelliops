@@ -12,6 +12,7 @@ dependencies = [
     "river>=0.25.0",
     "httpx>=0.28.1",
     "prometheus-client>=0.20",
+    "kubernetes>=29",
 ]
 
 [dependency-groups]
