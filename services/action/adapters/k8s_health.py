@@ -57,12 +57,18 @@ class KubernetesHealthChecker:
             time.sleep(self._poll)
 
     def _pod_ready(self, target: RemediationTarget) -> bool:
+        # A single bare `except Exception` is the robust guard here: it catches
+        # the K8s ApiException (which subclasses Exception), a ConfigException /
+        # connection error from lazily acquiring the client via self._api(), AND
+        # any failure resolving the client itself — with no escape. A specific
+        # `except self._exc()` clause would be both redundant (ApiException is an
+        # Exception) and fragile: if evaluating its type expression raised, that
+        # error would escape the try (Python does not consult sibling excepts for
+        # an error raised while matching an except type). So: one catch, no gaps.
         try:
             st = self._api().read_namespaced_deployment_status(
                 target.deployment, target.namespace).status
-        except self._exc():
-            return False
-        except Exception:  # noqa: BLE001 — treat any client error as not-yet-ready
+        except Exception:  # noqa: BLE001 — any client/config/connection error → not-yet-ready
             return False
         ready = st.ready_replicas or 0
         desired = st.replicas or 0
