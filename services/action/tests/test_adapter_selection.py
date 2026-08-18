@@ -1,8 +1,8 @@
-from services.action.app import _make_remediator, _make_health_checker
-from services.action.adapters.remediator import DryRunRemediator
 from services.action.adapters.health import AlwaysHealthyChecker
-from services.action.adapters.k8s_remediator import KubernetesRemediator
 from services.action.adapters.k8s_health import KubernetesHealthChecker
+from services.action.adapters.k8s_remediator import KubernetesRemediator
+from services.action.adapters.remediator import DryRunRemediator
+from services.action.app import _make_health_checker, _make_remediator
 
 
 class _S:

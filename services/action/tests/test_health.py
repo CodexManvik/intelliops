@@ -1,6 +1,12 @@
 from datetime import UTC, datetime
 
-from common.contracts import RemediationTarget, Situation, SituationStatus, TelemetryEvent, TelemetryKind
+from common.contracts import (
+    RemediationTarget,
+    Situation,
+    SituationStatus,
+    TelemetryEvent,
+    TelemetryKind,
+)
 from common.interfaces import HealthChecker
 from services.action.adapters.health import AlwaysHealthyChecker, FixedHealthChecker
 
@@ -27,8 +33,9 @@ def test_always_healthy():
 
 
 def test_fixed_health_checker():
-    from common.contracts import RemediationTarget, Situation, SituationStatus
     from datetime import UTC, datetime
+
+    from common.contracts import RemediationTarget, Situation, SituationStatus
     from services.action.adapters.health import FixedHealthChecker
     now = datetime(2026, 8, 18, tzinfo=UTC)
     sit = Situation(id="s", status=SituationStatus.ACTING, member_events=[], severity="high",

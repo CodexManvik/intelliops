@@ -1,6 +1,7 @@
 from common.contracts import RemediationPlan, RemediationStep, RemediationTarget
 from services.action.adapters.remediator import DryRunRemediator, RecordingRemediator
 
+
 def _plan():
     return RemediationPlan(
         target=RemediationTarget(namespace="ns", deployment="demo-app"),

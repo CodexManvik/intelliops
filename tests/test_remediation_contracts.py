@@ -1,6 +1,5 @@
 # tests/test_remediation_contracts.py
-from common.contracts import (HitlMode, Playbook, RemediationPlan, RemediationStep,
-                              RemediationTarget)
+from common.contracts import HitlMode, Playbook, RemediationPlan, RemediationStep, RemediationTarget
 
 
 def test_remediation_step_and_plan():
