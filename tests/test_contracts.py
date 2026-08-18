@@ -9,6 +9,7 @@ from common.contracts import (
     Playbook,
     RemediationOutcome,
     RemediationResult,
+    RemediationStep,
     RootCauseHypothesis,
     Situation,
     SituationStatus,
@@ -55,10 +56,10 @@ def _telemetry_event() -> TelemetryEvent:
             id="restart-pod",
             name="Restart Pod",
             match_rule="signature == 'sig1'",
-            steps=["kubectl rollout restart deploy/web"],
+            steps=[RemediationStep(action="restart")],
             hitl_mode=HitlMode.HITL,
             reversible=True,
-            rollback_steps=["kubectl rollout undo deploy/web"],
+            rollback_steps=[RemediationStep(action="restart")],
         ),
         ApprovalRequest(
             id="a1",
@@ -103,6 +104,7 @@ def test_enums_have_exact_values():
 
 
 def test_reversible_playbook_defaults():
-    pb = Playbook(id="p", name="p", match_rule="true", steps=["x"], hitl_mode=HitlMode.AUTO)
+    pb = Playbook(id="p", name="p", match_rule="true",
+                  steps=[RemediationStep(action="restart")], hitl_mode=HitlMode.AUTO)
     assert pb.reversible is False
     assert pb.rollback_steps == []

@@ -2,7 +2,8 @@ id: restart-pod
 name: Restart Pod
 match_rule: "hypothesis == 'error-spike'"
 steps:
-  - "kubectl rollout restart deploy/{service}"
+  - action: restart
+    note: "kubectl rollout restart deploy/{service}"
 hitl_mode: hitl
 reversible: true
 rollback_steps: []

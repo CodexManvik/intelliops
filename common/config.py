@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     read_situation_ttl_seconds: float = 600.0
     read_situations_max: int = 50
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    remediator_mode: str = "dry_run"      # "dry_run" | "k8s"
+    health_check_mode: str = "always"     # "always" | "k8s"
+    k8s_namespace: str = "intelliops-demo"
 
 
 @lru_cache

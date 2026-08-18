@@ -6,13 +6,14 @@ and why**. Read it alongside:
 - [architectural.md](architectural.md) — *why* the system is shaped this way (ADRs).
 - [docs/superpowers/specs/2026-08-13-intelliops-coe-design.md](docs/superpowers/specs/2026-08-13-intelliops-coe-design.md) — the full spec.
 
-> **Status (updated 2026-08-17).** The six-service closed loop is **built and running
+> **Status (updated 2026-08-18).** The six-service closed loop is **built and running
 > end-to-end**, plus three things that came after the original design: a **read-model service**
 > (the CQRS read side the dashboard reads from), a **React operator console**, and a **live,
 > repeatably-runnable demo stack** on docker-compose. What ran only as a "target design" in the
-> first draft now runs live — see [§8 Current status & what's next](#8-current-status--whats-next)
-> for exactly what's real, what's simulated (remediation is dry-run today), and what the team is
-> building next.
+> first draft now runs live — including remediation itself, which can now drive a real
+> Kubernetes cluster behind an opt-in switch (dry-run stays the production-safe default). See
+> [§8 Current status & what's next](#8-current-status--whats-next) for exactly what's real, what's
+> still simulated, and what's next.
 
 ---
 
@@ -118,8 +119,8 @@ The swap points that keep the system platform-agnostic and testable
 |-----------|---------|----------------------------------|--------------------|
 | `TelemetrySource` | `poll()`, `subscribe()` | `FileTelemetrySource` (JSONL, tests), **`PrometheusSource`** (real PromQL over the Prometheus HTTP API, defensive: never raises on a bad response) | Loki, OTel sources |
 | `Correlator` | `detect()`, `correlate()`, `retrain()` | `RiverCorrelator` (online z-score anomaly + windowed clustering) | scikit-learn / smarter models |
-| `Remediator` | `execute()`, `rollback()` | `DryRunRemediator` (logs steps, touches nothing — the safe default), `RecordingRemediator` (tests) | **`KubernetesRemediator`** (real kubectl/K8s API — planned, see [WORKPLAN](WORKPLAN.md)) |
-| `HealthChecker` | `check()` | `AlwaysHealthyChecker` (pairs with dry-run), `FixedHealthChecker` (tests) | **real health check** (re-query Prometheus/pod status — planned) |
+| `Remediator` | `execute()`, `rollback()` | `DryRunRemediator` (logs steps, touches nothing — the safe default), `RecordingRemediator` (tests), **`KubernetesRemediator`** (real `AppsV1Api` calls — restart via a `restartedAt` annotation patch, scale via `patch_namespaced_deployment_scale`, rollback via a rollout-restart annotation; no shell, no string parsing; never deletes; any API error → `False`, never raises. Behind `REMEDIATOR_MODE=k8s`, targeting a local kind cluster — see [deploy/k8s/README.md](deploy/k8s/README.md)) | — |
+| `HealthChecker` | `check()` | `AlwaysHealthyChecker` (pairs with dry-run), `FixedHealthChecker` (tests), **real `KubernetesHealthChecker`** (two signals — pod readiness from deployment status, and metric recovery re-queried from Prometheus — polled to a timeout; fails closed. Behind `HEALTH_CHECK_MODE=k8s`) | — |
 | `GovernanceGate` (action→governance) | `check_rbac()`, `request_approval()`, `await_decision()`, `write_audit()` | `InProcessGovernanceGate` (shared dict, single-process/tests), **`HttpGovernanceGate`** (REST — works across containers; fail-closed on any error) | — |
 | `AuditSink` | `write()` | `FileAuditSink` (JSONL), `InMemoryAuditSink` (tests) | Postgres |
 | `BusClient` | `publish()`, `consume()` | **`RedisBus`** (Redis Streams, consumer groups) | Kafka (prod) |
@@ -246,14 +247,21 @@ be driven and re-driven on docker-compose. See §8.
 - Repeatable simulations via `scripts/reset.sh` (recover demo, forget detector baseline, empty
   the read model — no docker restart).
 
-**What is deliberately still simulated** (the honest gap, and the next milestone):
-- **Remediation is dry-run** ([ADR-007](architectural.md#adr-007--reversible-only-health-verified-remediation)):
-  `DryRunRemediator` logs the steps and an always-healthy check reports success. "Resolved"
-  means *the fix was logged and simulated* — no real infrastructure is touched.
-- **Health checks are simulated** (`AlwaysHealthyChecker`).
+**Remediation is real — on an opt-in kind cluster.** Behind `REMEDIATOR_MODE=k8s` /
+`HEALTH_CHECK_MODE=k8s`, `action-service` drives a real Kubernetes API: `KubernetesRemediator`
+restarts, scales, and rolls back an actual deployment via typed `AppsV1Api` calls (no shell, no
+string parsing, never deletes), and `KubernetesHealthChecker` confirms recovery from pod
+readiness plus a live Prometheus query, polled to a timeout. "Resolved" in this mode means the
+pod was actually restarted. This is a **documented runbook against a local kind cluster** —
+[deploy/k8s/README.md](deploy/k8s/README.md) — **not** part of CI; CI/pytest bind fake K8s
+clients and never touch a real cluster.
+
+**Dry-run stays the default everywhere else** (compose without the k8s overlay, tests, CI):
+`REMEDIATOR_MODE` defaults to `dry_run` — `DryRunRemediator` logs the steps and
+`AlwaysHealthyChecker` reports success, so "resolved" means *the fix was logged and simulated*,
+no real infrastructure touched ([ADR-007](architectural.md#adr-007--reversible-only-health-verified-remediation)).
+
+**What is still deliberately simulated / deferred:**
 - **No auth** on the read/console endpoints; the reset/break/fix endpoints are simulation
   controls, not production endpoints.
-
-**What the team is building next** — real Kubernetes remediation, real health checks,
-smarter detection, observability, and demo/report polish — is scoped and divided in
-[WORKPLAN.md](WORKPLAN.md).
+- Smarter detection, observability, and demo/report polish, per [WORKPLAN.md](WORKPLAN.md).

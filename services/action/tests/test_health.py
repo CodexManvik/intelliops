@@ -1,6 +1,12 @@
 from datetime import UTC, datetime
 
-from common.contracts import Situation, SituationStatus, TelemetryEvent, TelemetryKind
+from common.contracts import (
+    RemediationTarget,
+    Situation,
+    SituationStatus,
+    TelemetryEvent,
+    TelemetryKind,
+)
 from common.interfaces import HealthChecker
 from services.action.adapters.health import AlwaysHealthyChecker, FixedHealthChecker
 
@@ -16,15 +22,27 @@ def _situation():
     )
 
 
+def _target():
+    return RemediationTarget(namespace="ns", deployment="demo-app")
+
+
 def test_always_healthy():
     c = AlwaysHealthyChecker()
     assert isinstance(c, HealthChecker)
-    assert c.check(_situation()) is True
+    assert c.check(_situation(), _target()) is True
 
 
 def test_fixed_health_checker():
-    assert FixedHealthChecker(healthy=True).check(_situation()) is True
-    assert FixedHealthChecker(healthy=False).check(_situation()) is False
+    from datetime import UTC, datetime
+
+    from common.contracts import RemediationTarget, Situation, SituationStatus
+    from services.action.adapters.health import FixedHealthChecker
+    now = datetime(2026, 8, 18, tzinfo=UTC)
+    sit = Situation(id="s", status=SituationStatus.ACTING, member_events=[], severity="high",
+                    first_seen=now, last_seen=now, signature="sig")
+    tgt = RemediationTarget(namespace="ns", deployment="demo-app")
+    assert FixedHealthChecker(True).check(sit, tgt) is True
+    assert FixedHealthChecker(False).check(sit, tgt) is False
 
 
 def test_fixed_satisfies_protocol():

@@ -231,7 +231,9 @@ automated action structurally impossible.
 
 **Consequences.** (+) A failed remediation self-heals back to the prior state. (+) The safety
 scope is machine-checkable. (−) Authoring a playbook costs more (you must define the undo).
-Accepted — that cost *is* the safety.
+Accepted — that cost *is* the safety. (+) This property is what let the real `KubernetesRemediator`
+ship safely (behind `REMEDIATOR_MODE=k8s`) without weakening the guardrail — see
+[ADR-013](#adr-013--structured-remediationplan-is-what-made-real-k8s-remediation-safe).
 
 **Alternatives rejected.** *Fire-and-forget remediation* — one bad automated action with no
 undo is exactly the outcome the whole guardrail design exists to prevent.
@@ -258,9 +260,10 @@ different playbooks earn trust at different rates.
 
 ---
 
-> **ADRs 009–012 were added after the original six-service build**, as the design met contact
+> **ADRs 009–013 were added after the original six-service build**, as the design met contact
 > with a real running stack and a UI. They record decisions the first draft didn't — the read
-> side, the cross-container gate, the live demo harness, and how adapter selection actually works.
+> side, the cross-container gate, the live demo harness, how adapter selection actually works,
+> and what made it safe to point remediation at a real cluster.
 
 ### ADR-009 — A read-model service (CQRS) for the dashboard
 
@@ -375,6 +378,44 @@ cost per integration point.
 — implicit and non-deterministic, and it can make a test accidentally hit real infra. *Separate
 prod/test builds* — drift risk between what's tested and what ships.
 
+### ADR-013 — Structured `RemediationPlan` is what made real K8s remediation safe
+
+**Context.** ADR-007 requires remediation to be reversible and health-verified, but the original
+`Playbook.steps` were free-form strings (e.g. `"restart pod"`). That was fine for
+`DryRunRemediator`, which only logs them — but a real adapter driving the Kubernetes API off
+parsed strings would mean shell-outs or ad-hoc string matching against user-authored playbook
+text: exactly the kind of untyped surface a "never delete, never do the wrong thing" guarantee
+can't be built on.
+
+**Decision.** Steps are a typed `RemediationStep` (`action: restart|scale|rollback_deploy|wait`,
+plus a typed `replicas` delta and an optional note), and a `RemediationPlan` bundles the ordered
+steps, their `rollback_steps`, and a `RemediationTarget` (`namespace`, `deployment`) resolved
+once from the diagnosed `Situation`'s `service` label. `action-service` builds the `RemediationPlan`
+before calling `Remediator.execute()`; the adapter never sees a raw string or the `Situation`
+itself.
+
+**Why.** A closed, typed vocabulary of actions is what let `KubernetesRemediator` map each step
+directly to one typed `AppsV1Api` call (`patch_namespaced_deployment` for restart,
+`patch_namespaced_deployment_scale` for scale) with no shell and no string parsing — there is no
+input shape that can be coerced into an unintended API call. Resolving the target once, before
+the adapter runs, also means the adapter itself never decides *what* to act on, only *how* —
+keeping the blast radius of a bug in the adapter limited to the actions it's typed to perform,
+never to a different deployment than the one the situation named.
+
+**Consequences.** (+) The real remediator is exhaustively typeable and testable against a fake
+`AppsV1Api` with no cluster in CI. (+) `KubernetesRemediator` is fail-safe by construction: any
+`ApiException` or client error is caught and turns into `False`, never an escaped exception, and
+the action set structurally excludes delete. (−) Adding a new remediation action means extending
+the `RemediationStep` literal and every adapter's dispatch, not just writing a new playbook
+string. Accepted — that's the same authoring cost ADR-007 already accepts, now paying off for a
+real cluster instead of just a log line.
+
+**Alternatives rejected.** *Keep free-form step strings and parse them in the K8s adapter* —
+would have made the adapter's input surface exactly as unconstrained as shelling out, defeating
+the purpose of a typed, fail-safe remediator. *Let the adapter resolve its own target from the
+`Situation`* — duplicates resolution logic per adapter and lets an adapter act on a target the
+rest of the pipeline never agreed on.
+
 ---
 
 ## 4. Cross-cutting concerns
@@ -412,12 +453,18 @@ requirements.
 - **Live metrics.** The read-service computes real MTTR/noise-reduction/rates from the situation
   lifecycle ([ADR-009](#adr-009--a-read-model-service-cqrs-for-the-dashboard)) — no longer a
   target, it runs.
+- **Real remediation.** `KubernetesRemediator` + `KubernetesHealthChecker` are **built**
+  ([ADR-007](#adr-007--reversible-only-health-verified-remediation),
+  [ADR-013](#adr-013--structured-remediationplan-is-what-made-real-k8s-remediation-safe)): typed
+  `AppsV1Api` calls (restart/scale/rollback via annotation patch and
+  `patch_namespaced_deployment_scale` — no shell, no string parsing, never deletes), health
+  verified from pod readiness plus a live Prometheus query. It runs behind
+  `REMEDIATOR_MODE=k8s` / `HEALTH_CHECK_MODE=k8s` against a local kind cluster, following
+  [deploy/k8s/README.md](deploy/k8s/README.md) — a documented runbook, not part of CI. Dry-run
+  (`DryRunRemediator` + `AlwaysHealthyChecker`) is still the default everywhere else (compose
+  without the k8s overlay, tests, CI), so nothing changes for the base build.
 
 **What remains deliberately deferred / simulated — the honest gap and the next milestones:**
-- **Real remediation.** Remediation is **dry-run** today ([ADR-007](#adr-007--reversible-only-health-verified-remediation)):
-  `DryRunRemediator` logs the steps; `AlwaysHealthyChecker` reports success. The real
-  `KubernetesRemediator` + real health check are the **next major milestone** — scoped and owned
-  in [WORKPLAN.md](WORKPLAN.md), targeting a local kind cluster.
 - **Authentication / authorization at the edge.** RBAC gates *actions* internally, but the
   read/console/simulation endpoints have no auth. Deferred; planned in the workplan.
 - **Automated model retraining.** The loop's *plumbing* exists; the retrain *trigger* is
@@ -429,4 +476,4 @@ requirements.
   must be gated or removed when pointed at a real system.
 
 These are maturity milestones, not gaps — calling them out is part of the design's rigor, and
-the ones with a `→ WORKPLAN` pointer are actively being built next.
+the ones scoped in [WORKPLAN.md](WORKPLAN.md) are actively being built next.

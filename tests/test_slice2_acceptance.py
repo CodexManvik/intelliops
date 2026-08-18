@@ -7,6 +7,7 @@ from common.contracts import (
     DiagnosedSituation,
     HitlMode,
     Playbook,
+    RemediationStep,
     Situation,
     SituationStatus,
     TelemetryEvent,
@@ -49,7 +50,7 @@ def test_detected_situation_is_diagnosed_with_recent_deploy_hypothesis():
     audit = InMemoryAuditSink()
     store = InMemoryPlaybookStore()
     store.register(Playbook(id="rollback-deploy", name="Rollback Deployment",
-                            match_rule="x", steps=["kubectl rollout undo deploy/web"],
+                            match_rule="x", steps=[RemediationStep(action="restart")],
                             hitl_mode=HitlMode.HITL, reversible=True,
                             rollback_steps=[]))
 
