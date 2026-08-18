@@ -1,0 +1,31 @@
+# deploy/k8s/demo-app/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-app
+  namespace: intelliops-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: demo-app }
+  template:
+    metadata:
+      labels: { app: demo-app }
+    spec:
+      containers:
+        - name: demo-app
+          image: intelliops-demo-app:local
+          imagePullPolicy: IfNotPresent
+          # The shared image's CMD launches $SERVICE_MODULE on $PORT (see
+          # deploy/Dockerfile). Point it at the demo-app app + its port.
+          env:
+            - { name: SERVICE_MODULE, value: "services.demo_app.app:app" }
+            - { name: PORT, value: "8080" }
+          ports: [{ containerPort: 8080 }]
+          readinessProbe:
+            httpGet: { path: /health, port: 8080 }
+            initialDelaySeconds: 2
+            periodSeconds: 3
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits: { cpu: "250m", memory: "128Mi" }
