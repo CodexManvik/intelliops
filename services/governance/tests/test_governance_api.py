@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 
-from common.contracts import HitlMode, Playbook
+from common.contracts import HitlMode, Playbook, RemediationStep
 from services.governance.adapters.audit_sink import InMemoryAuditSink
 from services.governance.adapters.playbook_store import InMemoryPlaybookStore
 from services.governance.rbac import RbacPolicy
@@ -44,7 +44,8 @@ def test_audit_write_and_query():
 def test_playbook_register_and_list():
     c = _client()
     pb = Playbook(id="restart-pod", name="Restart Pod", match_rule="x",
-                  steps=["s"], hitl_mode=HitlMode.HITL).model_dump(mode="json")
+                  steps=[RemediationStep(action="restart")],
+                  hitl_mode=HitlMode.HITL).model_dump(mode="json")
     assert c.post("/playbooks", json=pb).status_code == 200
     assert c.get("/playbooks/restart-pod").json()["name"] == "Restart Pod"
     assert [p["id"] for p in c.get("/playbooks").json()] == ["restart-pod"]

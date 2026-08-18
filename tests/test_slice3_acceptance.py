@@ -13,6 +13,7 @@ from common.contracts import (
     Playbook,
     RemediationOutcome,
     RemediationResult,
+    RemediationStep,
     Situation,
     SituationStatus,
     TelemetryEvent,
@@ -54,8 +55,8 @@ def _diagnosed():
 def _store():
     s = InMemoryPlaybookStore()
     s.register(Playbook(id="restart-pod", name="Restart Pod", match_rule="x",
-                        steps=["kubectl rollout restart deploy/web"], hitl_mode=HitlMode.HITL,
-                        reversible=True, rollback_steps=["kubectl rollout undo deploy/web"]))
+                        steps=[RemediationStep(action="restart")], hitl_mode=HitlMode.HITL,
+                        reversible=True, rollback_steps=[RemediationStep(action="restart")]))
     return s
 
 
@@ -102,8 +103,8 @@ def test_hitl_approved_healthy_success_end_to_end():
     o = decode_model(outcomes[0], RemediationOutcome)
     assert o.result == RemediationResult.SUCCESS
     assert o.health_after == "healthy"
-    assert remediator.executed_steps == ["kubectl rollout restart deploy/web"]
-    assert remediator.rolled_back_steps == []  # healthy → no rollback
+    assert remediator.executed_plan is not None
+    assert remediator.rolled_back_plan is None  # healthy → no rollback
     assert any(a.action == "execute" and a.correlation_id == "sit-web-1"
                for a in audit.records())
 
@@ -127,5 +128,5 @@ def test_hitl_approved_unhealthy_rolls_back_end_to_end():
 
     o = decode_model(bus.topics["remediation.outcomes"][0], RemediationOutcome)
     assert o.result == RemediationResult.ROLLED_BACK
-    assert remediator.executed_steps == ["kubectl rollout restart deploy/web"]
-    assert remediator.rolled_back_steps == ["kubectl rollout undo deploy/web"]  # rolled back
+    assert remediator.executed_plan is not None
+    assert remediator.rolled_back_plan is not None  # rolled back

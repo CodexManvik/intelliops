@@ -1,4 +1,4 @@
-from common.contracts import HitlMode, Playbook
+from common.contracts import HitlMode, Playbook, RemediationStep
 from common.interfaces import PlaybookStore
 from services.governance.adapters.playbook_store import (
     FilePlaybookStore,
@@ -9,8 +9,8 @@ from services.governance.adapters.playbook_store import (
 def _playbook(pid="restart-pod"):
     return Playbook(
         id=pid, name="Restart Pod", match_rule="signature == 'x'",
-        steps=["kubectl rollout restart deploy/web"], hitl_mode=HitlMode.HITL,
-        reversible=True, rollback_steps=["kubectl rollout undo deploy/web"],
+        steps=[RemediationStep(action="restart")], hitl_mode=HitlMode.HITL,
+        reversible=True, rollback_steps=[RemediationStep(action="restart")],
     )
 
 
