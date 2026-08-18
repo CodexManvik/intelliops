@@ -1,4 +1,5 @@
 from common.contracts import RemediationPlan, RemediationStep, RemediationTarget
+from services.action.adapters import k8s_remediator as k8s_remediator_module
 from services.action.adapters.k8s_remediator import KubernetesRemediator
 
 
@@ -76,3 +77,22 @@ def test_rollback_runs_rollback_steps():
     assert r.rollback(_plan(rollback=[RemediationStep(action="scale", replicas=-2)])) is True
     scale = next(c for c in api.calls if c[0] == "scale")
     assert scale[3]["spec"]["replicas"] == 1   # 3 + (-2)
+
+
+def test_client_acquisition_failure_returns_false_never_raises(monkeypatch):
+    # Simulates a real kubernetes.config.load_kube_config() failure (e.g. missing
+    # or unreadable kubeconfig, which raises ConfigException — NOT ApiException).
+    # This must be caught by the fail-closed path just like an ApiException is,
+    # not escape execute()/rollback() as a raw exception (ADR-007).
+    class FakeConfigException(Exception):
+        pass
+
+    def _boom():
+        raise FakeConfigException("kubeconfig not found")
+
+    monkeypatch.setattr(k8s_remediator_module, "_default_apps_v1", _boom)
+
+    # apps_v1=None forces _api() to lazily call _default_apps_v1() inside _run(),
+    # which is exactly the code path that must be inside the guarded try/except.
+    r = KubernetesRemediator("ns", apps_v1=None, exc_type=FakeApiException)
+    assert r.execute(_plan(RemediationStep(action="restart"))) is False

@@ -52,12 +52,13 @@ class KubernetesRemediator:
         return self._run(plan.target, plan.rollback_steps)
 
     def _run(self, target: RemediationTarget, steps: list[RemediationStep]) -> bool:
-        api = self._api()
         ns = target.namespace or self._ns_default
         try:
+            exc_type = self._exc()
+            api = self._api()
             for step in steps:
                 self._dispatch(api, ns, target.deployment, step)
-        except self._exc() as exc:  # any K8s API error → safe failure
+        except exc_type as exc:  # any K8s API error → safe failure
             logger.warning("k8s remediation failed on %s/%s: %s", ns, target.deployment, exc)
             return False
         except Exception as exc:  # noqa: BLE001 — fail closed on any client/connection error
