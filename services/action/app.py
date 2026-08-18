@@ -13,6 +13,8 @@ from services.action.adapters.governance_gate import (
     InProcessGovernanceGate,
 )
 from services.action.adapters.health import AlwaysHealthyChecker
+from services.action.adapters.k8s_health import KubernetesHealthChecker
+from services.action.adapters.k8s_remediator import KubernetesRemediator
 from services.action.adapters.remediator import DryRunRemediator
 from services.action.consumer import run_consumer
 from services.base import create_app
@@ -35,6 +37,31 @@ def _make_gate(settings):
     )
 
 
+def _make_remediator(settings):
+    if settings.remediator_mode == "k8s":
+        return KubernetesRemediator(settings.k8s_namespace)
+    return DryRunRemediator()
+
+
+def _make_health_checker(settings):
+    if settings.health_check_mode == "k8s":
+        # metric_healthy re-queries Prometheus for the demo-app error rate; a low
+        # value means recovered. Built lazily so dry-run mode never imports httpx here.
+        import httpx
+
+        def metric_healthy() -> bool:
+            try:
+                r = httpx.get(f"{settings.prometheus_url}/api/v1/query",
+                              params={"query": "cpu_usage"}, timeout=5.0)
+                results = r.json().get("data", {}).get("result", [])
+                return all(float(v["value"][1]) < 50 for v in results) if results else False
+            except Exception:  # noqa: BLE001
+                return False
+
+        return KubernetesHealthChecker(metric_healthy=metric_healthy)
+    return AlwaysHealthyChecker()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
@@ -43,7 +70,7 @@ async def lifespan(app: FastAPI):
     gate = _make_gate(settings)
     thread = threading.Thread(
         target=run_consumer,
-        args=(app.state.bus, store, gate, DryRunRemediator(), AlwaysHealthyChecker(),
+        args=(app.state.bus, store, gate, _make_remediator(settings), _make_health_checker(settings),
               settings.hitl_poll_timeout_seconds, settings.hitl_poll_interval_seconds, stop_event),
         daemon=True,
     )
