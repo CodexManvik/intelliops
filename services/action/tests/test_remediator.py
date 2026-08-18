@@ -1,27 +1,27 @@
-from common.interfaces import Remediator
+from common.contracts import RemediationPlan, RemediationStep, RemediationTarget
 from services.action.adapters.remediator import DryRunRemediator, RecordingRemediator
 
+def _plan():
+    return RemediationPlan(
+        target=RemediationTarget(namespace="ns", deployment="demo-app"),
+        steps=[RemediationStep(action="restart")],
+        rollback_steps=[RemediationStep(action="restart")],
+    )
 
-def test_dryrun_satisfies_protocol_and_succeeds():
+def test_dry_run_always_succeeds():
     r = DryRunRemediator()
-    assert isinstance(r, Remediator)
-    assert r.execute(["kubectl rollout restart deploy/web"]) is True
-    assert r.rollback(["kubectl rollout undo deploy/web"]) is True
+    assert r.execute(_plan()) is True
+    assert r.rollback(_plan()) is True
 
-
-def test_recording_captures_calls():
+def test_recording_captures_plan():
     r = RecordingRemediator()
-    r.execute(["step-a", "step-b"])
-    r.rollback(["undo-a"])
-    assert r.executed_steps == ["step-a", "step-b"]
-    assert r.rolled_back_steps == ["undo-a"]
+    p = _plan()
+    r.execute(p)
+    r.rollback(p)
+    assert r.executed_plan is p
+    assert r.rolled_back_plan is p
 
-
-def test_recording_injects_results():
-    r = RecordingRemediator(execute_result=False, rollback_result=True)
-    assert r.execute(["x"]) is False
-    assert r.rollback(["y"]) is True
-
-
-def test_recording_satisfies_protocol():
-    assert isinstance(RecordingRemediator(), Remediator)
+def test_recording_execute_result_configurable():
+    r = RecordingRemediator(execute_result=False)
+    assert r.execute(_plan()) is False
+    assert r.rollback(_plan()) is True

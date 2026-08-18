@@ -1,17 +1,15 @@
-"""HealthChecker implementations.
+"""HealthChecker implementations (non-K8s).
 
-AlwaysHealthyChecker pairs with the dry-run remediator (nothing really changed,
-so health is unchanged). FixedHealthChecker is the test double that lets a test
-drive the rollback path by returning unhealthy. A real checker (re-query
-Prometheus / pod status) is deferred (see ADR-007)."""
+AlwaysHealthyChecker pairs with the dry-run remediator. FixedHealthChecker is
+the test double. The real KubernetesHealthChecker lives in k8s_health.py."""
 
 from __future__ import annotations
 
-from common.contracts import Situation
+from common.contracts import RemediationTarget, Situation
 
 
 class AlwaysHealthyChecker:
-    def check(self, situation: Situation) -> bool:
+    def check(self, situation: Situation, target: RemediationTarget) -> bool:
         return True
 
 
@@ -19,5 +17,5 @@ class FixedHealthChecker:
     def __init__(self, healthy: bool) -> None:
         self._healthy = healthy
 
-    def check(self, situation: Situation) -> bool:
+    def check(self, situation: Situation, target: RemediationTarget) -> bool:
         return self._healthy
