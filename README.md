@@ -10,13 +10,29 @@ outcome feeds back into the model, so the system gets more accurate the longer i
 It is built to **augment** your existing observability, CI/CD, and ticketing stack, not replace
 it, and it is **open-source-first** to avoid vendor lock-in.
 
-> **Project status: all four implementation slices complete — the loop is closed.**
-> This repository now contains the full implementation — all six services across four delivery
-> slices — alongside the design docs (`README.md`, [architectural.md](architectural.md),
-> [flow.md](flow.md), and the [spec](docs/superpowers/specs/2026-08-13-intelliops-coe-design.md)).
-> Code was built in slices — see [Roadmap](#roadmap). Origin: a 2026 capstone proposal; the
-> engineering decisions that turn that proposal into a buildable system are recorded as ADRs in
-> [architectural.md](architectural.md).
+> **Project status: the closed loop runs live, end-to-end.**
+> All six services plus a **read-model service** and a **React operator console** are built and
+> running on docker-compose — real Prometheus, a breakable demo target, the HITL approval gate
+> working across containers, live KPIs, and a one-command scenario reset for repeatable demos.
+> Remediation is **dry-run** today (nothing real is touched); real Kubernetes remediation is the
+> next milestone (see [WORKPLAN.md](WORKPLAN.md)).
+
+## 📖 Understanding this project — start here
+
+New to this repo? Read these two documents first — they are the fastest way to understand what
+IntelliOps is and how it works:
+
+| Read this | To understand |
+|-----------|---------------|
+| **[flow.md](flow.md)** | **How a signal flows through the system** — the one-incident journey, every bus topic and data contract, a function-by-function reference for each of the seven services, and the current status (what's real vs. simulated). |
+| **[architectural.md](architectural.md)** | **Why the system is shaped this way** — the layer model and twelve ADRs (Architecture Decision Records), each with the context, the decision, the trade-offs, and the alternatives rejected. |
+
+Then, for the team: **[WORKPLAN.md](WORKPLAN.md)** divides the remaining work into four
+owned streams with acceptance criteria. The full original design spec is at
+[docs/superpowers/specs/2026-08-13-intelliops-coe-design.md](docs/superpowers/specs/2026-08-13-intelliops-coe-design.md);
+later design decisions have their own specs under `docs/superpowers/specs/`.
+
+---
 
 ---
 
