@@ -28,17 +28,26 @@ rollouts to finish. When it's done, Prometheus is reachable at
 `http://localhost:30090` (kind maps NodePort 30090 to the host — see
 `deploy/k8s/kind-config.yaml`).
 
-## 2. Export the kubeconfig
+## 2. Export the kubeconfig (rewritten for the container)
 
-The action service needs a kubeconfig to talk to the cluster from inside its
-container:
+The action service talks to the cluster from *inside* its container, so its
+kubeconfig cannot use kind's default `https://127.0.0.1:<port>` server address —
+`127.0.0.1` inside a container is the container itself. Instead point it at the
+API server by the cert-valid name **`intelliops-control-plane`** (kind's API
+cert includes `DNS:intelliops-control-plane` in its SANs, so TLS verification
+succeeds — no `insecure-skip-tls-verify` needed), reachable on the `kind` docker
+network at the internal port `6443`. Write it to a **repo-local** path (a bare
+`/tmp/...` mount is silently turned into an empty *directory* by Docker Desktop
+on Windows):
 
 ```bash
-kind get kubeconfig --name intelliops > /tmp/intelliops.kubeconfig
+kind get kubeconfig --name intelliops \
+  | sed 's#https://127.0.0.1:[0-9]*#https://intelliops-control-plane:6443#' \
+  > deploy/.kubeconfig
 ```
 
-(`deploy/docker-compose.k8s.yml` mounts this exact path into the `action`
-container read-only at `/kubeconfig`.)
+`deploy/.kubeconfig` is gitignored (local cluster creds). The overlay mounts
+`./.kubeconfig` (relative to `deploy/`) into `action` at `/kubeconfig`.
 
 ## 3. Start the stack with the k8s overlay
 
@@ -46,7 +55,7 @@ container read-only at `/kubeconfig`.)
 docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.k8s.yml up --build
 ```
 
-The overlay (`deploy/docker-compose.k8s.yml`) does three things on top of the
+The overlay (`deploy/docker-compose.k8s.yml`) does four things on top of the
 base stack:
 
 - Sets `INTELLIOPS_REMEDIATOR_MODE=k8s` and `INTELLIOPS_HEALTH_CHECK_MODE=k8s`
@@ -56,22 +65,36 @@ base stack:
   `INTELLIOPS_PROMETHEUS_URL=http://host.docker.internal:30090`, with
   `extra_hosts: host.docker.internal:host-gateway` so containers can reach the
   host's port-mapped NodePort.
-- Mounts `/tmp/intelliops.kubeconfig` into `action` at `/kubeconfig` and sets
+- Joins `action` to the external **`kind`** docker network (alongside the
+  default one) so it can resolve `intelliops-control-plane` and reach the API
+  server with a valid TLS cert.
+- Mounts `./.kubeconfig` into `action` at `/kubeconfig` and sets
   `KUBECONFIG=/kubeconfig` so the Kubernetes client picks it up.
+
+Sanity check once it's up — the action container should reach the cluster:
+
+```bash
+docker exec intelliops-action-1 python -c \
+  "from kubernetes import client, config; config.load_kube_config('/kubeconfig'); \
+   print([n.metadata.name for n in client.CoreV1Api().list_namespace().items])"
+```
+
+You should see `intelliops-demo` in the printed namespace list.
 
 ## 4. Drive the incident
 
 Break the **in-cluster** demo-app — not the `demo-app` container the base
 compose stack also runs locally. In `k8s` mode, ingestion scrapes the
 in-cluster Prometheus (which only sees the in-cluster demo-app), so that's the
-instance to break:
+instance to break. The demo-app image is slim and has no `curl`, so drive its
+endpoints with Python:
 
 ```bash
-kubectl -n intelliops-demo exec deploy/demo-app -- curl -s -X POST localhost:8080/break
+kubectl -n intelliops-demo exec deploy/demo-app -- \
+  python -c "import urllib.request; urllib.request.urlopen(urllib.request.Request('http://localhost:8080/break', method='POST'))"
 ```
 
-(Alternatively, `kubectl -n intelliops-demo port-forward deploy/demo-app 8080:8080`
-in one terminal and `curl -X POST localhost:8080/break` in another.)
+(To recover it later, the same command with `/fix`.)
 
 Then:
 
@@ -86,6 +109,24 @@ Then:
    You'll see the `demo-app` pod terminate and a fresh one come up.
 5. The situation resolves once the health check (also running in `k8s` mode)
    confirms the new pod is healthy.
+
+### What each playbook does on the real cluster
+
+RCA picks the playbook from the top hypothesis. Our in-cluster Prometheus
+scrapes `cpu_usage`, so the "resource saturation" rule fires and
+`scale-service` is selected. Two things worth knowing for the demo:
+
+- **`restart-pod`** is the clean-success path: a real `rollout restart`
+  recreates the pod, which clears the demo-app's in-memory `broken` flag (the
+  fault lives in the process). The fresh pod reports healthy `cpu_usage`, the
+  health check passes, and the outcome is `success / healthy`.
+- **`scale-service`** scales the deployment out for real, but scaling does not
+  clear the fault on the original pod, and `cpu_usage` is a per-endpoint gauge —
+  so the health check may still see it elevated, and the action service then
+  **rolls the scale back** and reports `rolled_back`. This is the reversible-only,
+  health-verified safety property (ADR-007) working: it undoes its own action
+  rather than declaring a false success. To force the clean-success story, drive
+  the `restart-pod` path.
 
 ## 5. Tear down
 
