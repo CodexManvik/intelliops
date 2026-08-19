@@ -17,6 +17,8 @@ Only the endpoints named in WORKPLAN.md (read, governance, and the
 
 from __future__ import annotations
 
+import hmac
+
 from fastapi import HTTPException, Request
 
 from common.config import Settings, get_settings
@@ -33,7 +35,7 @@ def is_authorized(request: Request, settings: Settings) -> bool:
     if settings.auth_mode != "token":
         return True
     token = _token_from_header(request)
-    return bool(settings.auth_token) and token == settings.auth_token
+    return bool(settings.auth_token) and hmac.compare_digest(token, settings.auth_token)
 
 
 def require_token(request: Request) -> None:

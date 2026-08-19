@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     read_situation_ttl_seconds: float = 600.0
     read_situations_max: int = 50
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    # --- K8s remediation settings (test-safe defaults) ---
+    remediator_mode: str = "dry_run"   # "dry_run" | "k8s"
+    health_check_mode: str = "always"  # "always" | "k8s"
+    k8s_namespace: str = "intelliops-demo"
     # Auth at the edge (ADR: deferred item in architectural.md §6). "off"
     # (default) preserves today's open behavior so tests/dev are unaffected;
     # "token" requires a matching bearer token on every non-/health request.

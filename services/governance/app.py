@@ -14,7 +14,42 @@ from services.governance.adapters.audit_sink import FileAuditSink
 from services.governance.adapters.playbook_store import FilePlaybookStore
 from services.governance.rbac import RbacPolicy
 
-app = create_app("governance-service")
+
+def _governance_exempt(method: str, path: str) -> bool:
+    """Exempt /health + internal service-to-service paths from auth.
+
+    The governance service hosts endpoints called by *both* external clients
+    (the React console) and internal services (action, feedback) over the
+    compose network.  Internal-bus paths are never exposed outside compose,
+    so gating them only locks IntelliOps out of itself when AUTH_MODE=token.
+
+    Exempt (internal bus):
+        POST /rbac/check        — action → governance (RBAC gate)
+        POST /audit             — action → governance (audit write)
+        POST /approvals         — action → governance (create approval)
+        GET  /approvals/{id}    — action polls approval status
+        POST /playbooks/{id}/graduate — feedback → governance
+
+    Gated (external / frontend):
+        GET  /audit             — frontend reads audit log
+        GET  /playbooks         — frontend lists playbooks
+        GET  /playbooks/{id}    — frontend reads a playbook
+        GET  /approvals         — frontend lists pending approvals
+        POST /approvals/{id}/decide — frontend decides an approval
+    """
+    if path == "/health":
+        return True
+    # POST-only internal endpoints (action → governance)
+    if method == "POST" and path in {"/rbac/check", "/audit", "/approvals"}:
+        return True
+    # GET /approvals/{id} (action polls) — but NOT POST /approvals/{id}/decide
+    if path.startswith("/approvals/") and not path.endswith("/decide"):
+        return True
+    # POST /playbooks/{id}/graduate (feedback → governance)
+    return bool(method == "POST" and path.startswith("/playbooks/") and path.endswith("/graduate"))
+
+
+app = create_app("governance-service", auth_exempt=_governance_exempt)
 
 
 def _init_state() -> None:
