@@ -1,0 +1,13 @@
+id: restart-pod
+name: Restart affected pod
+match_rule: "error spike in service logs or metrics"
+steps:
+  - action: restart
+    note: "kubectl rollout restart deployment/${service}"
+  - action: wait
+    note: "wait for readiness probe to pass"
+hitl_mode: hitl
+reversible: true
+rollback_steps:
+  - action: rollback_deploy
+    note: "kubectl rollout undo deployment/${service}"

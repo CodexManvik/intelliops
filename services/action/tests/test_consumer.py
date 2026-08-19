@@ -7,6 +7,7 @@ from common.contracts import (
     Playbook,
     RemediationOutcome,
     RemediationResult,
+    RemediationStep,
     Situation,
     SituationStatus,
     TelemetryEvent,
@@ -53,8 +54,10 @@ def _diagnosed(runbook_id):
 
 def _store():
     s = InMemoryPlaybookStore()
-    s.register(Playbook(id="restart-pod", name="Restart", match_rule="x", steps=["do"],
-                        hitl_mode=HitlMode.AUTO, reversible=True, rollback_steps=["undo"]))
+    s.register(Playbook(id="restart-pod", name="Restart", match_rule="x",
+                        steps=[RemediationStep(action="restart")],
+                        hitl_mode=HitlMode.AUTO, reversible=True,
+                        rollback_steps=[RemediationStep(action="restart")]))
     return s
 
 

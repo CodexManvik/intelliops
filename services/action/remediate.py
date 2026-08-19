@@ -10,15 +10,18 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from common.config import get_settings
 from common.contracts import (
     ApprovalRequest,
     AuditRecord,
     HitlMode,
     Playbook,
     RemediationOutcome,
+    RemediationPlan,
     RemediationResult,
     Situation,
 )
+from services.action.targets import resolve_target
 
 _ACTOR = "action-service"
 
@@ -27,7 +30,7 @@ def _outcome(situation: Situation, playbook: Playbook, result: RemediationResult
              health_after: str) -> RemediationOutcome:
     return RemediationOutcome(
         situation_id=situation.id, playbook_id=playbook.id, result=result,
-        health_after=health_after, ts=datetime.now(UTC),
+        health_after=health_after, ts=datetime.now(UTC), hitl_mode=playbook.hitl_mode,
     )
 
 
@@ -68,16 +71,21 @@ def execute_remediation(situation: Situation, playbook: Playbook, gate, remediat
             _audit(gate, situation, playbook, "abort")
             return _outcome(situation, playbook, RemediationResult.FAILURE, reason)
 
+    # Resolve the target once and build a typed plan.
+    target = resolve_target(situation, get_settings().k8s_namespace)
+    plan = RemediationPlan(target=target, steps=playbook.steps,
+                           rollback_steps=playbook.rollback_steps)
+
     # Execute.
-    if not remediator.execute(playbook.steps):
+    if not remediator.execute(plan):
         _audit(gate, situation, playbook, "execute-failed")
         return _outcome(situation, playbook, RemediationResult.FAILURE, "execute-failed")
 
     # Verify health; roll back if unhealthy.
-    if health.check(situation):
+    if health.check(situation, target):
         _audit(gate, situation, playbook, "allow")
         return _outcome(situation, playbook, RemediationResult.SUCCESS, "healthy")
 
-    remediator.rollback(playbook.rollback_steps)
+    remediator.rollback(plan)
     _audit(gate, situation, playbook, "rolled-back")
     return _outcome(situation, playbook, RemediationResult.ROLLED_BACK, "unhealthy:rolled-back")

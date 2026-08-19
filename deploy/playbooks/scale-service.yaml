@@ -1,0 +1,15 @@
+id: scale-service
+name: Scale out affected service
+match_rule: "resource saturation (cpu/mem/disk)"
+steps:
+  - action: scale
+    replicas: 2
+    note: "kubectl scale deployment/${service} --replicas=+2"
+  - action: wait
+    note: "wait for new replicas to become ready"
+hitl_mode: hitl
+reversible: true
+rollback_steps:
+  - action: scale
+    replicas: -2
+    note: "kubectl scale deployment/${service} --replicas=-2"

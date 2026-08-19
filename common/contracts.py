@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -71,14 +72,31 @@ class RootCauseHypothesis(BaseModel):
     suggested_runbook_id: str | None = None
 
 
+class RemediationStep(BaseModel):
+    action: Literal["restart", "scale", "rollback_deploy", "wait"]
+    replicas: int | None = None   # for scale: a delta, e.g. +2 / -2
+    note: str | None = None       # human-readable / wait annotation
+
+
+class RemediationTarget(BaseModel):
+    namespace: str
+    deployment: str
+
+
+class RemediationPlan(BaseModel):
+    target: RemediationTarget
+    steps: list[RemediationStep] = Field(default_factory=list)
+    rollback_steps: list[RemediationStep] = Field(default_factory=list)
+
+
 class Playbook(BaseModel):
     id: str
     name: str
     match_rule: str
-    steps: list[str] = Field(default_factory=list)
+    steps: list[RemediationStep] = Field(default_factory=list)
     hitl_mode: HitlMode
     reversible: bool = False
-    rollback_steps: list[str] = Field(default_factory=list)
+    rollback_steps: list[RemediationStep] = Field(default_factory=list)
 
 
 class ApprovalRequest(BaseModel):
@@ -96,6 +114,7 @@ class RemediationOutcome(BaseModel):
     result: RemediationResult
     health_after: str
     ts: datetime
+    hitl_mode: HitlMode = HitlMode.HITL
 
 
 class AuditRecord(BaseModel):

@@ -1,0 +1,13 @@
+# deploy/k8s/prometheus/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: intelliops-demo
+spec:
+  type: NodePort
+  selector: { app: prometheus }
+  ports:
+    - port: 9090
+      targetPort: 9090
+      nodePort: 30090

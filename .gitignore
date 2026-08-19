@@ -22,7 +22,8 @@ htmlcov/
 Thumbs.db
 
 # Data / models / local state (not committed)
-data/
+/data/
+!frontend/src/data/
 models/
 *.log
 

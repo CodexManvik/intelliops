@@ -4,6 +4,7 @@ from common.contracts import (
     EnrichmentContext,
     HitlMode,
     Playbook,
+    RemediationStep,
     Situation,
     SituationStatus,
     TelemetryEvent,
@@ -71,7 +72,7 @@ def test_surface_runbook_looks_up_top_hypothesis():
         def get(self, playbook_id):
             if playbook_id == "scale-service":
                 return Playbook(id="scale-service", name="Scale", match_rule="x",
-                                steps=["s"], hitl_mode=HitlMode.HITL)
+                                steps=[RemediationStep(action="restart")], hitl_mode=HitlMode.HITL)
             return None
         def list(self): return []
 

@@ -5,6 +5,7 @@ from common.contracts import (
     HitlMode,
     Playbook,
     RemediationResult,
+    RemediationStep,
     Situation,
     SituationStatus,
     TelemetryEvent,
@@ -28,8 +29,8 @@ def _situation():
 
 def _playbook(hitl=HitlMode.AUTO, reversible=True):
     return Playbook(id="restart-pod", name="Restart", match_rule="x",
-                    steps=["do-thing"], hitl_mode=hitl, reversible=reversible,
-                    rollback_steps=["undo-thing"])
+                    steps=[RemediationStep(action="restart")], hitl_mode=hitl,
+                    reversible=reversible, rollback_steps=[RemediationStep(action="restart")])
 
 
 class FakeGate:
@@ -67,7 +68,7 @@ def test_disabled_playbook_skips_no_execute():
     out = _run(_playbook(hitl=HitlMode.DISABLED), FakeGate(), r, FixedHealthChecker(True))
     assert out.result == RemediationResult.FAILURE
     assert out.health_after == "skipped:disabled"
-    assert r.executed_steps == []  # SAFETY: nothing executed
+    assert r.executed_plan is None  # SAFETY: nothing executed
 
 
 def test_non_reversible_refused_no_execute():
@@ -75,7 +76,7 @@ def test_non_reversible_refused_no_execute():
     out = _run(_playbook(reversible=False), FakeGate(), r, FixedHealthChecker(True))
     assert out.result == RemediationResult.FAILURE
     assert out.health_after == "refused:not-reversible"
-    assert r.executed_steps == []  # SAFETY: nothing executed
+    assert r.executed_plan is None  # SAFETY: nothing executed
 
 
 def test_rbac_denied_no_execute():
@@ -83,7 +84,7 @@ def test_rbac_denied_no_execute():
     out = _run(_playbook(), FakeGate(rbac_allow=False), r, FixedHealthChecker(True))
     assert out.result == RemediationResult.FAILURE
     assert out.health_after == "denied:rbac"
-    assert r.executed_steps == []  # SAFETY: fail closed
+    assert r.executed_plan is None  # SAFETY: fail closed
 
 
 def test_hitl_rejected_no_execute():
@@ -92,7 +93,7 @@ def test_hitl_rejected_no_execute():
                FixedHealthChecker(True))
     assert out.result == RemediationResult.FAILURE
     assert out.health_after == "aborted:rejected"
-    assert r.executed_steps == []  # SAFETY: no execute on reject
+    assert r.executed_plan is None  # SAFETY: no execute on reject
 
 
 def test_hitl_timeout_no_execute():
@@ -101,7 +102,7 @@ def test_hitl_timeout_no_execute():
                FixedHealthChecker(True))
     assert out.result == RemediationResult.FAILURE
     assert out.health_after == "aborted:timeout"
-    assert r.executed_steps == []  # SAFETY: fail closed on timeout
+    assert r.executed_plan is None  # SAFETY: fail closed on timeout
 
 
 # --- The happy + rollback paths ---
@@ -111,8 +112,9 @@ def test_auto_approved_executes_healthy_success():
     out = _run(_playbook(hitl=HitlMode.AUTO), FakeGate(), r, FixedHealthChecker(True))
     assert out.result == RemediationResult.SUCCESS
     assert out.health_after == "healthy"
-    assert r.executed_steps == ["do-thing"]  # executed
-    assert r.rolled_back_steps == []  # no rollback
+    assert out.hitl_mode == HitlMode.AUTO  # stamped from the playbook
+    assert r.executed_plan is not None  # executed
+    assert r.rolled_back_plan is None  # no rollback
 
 
 def test_hitl_approved_executes():
@@ -120,7 +122,7 @@ def test_hitl_approved_executes():
     out = _run(_playbook(hitl=HitlMode.HITL), FakeGate(decision_status="approved"), r,
                FixedHealthChecker(True))
     assert out.result == RemediationResult.SUCCESS
-    assert r.executed_steps == ["do-thing"]
+    assert r.executed_plan is not None
 
 
 def test_unhealthy_triggers_rollback():
@@ -128,8 +130,8 @@ def test_unhealthy_triggers_rollback():
     out = _run(_playbook(), FakeGate(), r, FixedHealthChecker(False))
     assert out.result == RemediationResult.ROLLED_BACK
     assert out.health_after == "unhealthy:rolled-back"
-    assert r.executed_steps == ["do-thing"]  # executed
-    assert r.rolled_back_steps == ["undo-thing"]  # then rolled back
+    assert r.executed_plan is not None  # executed
+    assert r.rolled_back_plan is not None  # then rolled back
 
 
 def test_execute_failure_reported():

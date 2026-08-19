@@ -34,8 +34,10 @@ Everything below serves five principles, taken directly from the proposal's inte
 ## 2. From five conceptual layers to six services
 
 The proposal describes five layers: **Data → Correlation/ML → Action → Governance → Feedback**.
-This architecture implements them as **six deployable services plus a shared library**. The
-mapping is deliberately not one-to-one:
+This architecture implements them as **six deployable services plus a shared library** —
+the *write* side of the system. A seventh service, the **read-service**, was added later as the
+CQRS read side that serves the dashboard ([ADR-009](#adr-009--a-read-model-service-cqrs-for-the-dashboard)),
+and a **React operator console** consumes it. The layer mapping is deliberately not one-to-one:
 
 ```
  Proposal layer          Implemented as
@@ -45,6 +47,8 @@ mapping is deliberately not one-to-one:
  Action              →   action-service
  Governance/CoE      →   governance-service   (active gate — see ADR-003)
  Feedback loop       →   feedback-service
+ (read side)         →   read-service         (CQRS projection — see ADR-009)
+ (operator UI)       →   React console        (reads read-service + governance)
  (cross-cutting)     →   common/  shared library (contracts + interfaces + bus)
  (spine)             →   event bus                              (see ADR-001)
 ```
@@ -227,7 +231,9 @@ automated action structurally impossible.
 
 **Consequences.** (+) A failed remediation self-heals back to the prior state. (+) The safety
 scope is machine-checkable. (−) Authoring a playbook costs more (you must define the undo).
-Accepted — that cost *is* the safety.
+Accepted — that cost *is* the safety. (+) This property is what let the real `KubernetesRemediator`
+ship safely (behind `REMEDIATOR_MODE=k8s`) without weakening the guardrail — see
+[ADR-013](#adr-013--structured-remediationplan-is-what-made-real-k8s-remediation-safe).
 
 **Alternatives rejected.** *Fire-and-forget remediation* — one bad automated action with no
 undo is exactly the outcome the whole guardrail design exists to prevent.
@@ -251,6 +257,164 @@ which is the intended cost during trust-building.
 
 **Alternatives rejected.** *Global auto/manual toggle* — all-or-nothing, ignores that
 different playbooks earn trust at different rates.
+
+---
+
+> **ADRs 009–013 were added after the original six-service build**, as the design met contact
+> with a real running stack and a UI. They record decisions the first draft didn't — the read
+> side, the cross-container gate, the live demo harness, how adapter selection actually works,
+> and what made it safe to point remediation at a real cluster.
+
+### ADR-009 — A read-model service (CQRS) for the dashboard
+
+**Context.** The six services are event-driven producers/consumers — none of them is designed
+to answer "what are all the open situations right now?" or "what's the live MTTR?" over HTTP.
+The React console needs exactly those reads. Bolting query endpoints onto (say) correlation or
+action would put a synchronous read path on a hot write service and scatter the read shape.
+
+**Decision.** A separate **`read-service`** subscribes to `situations.detected`,
+`situations.diagnosed`, `remediation.outcomes`, and `situations.suppressed`, folds them into an
+**in-memory projection**, and serves `GET /situations`, `/outcomes`, `/metrics`. It holds no
+source-of-truth state: the Redis event streams are the record, and the projection rebuilds from
+them on startup. This is CQRS-lite — a read side separated from the write side.
+
+**Why.** One place owns the read shape (mapped to exactly what the UI types expect, so there's
+no translation layer), reads never touch the hot write path, and because the read-service sees
+a situation's whole lifecycle (`first_seen` through the resolving outcome's `ts`) it can compute
+**real** KPIs — true MTTR, noise-reduction, auto-remediated % — with no fabrication and no new
+timestamp threading. A rebuildable projection means it can be wiped and restarted freely, which
+is also what makes repeatable simulations cheap.
+
+**Consequences.** (+) Clean read/write split; truthful live metrics; the dashboard reads plain
+JSON. (+) The projection is a pure, deterministic structure — trivially unit-testable, no
+wall-clock inside it (time is passed in). (−) One more service, and the read model is
+eventually-consistent with the write side by up to one poll. Accepted — a dashboard number that
+lags by a second is fine; a read query blocking the correlation hot path is not.
+
+**Alternatives rejected.** *Query endpoints on the existing services* — couples reads to hot
+write paths and spreads the read shape across services. *The frontend derives KPIs client-side
+from raw events* — scatters metric logic into the UI, and every client recomputes.
+
+### ADR-010 — Cross-container governance gate over HTTP (fail-closed)
+
+**Context.** ADR-003 makes `action → governance` a synchronous gate. The first implementation
+shared an in-memory approvals dict between the two — fine in one process and in tests, but in
+docker-compose `action` and `governance` are **separate containers**, so the shared dict isn't
+shared at all. A human approval written to governance's dict was invisible to action, which
+polled its own empty copy: every HITL remediation timed out.
+
+**Decision.** Keep the gate interface, but add an **`HttpGovernanceGate`** binding that talks to
+governance over REST (`POST /approvals`, `GET /approvals/{id}`, `POST /rbac/check`,
+`POST /audit`). It is selected by a `GOVERNANCE_MODE=in_process|http` switch — `in_process` (the
+default) for single-process tests, `http` for the compose stack. `await_decision` polls
+`GET /approvals/{id}` until non-pending or timeout.
+
+**Why.** This makes the HITL gate — the centerpiece guarantee — actually work across the
+deployed topology, without weakening the interface `remediate.py` depends on. Crucially, the
+HTTP gate is **fail-closed by construction**: any network error, non-200, or malformed body
+during a poll is caught and treated as *still pending*, so the caller never remediates on a
+governance it couldn't reach (upholding ADR-003's fail-closed promise even under a flaky
+network).
+
+**Consequences.** (+) HITL works across containers; the gate degrades safely. (−) `await_decision`
+blocks the action consumer thread while polling for a human decision (bounded by the HITL
+timeout) — acceptable at one-incident-at-a-time demo scale. Accepted.
+
+**Alternatives rejected.** *Approvals over the bus* — approvals are request/response with a
+waiting caller, not a stream; a topic adds no value and complicates "has this specific approval
+been decided yet?". *A shared database for approvals* — real, but heavier than the demo needs
+when governance already owns the approval store behind REST.
+
+### ADR-011 — A live, breakable demo harness with explicit simulation controls
+
+**Context.** "The loop is closed" is only believable if you can *watch* it close on real,
+moving data — and a capstone demo must be re-runnable on demand, not a one-shot. But the online
+anomaly detector, by design, **learns**: after a few break/fix cycles it treats the injected
+spike as normal and stops detecting.
+
+**Decision.** Ship a **breakable demo target** (`services/demo_app` — a tiny FastAPI app that
+emits Prometheus metrics and has `/break` and `/fix` toggles), a real **Prometheus** container
+scraping it, and a **scenario-reset** path: correlation `POST /reset-baseline` (forget the
+learned baseline), read `POST /reset` (empty the projection), and the demo `/fix`, composed by
+`scripts/reset.sh`. Detection tuning (warm-up, z-threshold, window) is config-driven so the demo
+detects within a minute while production defaults stay conservative.
+
+**Why.** This turns "trust us, it works" into "run `docker compose up`, break the app, and watch
+the incident flow to the approval gate." The reset path makes simulations repeatable without a
+container restart, which is what lets the team iterate on scenarios.
+
+**Consequences.** (+) A genuinely live, re-runnable demo on free local infra. (+) The same
+`PrometheusSource` that scrapes the demo works against any real Prometheus later. (−) The
+reset/break/fix endpoints are **operational surface that must not exist in production**. Accepted
+and made explicit: they are documented as simulation controls, and gating/removing them is a
+named follow-up when the stack points at a real system.
+
+**Alternatives rejected.** *A static recorded dataset replayed through ingestion* — reproducible
+but not a live loop you can perturb. *No reset (restart docker between runs)* — slow, and
+deleting Redis streams to "reset" orphans consumer groups (observed to kill a consumer thread).
+
+### ADR-012 — Config-switched adapter selection with test-safe defaults
+
+**Context.** ADR-005 puts every integration behind an interface with a default binding. Once the
+system had both test-only bindings (file source, in-process gate, dry-run remediator) and live
+bindings (Prometheus source, HTTP gate), *how* the running binding is chosen became a decision
+in its own right — and it must not let the deployed configuration change what the test suite
+exercises.
+
+**Decision.** Binding selection is an **environment switch with a test-safe default**:
+`TELEMETRY_MODE=file|prometheus` (default `file`), `GOVERNANCE_MODE=in_process|http` (default
+`in_process`), and correlation tuning knobs, all defaulting to the values the unit tests assume.
+The docker-compose stack sets the live values; a bare `pytest` run gets the safe defaults.
+
+**Why.** The default build stays deterministic and infra-free (tests never need Prometheus or a
+second container), while the same code runs live by flipping env — no code branch, no separate
+build. It keeps ADR-005's "config-time binding, not code-time assumption" literally true.
+
+**Consequences.** (+) One codebase, two behaviors, chosen at deploy time; tests are hermetic.
+(−) A new integration means a new switch and a documented default. Accepted — a small, explicit
+cost per integration point.
+
+**Alternatives rejected.** *Detect the environment at runtime* (e.g. "is Prometheus reachable?")
+— implicit and non-deterministic, and it can make a test accidentally hit real infra. *Separate
+prod/test builds* — drift risk between what's tested and what ships.
+
+### ADR-013 — Structured `RemediationPlan` is what made real K8s remediation safe
+
+**Context.** ADR-007 requires remediation to be reversible and health-verified, but the original
+`Playbook.steps` were free-form strings (e.g. `"restart pod"`). That was fine for
+`DryRunRemediator`, which only logs them — but a real adapter driving the Kubernetes API off
+parsed strings would mean shell-outs or ad-hoc string matching against user-authored playbook
+text: exactly the kind of untyped surface a "never delete, never do the wrong thing" guarantee
+can't be built on.
+
+**Decision.** Steps are a typed `RemediationStep` (`action: restart|scale|rollback_deploy|wait`,
+plus a typed `replicas` delta and an optional note), and a `RemediationPlan` bundles the ordered
+steps, their `rollback_steps`, and a `RemediationTarget` (`namespace`, `deployment`) resolved
+once from the diagnosed `Situation`'s `service` label. `action-service` builds the `RemediationPlan`
+before calling `Remediator.execute()`; the adapter never sees a raw string or the `Situation`
+itself.
+
+**Why.** A closed, typed vocabulary of actions is what let `KubernetesRemediator` map each step
+directly to one typed `AppsV1Api` call (`patch_namespaced_deployment` for restart,
+`patch_namespaced_deployment_scale` for scale) with no shell and no string parsing — there is no
+input shape that can be coerced into an unintended API call. Resolving the target once, before
+the adapter runs, also means the adapter itself never decides *what* to act on, only *how* —
+keeping the blast radius of a bug in the adapter limited to the actions it's typed to perform,
+never to a different deployment than the one the situation named.
+
+**Consequences.** (+) The real remediator is exhaustively typeable and testable against a fake
+`AppsV1Api` with no cluster in CI. (+) `KubernetesRemediator` is fail-safe by construction: any
+`ApiException` or client error is caught and turns into `False`, never an escaped exception, and
+the action set structurally excludes delete. (−) Adding a new remediation action means extending
+the `RemediationStep` literal and every adapter's dispatch, not just writing a new playbook
+string. Accepted — that's the same authoring cost ADR-007 already accepts, now paying off for a
+real cluster instead of just a log line.
+
+**Alternatives rejected.** *Keep free-form step strings and parse them in the K8s adapter* —
+would have made the adapter's input surface exactly as unconstrained as shelling out, defeating
+the purpose of a typed, fail-safe remediator. *Let the adapter resolve its own target from the
+`Situation`* — duplicates resolution logic per adapter and lets an adapter act on a target the
+rest of the pipeline never agreed on.
 
 ---
 
@@ -280,15 +444,36 @@ requirements.
 | **DORA** (4-hour major-incident *notification*) | Faster MTTD/MTTR via correlation + RCA gives EU-regulated entities more runway to detect, assess, and notify within the window. *(Notification requirement — not a fixed recovery-time mandate.)* |
 | **Sovereign cloud** | Open-source-first stack deployable in-region/on-prem; no hard dependency on a specific managed cloud service. |
 
-## 6. What is deliberately deferred
+## 6. What is built, and what is deliberately deferred
 
-Consistent with the proposal's honesty about maturity:
+**Since the original ADRs, several deferred items shipped:**
+- **Approval UI.** The REST approval endpoint now has a real front end — the React console's
+  Incidents view drives `POST /approvals/{id}/decide` (Approve/Reject), with visible error
+  feedback. (ChatOps — Slack/PagerDuty — is still deferred.)
+- **Live metrics.** The read-service computes real MTTR/noise-reduction/rates from the situation
+  lifecycle ([ADR-009](#adr-009--a-read-model-service-cqrs-for-the-dashboard)) — no longer a
+  target, it runs.
+- **Real remediation.** `KubernetesRemediator` + `KubernetesHealthChecker` are **built**
+  ([ADR-007](#adr-007--reversible-only-health-verified-remediation),
+  [ADR-013](#adr-013--structured-remediationplan-is-what-made-real-k8s-remediation-safe)): typed
+  `AppsV1Api` calls (restart/scale/rollback via annotation patch and
+  `patch_namespaced_deployment_scale` — no shell, no string parsing, never deletes), health
+  verified from pod readiness plus a live Prometheus query. It runs behind
+  `REMEDIATOR_MODE=k8s` / `HEALTH_CHECK_MODE=k8s` against a local kind cluster, following
+  [deploy/k8s/README.md](deploy/k8s/README.md) — a documented runbook, not part of CI. Dry-run
+  (`DryRunRemediator` + `AlwaysHealthyChecker`) is still the default everywhere else (compose
+  without the k8s overlay, tests, CI), so nothing changes for the base build.
 
-- **Automated model retraining.** The loop's *plumbing* exists from the first build; the
-  retrain *trigger* is manual/scheduled early and automated as a later maturity milestone.
-- **Approval UI / ChatOps.** Phase 1–3 use a REST approval endpoint; a UI and Slack/PagerDuty
-  integration come after Phase 3.
-- **Anomaly-detection algorithm selection** per signal type is a Slice-1 spike, not a
-  standing commitment in this document.
+**What remains deliberately deferred / simulated — the honest gap and the next milestones:**
+- **Authentication / authorization at the edge.** RBAC gates *actions* internally, but the
+  read/console/simulation endpoints have no auth. Deferred; planned in the workplan.
+- **Automated model retraining.** The loop's *plumbing* exists; the retrain *trigger* is
+  manual/scheduled, automated as a later maturity milestone.
+- **Kafka in production.** Redis Streams runs dev and demo; the Kafka `BusClient` binding is
+  deferred behind the same interface.
+- **Simulation controls in production.** The `/break`, `/fix`, `/reset`, `/reset-baseline`
+  endpoints ([ADR-011](#adr-011--a-live-breakable-demo-harness-with-explicit-simulation-controls))
+  must be gated or removed when pointed at a real system.
 
-These are maturity milestones, not gaps — calling them out is part of the design's rigor.
+These are maturity milestones, not gaps — calling them out is part of the design's rigor, and
+the ones scoped in [WORKPLAN.md](WORKPLAN.md) are actively being built next.

@@ -13,6 +13,8 @@ from common.contracts import (
     ApprovalRequest,
     AuditRecord,
     Playbook,
+    RemediationPlan,
+    RemediationTarget,
     Situation,
     TelemetryEvent,
     TrainingRecord,
@@ -52,9 +54,9 @@ class Correlator(Protocol):
 class Remediator(Protocol):
     """Executes and reverses remediation (Kubernetes API, Ansible)."""
 
-    def execute(self, steps: list[str]) -> bool: ...
+    def execute(self, plan: RemediationPlan) -> bool: ...
 
-    def rollback(self, steps: list[str]) -> bool: ...
+    def rollback(self, plan: RemediationPlan) -> bool: ...
 
 
 @runtime_checkable
@@ -103,7 +105,7 @@ class GovernanceGate(Protocol):
 class HealthChecker(Protocol):
     """Post-remediation health signal (ADR-007 verify step)."""
 
-    def check(self, situation: Situation) -> bool: ...
+    def check(self, situation: Situation, target: RemediationTarget) -> bool: ...
 
 
 @runtime_checkable
