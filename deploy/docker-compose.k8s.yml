@@ -2,6 +2,13 @@
 # Overlay that points action at a real kind cluster and ingestion at the
 # in-cluster Prometheus. Use with:
 #   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.k8s.yml up
+#
+# The `action` service joins the external `kind` docker network so it can reach
+# the cluster's API server by the cert-valid name `intelliops-control-plane`
+# (the kind API cert's SANs include DNS:intelliops-control-plane, so TLS
+# verification succeeds — no insecure-skip-tls-verify needed). The mounted
+# kubeconfig must therefore point at https://intelliops-control-plane:6443
+# (kind-up prints this / see deploy/k8s/README.md).
 services:
   action:
     environment:
@@ -10,11 +17,26 @@ services:
       INTELLIOPS_PROMETHEUS_URL: http://host.docker.internal:30090
       KUBECONFIG: /kubeconfig
     volumes:
-      - /tmp/intelliops.kubeconfig:/kubeconfig:ro
+      # Relative to this compose file's dir (deploy/). A repo-local, gitignored
+      # kubeconfig mounts reliably across platforms — a bare /tmp/... path is
+      # interpreted by Docker Desktop on Windows as a Linux path it can't map to
+      # the host file, and it silently creates an empty DIRECTORY instead.
+      # Generate it with (server rewritten to the cert-valid cluster name):
+      #   kind get kubeconfig --name intelliops \
+      #     | sed 's#https://127.0.0.1:[0-9]*#https://intelliops-control-plane:6443#' \
+      #     > deploy/.kubeconfig
+      - ./.kubeconfig:/kubeconfig:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - default
+      - kind
   ingestion:
     environment:
       INTELLIOPS_PROMETHEUS_URL: http://host.docker.internal:30090
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+networks:
+  kind:
+    external: true
