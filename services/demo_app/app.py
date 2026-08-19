@@ -7,8 +7,10 @@ The operator flips /break to simulate an incident (error rate + CPU spike) and
 
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import Depends, FastAPI, HTTPException, Response
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, generate_latest
+
+from common.auth import require_token
 
 app = FastAPI(title="IntelliOps · demo-app")
 
@@ -36,14 +38,14 @@ def work() -> dict[str, str]:
     return {"result": "ok"}
 
 
-@app.post("/break")
+@app.post("/break", dependencies=[Depends(require_token)])
 def break_it() -> dict[str, bool]:
     _state["broken"] = True
     _cpu.set(_CPU_BROKEN)
     return {"broken": True}
 
 
-@app.post("/fix")
+@app.post("/fix", dependencies=[Depends(require_token)])
 def fix_it() -> dict[str, bool]:
     _state["broken"] = False
     _cpu.set(_CPU_HEALTHY)

@@ -6,8 +6,9 @@ client on app.state. Service-specific handlers arrive in later slices.
 
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from common.auth import is_authorized
 from common.bus import make_bus
@@ -24,6 +25,14 @@ def create_app(service_name: str) -> FastAPI:
         allow_headers=["*"],
     )
     app.state.bus = make_bus(settings)
+
+    # Auth at the edge (AUTH_MODE=off|token). /health is always exempt so
+    # compose/k8s healthchecks never need a token, in any mode.
+    @app.middleware("http")
+    async def _auth_gate(request: Request, call_next):
+        if request.url.path != "/health" and not is_authorized(request, settings):
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        return await call_next(request)
 
     @app.get("/health")
     def health() -> dict[str, str]:
