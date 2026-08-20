@@ -70,6 +70,14 @@ class CorrelationEngine:
             return None
         return sit
 
+    def snapshot(self) -> list[dict]:
+        with self._lock:
+            return self._correlator.snapshot()
+
+    def load(self, rows: list[dict]) -> None:
+        with self._lock:
+            self._correlator.load(rows)
+
     def pop_suppressed(self) -> Situation | None:
         with self._lock:
             s = self._suppressed

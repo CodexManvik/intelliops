@@ -69,3 +69,26 @@ def test_window_span_triggers_emit():
 def test_flush_empty_returns_none():
     engine = CorrelationEngine(RiverCorrelator(), window_seconds=30)
     assert engine.flush() is None
+
+
+def test_engine_snapshot_load_roundtrip():
+    def ev(v):
+        return TelemetryEvent(
+            source="prom",
+            kind=TelemetryKind.METRIC,
+            name="cpu_usage",
+            value=v,
+            labels={},
+            ts=datetime(2026, 8, 20, tzinfo=UTC),
+            fingerprint="cpu_usage",
+        )
+
+    e1 = CorrelationEngine(RiverCorrelator(z_threshold=3.0, warmup_samples=50))
+    for v in [50.0 + (i % 5) for i in range(60)]:
+        e1.add(ev(v))
+    rows = e1.snapshot()
+
+    e2 = CorrelationEngine(RiverCorrelator(z_threshold=3.0, warmup_samples=50))
+    e2.load(rows)
+    # e2's correlator is warmed - a spike is detected (add returns/ buffers it)
+    assert e2._correlator.is_anomaly(ev(500.0))
