@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -10,6 +11,7 @@ from fastapi import FastAPI
 
 from common.config import get_settings
 from common.envelope import publish_model
+from common.stores import make_stores
 from services.base import create_app
 from services.correlation.adapters.river_correlator import RiverCorrelator
 from services.correlation.consumer import (
@@ -18,6 +20,8 @@ from services.correlation.consumer import (
     run_consumer,
 )
 from services.correlation.engine import CorrelationEngine
+
+logger = logging.getLogger(__name__)
 
 
 def run_flusher(
@@ -60,6 +64,17 @@ def run_flusher(
             last_snapshot = now
 
 
+def _reload_baseline(engine, baseline_store, training_records: list[dict]) -> None:
+    """On boot: restore the z-score baseline + recover reliability. Best-effort."""
+    if baseline_store is not None:
+        try:
+            engine.load(baseline_store.load_all())
+        except Exception as exc:  # noqa: BLE001 — a failed reload just means a cold start
+            logger.warning("baseline reload failed, starting cold: %s", exc)
+    if training_records:
+        engine._correlator.retrain(training_records)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
@@ -72,13 +87,28 @@ async def lifespan(app: FastAPI):
         window_seconds=settings.correlation_window_seconds,
     )
     app.state.engine = engine
+    # Reload-on-boot: restore the durable baseline + reliability BEFORE the
+    # consumer thread starts, so the first events are scored against the
+    # recovered state (no cold-start blackout). In file mode baseline_store is
+    # None and the reload is a no-op; the training-record retrain still runs.
+    stores = make_stores(settings)
+    training_records = [r.model_dump() for r in stores.training_store.read_all()]
+    _reload_baseline(engine, stores.baseline_store, training_records)
+    app.state.baseline_store = stores.baseline_store
     thread = threading.Thread(
         target=run_consumer, args=(app.state.bus, engine, stop_event), daemon=True
     )
     thread.start()
     flusher = threading.Thread(
         target=run_flusher,
-        args=(app.state.bus, engine, settings.correlation_window_seconds, stop_event),
+        args=(
+            app.state.bus,
+            engine,
+            settings.correlation_window_seconds,
+            stop_event,
+            stores.baseline_store,
+            settings.baseline_snapshot_seconds,
+        ),
         daemon=True,
     )
     flusher.start()
