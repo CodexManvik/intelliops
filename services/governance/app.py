@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from common.config import get_settings
@@ -27,6 +28,21 @@ def _init_state() -> None:
 
 
 _init_state()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # State is initialized at import time via _init_state(); the lifespan exists
+    # only to dispose the engine on shutdown, matching rca/action/feedback.
+    try:
+        yield
+    finally:
+        engine = getattr(app.state, "db_engine", None)
+        if engine is not None:
+            engine.dispose()
+
+
+app.router.lifespan_context = lifespan
 
 
 class RbacCheck(BaseModel):

@@ -33,3 +33,15 @@ def test_seed_playbooks_present_on_fresh_store(clean_db):
     s = PostgresPlaybookStore(clean_db, seed_path="deploy/playbooks")
     ids = {p.id for p in s.list()}
     assert "restart-pod" in ids and "scale-service" in ids
+
+
+@pytest.mark.postgres
+def test_seed_on_init_does_not_revert_graduation(clean_db):
+    # First store seeds + graduates a playbook to AUTO
+    s1 = PostgresPlaybookStore(clean_db, seed_path="deploy/playbooks")
+    s1.register(_pb("restart-pod", mode=HitlMode.AUTO))   # graduation
+    assert s1.get("restart-pod").hitl_mode == HitlMode.AUTO
+    # A second store constructed against the SAME db (simulates a restart) re-seeds.
+    s2 = PostgresPlaybookStore(clean_db, seed_path="deploy/playbooks")
+    # The graduated AUTO must survive — seed-on-init must NOT reset it to the seed's HITL.
+    assert s2.get("restart-pod").hitl_mode == HitlMode.AUTO

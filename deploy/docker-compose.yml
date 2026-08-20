@@ -41,7 +41,7 @@ services:
   # services wait for it (service_completed_successfully) before starting.
   migrate:
     <<: *service
-    command: uv run alembic upgrade head
+    command: alembic upgrade head
     environment:
       INTELLIOPS_DATABASE_URL: postgresql+psycopg://intelliops:intelliops@postgres:5432/intelliops
     depends_on:

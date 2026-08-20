@@ -65,14 +65,30 @@ class PostgresPlaybookStore:
     def __init__(self, engine, seed_path: str) -> None:
         self._engine = engine
         for pb in load_seed_playbooks(seed_path):
-            self.register(pb)
+            self._seed(pb)
+
+    @staticmethod
+    def _values(playbook: Playbook) -> dict:
+        mode = playbook.hitl_mode.value if hasattr(playbook.hitl_mode, "value") else str(playbook.hitl_mode)
+        return {"id": playbook.id, "name": playbook.name, "hitl_mode": mode,
+                "reversible": playbook.reversible, "payload": to_payload(playbook),
+                "updated_at": datetime.now(UTC)}
+
+    def _seed(self, playbook: Playbook) -> None:
+        """Insert a seed playbook only if absent — never clobber a graduated row.
+
+        Seeding runs on every store construction (i.e. every service restart)
+        from the immutable image-baked YAMLs. A graduated (auto) row persisted at
+        runtime must survive that, so seeding is INSERT-IF-ABSENT while register()
+        stays a full upsert for the graduation path. See ADR-008.
+        """
+        stmt = pg_insert(playbooks).values(**self._values(playbook)).on_conflict_do_nothing(
+            index_elements=[playbooks.c.id])
+        with self._engine.begin() as conn:
+            conn.execute(stmt)
 
     def register(self, playbook: Playbook) -> None:
-        mode = playbook.hitl_mode.value if hasattr(playbook.hitl_mode, "value") else str(playbook.hitl_mode)
-        values = {"id": playbook.id, "name": playbook.name, "hitl_mode": mode,
-                  "reversible": playbook.reversible, "payload": to_payload(playbook),
-                  "updated_at": datetime.now(UTC)}
-        stmt = pg_insert(playbooks).values(**values)
+        stmt = pg_insert(playbooks).values(**self._values(playbook))
         stmt = stmt.on_conflict_do_update(
             index_elements=[playbooks.c.id],
             set_={"name": stmt.excluded.name, "hitl_mode": stmt.excluded.hitl_mode,
