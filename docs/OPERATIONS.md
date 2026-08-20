@@ -10,7 +10,7 @@ Controlled by `INTELLIOPS_AUTH_MODE`:
 | Value | Behavior |
 | --- | --- |
 | `off` (default) | Every endpoint open. Current dev/test/CI behavior, unchanged. |
-| `token` | Every request except `/health` (and demo-app's `/metrics`, `/work`) must carry `Authorization: Bearer <INTELLIOPS_AUTH_TOKEN>`, or the service returns `401`. |
+| `token` | Every request except `/health` must carry `Authorization: Bearer <INTELLIOPS_AUTH_TOKEN>`, or the service returns `401`. |
 
 Set `INTELLIOPS_AUTH_TOKEN` to the shared token when `AUTH_MODE=token`. A
 service started in `token` mode with no `AUTH_TOKEN` set rejects every
@@ -23,14 +23,14 @@ never need a token.
 ### What's gated
 
 Applied via the shared app factory (`services/base.py`), so it covers every
-route on ingestion, correlation, rca, action, feedback, and read — except
-`/health`. In practice the endpoints this actually protects are the ones
-with real external read/write surface:
+route on ingestion, correlation, rca, action, feedback, governance, and
+read — except `/health`.
 
-- **read-service** — `/situations`, `/outcomes`, `/metrics`, `/reset`
-- **governance-service** (external / frontend) — `GET /audit`,
-  `GET /playbooks`, `GET /approvals`, `POST /approvals/{id}/decide`
-- **correlation-service** — `/reset-baseline` (simulation control)
+In `token` mode **all** endpoints are gated — including the internal
+service-to-service paths on governance (`POST /audit`, `POST /rbac/check`,
+`POST /approvals`, `GET /approvals/{id}`, `POST /playbooks/{id}/graduate`).
+Internal callers (action's `HttpGovernanceGate`, feedback's graduator)
+attach the shared `Bearer` token to their requests automatically.
 
 demo-app doesn't use the shared factory (it's an external target, not an
 IntelliOps service), so it's gated per-route instead: `/break` and `/fix`
@@ -38,23 +38,33 @@ IntelliOps service), so it's gated per-route instead: `/break` and `/fix`
 `/metrics` (scraped by Prometheus, unauthenticated), and `/work`
 (simulated app traffic) stay open.
 
-### Internal service-to-service exemptions
+### Compose: shared secret for token mode
 
-Governance hosts endpoints used by both external clients (the React
-console) and internal services (action, feedback) over the Docker-compose
-internal network.  The following internal-bus endpoints are exempt from
-auth — they are never exposed outside compose:
+When running in `AUTH_MODE=token`, every service that makes or receives
+authenticated HTTP calls must share the same `INTELLIOPS_AUTH_TOKEN`.
+In `deploy/docker-compose.yml`, add the following env vars to the services
+that talk to governance over REST:
 
-| Path | Caller | Purpose |
-| --- | --- | --- |
-| `POST /rbac/check` | action (HttpGovernanceGate) | RBAC permission check |
-| `POST /audit` | action (HttpGovernanceGate) | Write audit record |
-| `POST /approvals` | action (HttpGovernanceGate) | Create approval request |
-| `GET /approvals/{id}` | action (HttpGovernanceGate) | Poll approval status |
-| `POST /playbooks/{id}/graduate` | feedback | Promote playbook hitl→auto |
+| Service | Why it needs the token |
+| --- | --- |
+| `governance` | Validates incoming tokens on all endpoints. |
+| `action` | `HttpGovernanceGate` calls `POST /rbac/check`, `POST /audit`, `POST /approvals`, `GET /approvals/{id}`. |
+| `feedback` | `_make_graduator` calls `POST /playbooks/{id}/graduate`. |
+| `rca` | Uses the shared factory; gated if exposed. |
 
-This is configured via the `auth_exempt` callback in `create_app()` — see
-`services/governance/app.py::_governance_exempt`.
+Example compose environment block (add to each service above):
+
+```yaml
+environment:
+  INTELLIOPS_AUTH_MODE: token
+  INTELLIOPS_AUTH_TOKEN: ${INTELLIOPS_AUTH_TOKEN:?Set a shared secret}
+```
+
+Then launch with:
+
+```bash
+INTELLIOPS_AUTH_TOKEN=my-secret docker compose -f deploy/docker-compose.yml up -d
+```
 
 ### Not yet covered
 

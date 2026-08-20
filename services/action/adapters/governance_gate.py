@@ -13,13 +13,16 @@ import time
 
 import httpx
 
+from common.config import get_settings
 from common.contracts import ApprovalRequest, AuditRecord
 
 logger = logging.getLogger(__name__)
 
 
 class InProcessGovernanceGate:
-    def __init__(self, rbac, approvals: dict, audit_sink, poll_interval_seconds: float = 0.5) -> None:
+    def __init__(
+        self, rbac, approvals: dict, audit_sink, poll_interval_seconds: float = 0.5
+    ) -> None:
         self._rbac = rbac
         self._approvals = approvals
         self._audit_sink = audit_sink
@@ -53,15 +56,30 @@ class HttpGovernanceGate:
     containers. Same interface remediate.py already calls on the in-process gate.
     """
 
-    def __init__(self, base_url: str, poll_interval_seconds: float = 0.5,
-                 http_client: httpx.Client | None = None) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        poll_interval_seconds: float = 0.5,
+        http_client: httpx.Client | None = None,
+    ) -> None:
         self._base = base_url.rstrip("/")
         self._poll = poll_interval_seconds
-        self._client = http_client or httpx.Client(timeout=5.0)
+        if http_client is not None:
+            self._client = http_client
+        else:
+            settings = get_settings()
+            headers = (
+                {"Authorization": f"Bearer {settings.auth_token}"}
+                if settings.auth_mode == "token" and settings.auth_token
+                else {}
+            )
+            self._client = httpx.Client(timeout=5.0, headers=headers)
 
     def check_rbac(self, actor: str, action: str, resource: str) -> bool:
-        resp = self._client.post(f"{self._base}/rbac/check",
-                                 json={"actor": actor, "action": action, "resource": resource})
+        resp = self._client.post(
+            f"{self._base}/rbac/check",
+            json={"actor": actor, "action": action, "resource": resource},
+        )
         if resp.status_code != 200:
             return False
         return bool(resp.json().get("allowed", False))
@@ -78,7 +96,11 @@ class HttpGovernanceGate:
         # network error, governance 5xx, or malformed body during a poll is
         # treated as "still pending" and polling continues until deadline.
         last_known = ApprovalRequest(
-            id=approval_id, situation_id="", playbook_id="", requested_by="", status="pending",
+            id=approval_id,
+            situation_id="",
+            playbook_id="",
+            requested_by="",
+            status="pending",
         )
         deadline = time.monotonic() + timeout_seconds
         while True:

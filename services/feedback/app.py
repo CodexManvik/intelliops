@@ -23,10 +23,21 @@ def _make_graduator(rbac_actor: str = "feedback-service"):
     # next matching outcome will retry on a fresh process. Kept simple here.
     def graduate(playbook_id: str) -> None:
         try:
-            httpx.post(f"http://governance:8000/playbooks/{playbook_id}/graduate",
-                       json={"decided_by": rbac_actor}, timeout=5.0)
+            settings = get_settings()
+            headers = (
+                {"Authorization": f"Bearer {settings.auth_token}"}
+                if settings.auth_mode == "token" and settings.auth_token
+                else {}
+            )
+            httpx.post(
+                f"http://governance:8000/playbooks/{playbook_id}/graduate",
+                json={"decided_by": rbac_actor},
+                headers=headers,
+                timeout=5.0,
+            )
         except Exception:  # noqa: BLE001, S110 — best-effort; governance's own audit is the record
             pass
+
     return graduate
 
 
@@ -40,8 +51,13 @@ async def lifespan(app: FastAPI):
     app.state.training_store = store
     thread = threading.Thread(
         target=run_consumer,
-        args=(app.state.bus, store, _make_graduator(), settings.graduation_min_successes,
-              stop_event),
+        args=(
+            app.state.bus,
+            store,
+            _make_graduator(),
+            settings.graduation_min_successes,
+            stop_event,
+        ),
         daemon=True,
     )
     thread.start()
