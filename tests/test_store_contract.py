@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from common.contracts import AuditRecord, HitlMode, Playbook, RemediationStep
+from common.contracts import ApprovalRequest, AuditRecord, HitlMode, Playbook, RemediationStep
 
 
 def _audit(cid):
@@ -55,6 +55,28 @@ def _assert_playbook_contract(store) -> None:
     assert len([p for p in store.list() if p.id == "p1"]) == 1
 
 
+def _appr(aid):
+    return ApprovalRequest(
+        id=aid,
+        situation_id="s1",
+        playbook_id="restart-pod",
+        requested_by="action-service",
+    )
+
+
+def _assert_approval_contract(store) -> None:
+    """Shared create/decide/list_pending contract every ApprovalStore backend must satisfy."""
+    store.create(_appr("ac1"))
+    # id-based, seed-robust: our approval is pending before the decision...
+    assert "ac1" in {a.id for a in store.list_pending()}
+    store.decide("ac1", status="approved", decided_by="alice")
+    # ...and gone from pending after, with the decision durably recorded.
+    assert "ac1" not in {a.id for a in store.list_pending()}
+    got = store.get("ac1")
+    assert got.status == "approved"
+    assert got.decided_by == "alice"
+
+
 # --- inmem/file: unmarked, infra-free ---
 
 
@@ -95,6 +117,14 @@ def test_playbook_backends_agree(kind, tmp_path):
     _assert_playbook_contract(store)
 
 
+def test_approval_backend_agrees_inmem():
+    # No FileApprovalStore exists — in-memory is the only non-postgres backend,
+    # so a plain unmarked test (not parametrized) covers the fast path.
+    from services.governance.adapters.approval_store import InMemoryApprovalStore
+
+    _assert_approval_contract(InMemoryApprovalStore())
+
+
 # --- postgres: separate marked tests, same helpers, keeps Docker off the fast path ---
 
 
@@ -111,3 +141,10 @@ def test_playbook_backend_agrees_postgres(clean_db, tmp_path):
 
     # empty seed dir so seeding doesn't add rows that break the "exactly one p1" assertion
     _assert_playbook_contract(PostgresPlaybookStore(clean_db, seed_path=str(tmp_path)))
+
+
+@pytest.mark.postgres
+def test_approval_backend_agrees_postgres(clean_db):
+    from services.governance.adapters.approval_store import PostgresApprovalStore
+
+    _assert_approval_contract(PostgresApprovalStore(clean_db))

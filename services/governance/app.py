@@ -12,6 +12,7 @@ from common.config import get_settings
 from common.contracts import ApprovalRequest, AuditRecord, HitlMode, Playbook
 from common.stores import make_stores
 from services.base import create_app
+from services.governance.adapters.approval_store import InMemoryApprovalStore
 from services.governance.rbac import RbacPolicy
 
 app = create_app("governance-service")  # default: only /health is exempt
@@ -24,7 +25,7 @@ def _init_state() -> None:
     app.state.audit_sink = stores.audit_sink
     app.state.playbook_store = stores.playbook_store
     app.state.rbac = RbacPolicy.from_file(settings.rbac_policy_path)
-    app.state.approvals = {}
+    app.state.approval_store = InMemoryApprovalStore()
 
 
 _init_state()
@@ -97,18 +98,17 @@ def rbac_check(body: RbacCheck) -> dict[str, bool]:
 
 @app.post("/approvals")
 def create_approval(request: ApprovalRequest) -> ApprovalRequest:
-    app.state.approvals[request.id] = request
-    return request
+    return app.state.approval_store.create(request)
 
 
 @app.get("/approvals")
 def list_approvals() -> list[ApprovalRequest]:
-    return [a for a in app.state.approvals.values() if a.status == "pending"]
+    return app.state.approval_store.list_pending()
 
 
 @app.get("/approvals/{approval_id}")
 def get_approval(approval_id: str) -> ApprovalRequest:
-    req = app.state.approvals.get(approval_id)
+    req = app.state.approval_store.get(approval_id)
     if req is None:
         raise HTTPException(status_code=404, detail="approval not found")
     return req
@@ -116,15 +116,14 @@ def get_approval(approval_id: str) -> ApprovalRequest:
 
 @app.post("/approvals/{approval_id}/decide")
 def decide_approval(approval_id: str, decision: Decision) -> ApprovalRequest:
-    req = app.state.approvals.get(approval_id)
+    req = app.state.approval_store.get(approval_id)
     if req is None:
         raise HTTPException(status_code=404, detail="approval not found")
     if not app.state.rbac.check(decision.decided_by, "approve", f"playbook:{req.playbook_id}"):
         raise HTTPException(status_code=403, detail="decider lacks approve permission")
-    updated = req.model_copy(
-        update={"status": decision.decision, "decided_by": decision.decided_by}
+    updated = app.state.approval_store.decide(
+        approval_id, status=decision.decision, decided_by=decision.decided_by
     )
-    app.state.approvals[approval_id] = updated
     return updated
 
 

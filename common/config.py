@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     k8s_namespace: str = "intelliops-demo"
     store_backend: str = "file"  # "file" | "postgres"
     database_url: str = "postgresql+psycopg://intelliops:intelliops@localhost:5432/intelliops"
+    baseline_snapshot_seconds: float = 30.0
 
     # --- Auth at the edge ---
     auth_mode: str = "off"  # "off" | "token"

@@ -66,6 +66,8 @@ services:
       INTELLIOPS_REDIS_URL: redis://redis:6379
       SERVICE_MODULE: services.correlation.app:app
       PORT: "8000"
+      INTELLIOPS_STORE_BACKEND: postgres
+      INTELLIOPS_DATABASE_URL: postgresql+psycopg://intelliops:intelliops@postgres:5432/intelliops
       # Demo-friendly detection: shorter warm-up/window and a lower z-threshold
       # so the injected 18->92 cpu spike reliably clears detection and surfaces
       # within a minute or two (production would run higher/stricter).
@@ -74,6 +76,13 @@ services:
       INTELLIOPS_CORRELATION_Z_THRESHOLD: "2.0"
     ports:
       - "8002:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   rca:
     <<: *service

@@ -25,6 +25,25 @@ def test_playbooks_pk_is_id():
     assert [c.name for c in playbooks.primary_key.columns] == ["id"]
 
 
+def test_runtime_state_tables_registered():
+    from common.db import METADATA
+
+    names = set(METADATA.tables)
+    assert {"approvals", "correlation_baseline"} <= names
+
+    approvals = METADATA.tables["approvals"]
+    assert {"id", "situation_id", "playbook_id", "status", "payload", "updated_at"} <= set(
+        approvals.columns.keys()
+    )
+    assert approvals.c.id.primary_key
+
+    baseline = METADATA.tables["correlation_baseline"]
+    assert {"metric_name", "n", "mean", "variance", "count", "updated_at"} <= set(
+        baseline.columns.keys()
+    )
+    assert baseline.c.metric_name.primary_key
+
+
 def test_payload_roundtrip():
     from datetime import UTC, datetime
 

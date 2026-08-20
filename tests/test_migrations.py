@@ -33,5 +33,11 @@ def test_alembic_upgrade_creates_schema():
                 .scalars()
                 .all()
             )
-    assert {"audit_records", "training_records", "playbooks"} <= tables
-    assert {"ix_audit_correlation_id", "ix_training_signature"} <= idx
+    assert {
+        "audit_records",
+        "training_records",
+        "playbooks",
+        "approvals",
+        "correlation_baseline",
+    } <= tables
+    assert {"ix_audit_correlation_id", "ix_training_signature", "ix_approvals_status"} <= idx

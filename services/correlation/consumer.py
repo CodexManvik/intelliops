@@ -7,11 +7,24 @@ thread started by the FastAPI lifespan; a stop_event allows clean shutdown.
 
 from __future__ import annotations
 
+import logging
 import threading
 
 from common.contracts import Situation, TelemetryEvent
 from common.envelope import iter_models, publish_model
 from services.correlation.engine import CorrelationEngine
+
+logger = logging.getLogger(__name__)
+
+
+def _snapshot_baseline_once(engine, baseline_store) -> None:
+    """Best-effort: snapshot the baseline; log and swallow any error (never raise)."""
+    if baseline_store is None:
+        return
+    try:
+        baseline_store.save(engine.snapshot())
+    except Exception as exc:  # noqa: BLE001 — best-effort; a missed snapshot is recoverable
+        logger.warning("baseline snapshot failed (will retry next period): %s", exc)
 
 
 def _drain_suppressed(bus, engine: CorrelationEngine) -> None:
