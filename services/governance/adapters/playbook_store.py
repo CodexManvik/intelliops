@@ -1,17 +1,22 @@
-"""PlaybookStore implementations: in-memory (tests) and YAML-file-backed.
+"""PlaybookStore implementations: in-memory (tests), YAML-file-backed, and Postgres.
 
 The registry is the CoE's shared playbook catalog — standardized, not
-reinvented per team. Postgres is a deferred adapter.
+reinvented per team. The Postgres adapter (behind STORE_BACKEND=postgres)
+upserts on register so playbook graduation re-registers cleanly.
 """
 
 from __future__ import annotations
 
 import glob
 import os
+from datetime import UTC, datetime
 
 import yaml
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from common.contracts import Playbook
+from common.db import from_payload, playbooks, to_payload
 
 
 def load_seed_playbooks(path: str) -> list[Playbook]:
@@ -54,3 +59,51 @@ class FilePlaybookStore:
 
     def list(self) -> list[Playbook]:
         return list(self._by_id.values())
+
+
+class PostgresPlaybookStore:
+    def __init__(self, engine, seed_path: str) -> None:
+        self._engine = engine
+        for pb in load_seed_playbooks(seed_path):
+            self._seed(pb)
+
+    @staticmethod
+    def _values(playbook: Playbook) -> dict:
+        mode = playbook.hitl_mode.value if hasattr(playbook.hitl_mode, "value") else str(playbook.hitl_mode)
+        return {"id": playbook.id, "name": playbook.name, "hitl_mode": mode,
+                "reversible": playbook.reversible, "payload": to_payload(playbook),
+                "updated_at": datetime.now(UTC)}
+
+    def _seed(self, playbook: Playbook) -> None:
+        """Insert a seed playbook only if absent — never clobber a graduated row.
+
+        Seeding runs on every store construction (i.e. every service restart)
+        from the immutable image-baked YAMLs. A graduated (auto) row persisted at
+        runtime must survive that, so seeding is INSERT-IF-ABSENT while register()
+        stays a full upsert for the graduation path. See ADR-008.
+        """
+        stmt = pg_insert(playbooks).values(**self._values(playbook)).on_conflict_do_nothing(
+            index_elements=[playbooks.c.id])
+        with self._engine.begin() as conn:
+            conn.execute(stmt)
+
+    def register(self, playbook: Playbook) -> None:
+        stmt = pg_insert(playbooks).values(**self._values(playbook))
+        stmt = stmt.on_conflict_do_update(
+            index_elements=[playbooks.c.id],
+            set_={"name": stmt.excluded.name, "hitl_mode": stmt.excluded.hitl_mode,
+                  "reversible": stmt.excluded.reversible, "payload": stmt.excluded.payload,
+                  "updated_at": stmt.excluded.updated_at})
+        with self._engine.begin() as conn:
+            conn.execute(stmt)
+
+    def get(self, playbook_id: str) -> Playbook | None:
+        stmt = select(playbooks.c.payload).where(playbooks.c.id == playbook_id)
+        with self._engine.connect() as conn:
+            row = conn.execute(stmt).first()
+        return from_payload(row.payload, Playbook) if row else None
+
+    def list(self) -> list[Playbook]:
+        with self._engine.connect() as conn:
+            rows = conn.execute(select(playbooks.c.payload).order_by(playbooks.c.id)).all()
+        return [from_payload(r.payload, Playbook) for r in rows]

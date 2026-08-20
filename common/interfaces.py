@@ -65,6 +65,8 @@ class AuditSink(Protocol):
 
     def write(self, record: AuditRecord) -> None: ...
 
+    def records(self, correlation_id: str | None = None) -> list[AuditRecord]: ...
+
 
 @runtime_checkable
 class PlaybookStore(Protocol):

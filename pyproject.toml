@@ -13,6 +13,9 @@ dependencies = [
     "httpx>=0.28.1",
     "prometheus-client>=0.20",
     "kubernetes>=29",
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "psycopg[binary]>=3.1",
 ]
 
 [dependency-groups]
@@ -20,13 +23,12 @@ dev = [
     "pytest>=8.3",
     "ruff>=0.7",
     "fakeredis>=2.37.0",
+    "testcontainers[postgres]>=4.0",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "common", "services"]
-filterwarnings = [
-    "ignore::starlette.exceptions.StarletteDeprecationWarning",
-]
+markers = ["postgres: tests that require a real Postgres (testcontainers + Docker)"]
 
 [tool.ruff]
 line-length = 100

@@ -8,9 +8,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from common.config import get_settings
+from common.stores import make_stores
 from services.base import create_app
-from services.governance.adapters.audit_sink import FileAuditSink
-from services.governance.adapters.playbook_store import FilePlaybookStore
 from services.rca.adapters.context_provider import FileContextProvider
 from services.rca.consumer import run_consumer
 
@@ -20,8 +19,10 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     stop_event = threading.Event()
     provider = FileContextProvider(settings.rca_context_path)
-    store = FilePlaybookStore(settings.playbook_store_path)
-    audit_sink = FileAuditSink(settings.audit_store_path)
+    stores = make_stores(settings)
+    app.state.db_engine = stores.engine
+    store = stores.playbook_store
+    audit_sink = stores.audit_sink
     thread = threading.Thread(
         target=run_consumer,
         args=(app.state.bus, provider, store, audit_sink, stop_event),
@@ -34,6 +35,8 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         stop_event.set()
+        if stores.engine is not None:
+            stores.engine.dispose()
 
 
 app = create_app("rca-service")

@@ -12,6 +12,10 @@ COPY common/ ./common/
 COPY services/ ./services/
 COPY policies/ ./policies/
 COPY deploy/playbooks/ ./data/playbooks/
+# Alembic config + migration scripts, so the one-shot `migrate` compose service
+# can run `alembic upgrade head` against Postgres before the store services boot.
+COPY alembic.ini ./alembic.ini
+COPY alembic/ ./alembic/
 RUN uv sync --frozen --no-dev
 
 # Launch uvicorn directly from the built venv. Using `uv run` here would try to
