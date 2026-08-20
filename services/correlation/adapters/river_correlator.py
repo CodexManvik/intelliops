@@ -61,6 +61,30 @@ class RiverCorrelator:
     def is_anomaly(self, event: TelemetryEvent) -> bool:
         return self.detect(event) > self._z_threshold
 
+    def snapshot(self) -> list[dict]:
+        """Per-metric baseline as plain scalars (see tests/test_baseline_codec)."""
+        out: list[dict] = []
+        for name, mean in self._mean.items():
+            var = self._var[name]
+            out.append(
+                {
+                    "metric_name": name,
+                    "n": var.mean.n,
+                    "mean": mean.get(),
+                    "variance": var.get(),
+                    "count": self._count.get(name, 0),
+                }
+            )
+        return out
+
+    def load(self, rows: list[dict]) -> None:
+        """Rebuild _mean/_var/_count from persisted scalars via river's _from_state."""
+        for r in rows:
+            n = int(r["n"])
+            self._mean[r["metric_name"]] = stats.Mean._from_state(n, r["mean"])
+            self._var[r["metric_name"]] = stats.Var._from_state(n, r["mean"], r["variance"], ddof=1)
+            self._count[r["metric_name"]] = int(r["count"])
+
     def correlate(self, events: list[TelemetryEvent], severity: str = "low") -> Situation:
         if not events:
             raise ValueError("cannot correlate an empty event list")

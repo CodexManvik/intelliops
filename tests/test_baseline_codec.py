@@ -38,3 +38,36 @@ def test_snapshot_reload_preserves_zscore():
     orig_v.update(test_val)
     new_v.update(test_val)
     assert abs(orig_v.get() - new_v.get()) < 1e-9
+
+
+def test_correlator_snapshot_reload_no_warmup_blackout():
+    from datetime import UTC, datetime
+
+    from common.contracts import TelemetryEvent, TelemetryKind
+    from services.correlation.adapters.river_correlator import RiverCorrelator
+
+    def ev(v):
+        # TelemetryEvent requires source + kind (see any correlation test's helper)
+        return TelemetryEvent(
+            source="prom",
+            kind=TelemetryKind.METRIC,
+            name="cpu_usage",
+            value=v,
+            labels={},
+            ts=datetime(2026, 8, 20, tzinfo=UTC),
+            fingerprint="cpu_usage",
+        )
+
+    orig = RiverCorrelator(z_threshold=3.0, warmup_samples=50)
+    for v in [50.0 + (i % 5) for i in range(60)]:  # settle past warm-up
+        orig.detect(ev(v))
+
+    rows = orig.snapshot()
+    assert any(r["metric_name"] == "cpu_usage" for r in rows)
+
+    fresh = RiverCorrelator(z_threshold=3.0, warmup_samples=50)
+    fresh.load(rows)
+    # a genuine outlier fires immediately — NO warm-up blackout after reload
+    assert fresh.is_anomaly(ev(500.0))
+    # and a normal value does not
+    assert not fresh.is_anomaly(ev(51.0))
