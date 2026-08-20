@@ -28,6 +28,7 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "common", "services"]
+markers = ["postgres: tests that require a real Postgres (testcontainers + Docker)"]
 
 [tool.ruff]
 line-length = 100
