@@ -92,3 +92,22 @@ def test_engine_snapshot_load_roundtrip():
     e2.load(rows)
     # e2's correlator is warmed - a spike is detected (add returns/ buffers it)
     assert e2._correlator.is_anomaly(ev(500.0))
+
+
+def test_add_scores_under_lock():
+    """detect() must run while the engine lock is held, so a concurrent
+    snapshot()/load() on the flusher thread can never read a half-updated
+    baseline. We wrap detect() to record whether the lock was locked when it
+    ran (add() holds the same non-reentrant lock)."""
+    correlator = RiverCorrelator(z_threshold=3.0, warmup_samples=1)
+    engine = CorrelationEngine(correlator)
+    seen_locked: list[bool] = []
+    real_detect = correlator.detect
+
+    def _recording_detect(event):
+        seen_locked.append(engine._lock.locked())
+        return real_detect(event)
+
+    correlator.detect = _recording_detect
+    engine.add(_event(10.0))
+    assert seen_locked == [True], "detect() must be called while the lock is held"

@@ -40,10 +40,17 @@ class CorrelationEngine:
         self._lock = threading.Lock()
 
     def add(self, event: TelemetryEvent) -> Situation | None:
-        score = self._correlator.detect(event)
-        if score <= self._correlator._z_threshold:
-            return None
+        # detect() mutates the correlator's per-metric baseline (_mean/_var/
+        # _count); snapshot()/load()/reset() touch that same state under this
+        # lock from the flusher thread. Score UNDER the lock so a concurrent
+        # snapshot can never read a half-updated baseline. Contention is low
+        # (one consumer thread scores; the flusher only holds the lock briefly),
+        # so widening the existing critical section costs nothing measurable and
+        # is simpler than a second baseline-only lock.
         with self._lock:
+            score = self._correlator.detect(event)
+            if score <= self._correlator._z_threshold:
+                return None
             emitted: Situation | None = None
             if self._buffer:
                 span = (event.ts - self._buffer[0].ts).total_seconds()
