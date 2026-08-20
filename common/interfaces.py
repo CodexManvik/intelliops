@@ -80,6 +80,19 @@ class PlaybookStore(Protocol):
 
 
 @runtime_checkable
+class ApprovalStore(Protocol):
+    """Pending HITL approvals (in-memory / Postgres)."""
+
+    def create(self, request: ApprovalRequest) -> ApprovalRequest: ...
+
+    def get(self, approval_id: str) -> ApprovalRequest | None: ...
+
+    def decide(self, approval_id: str, status: str, decided_by: str) -> ApprovalRequest | None: ...
+
+    def list_pending(self) -> list[ApprovalRequest]: ...
+
+
+@runtime_checkable
 class ContextProvider(Protocol):
     """A source of RCA enrichment context (file / Prometheus / CMDB / git)."""
 
