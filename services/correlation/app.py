@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -11,12 +12,21 @@ from common.config import get_settings
 from common.envelope import publish_model
 from services.base import create_app
 from services.correlation.adapters.river_correlator import RiverCorrelator
-from services.correlation.consumer import _drain_suppressed, run_consumer
+from services.correlation.consumer import (
+    _drain_suppressed,
+    _snapshot_baseline_once,
+    run_consumer,
+)
 from services.correlation.engine import CorrelationEngine
 
 
 def run_flusher(
-    bus, engine: CorrelationEngine, period_seconds: float, stop_event: threading.Event
+    bus,
+    engine: CorrelationEngine,
+    period_seconds: float,
+    stop_event: threading.Event,
+    baseline_store=None,
+    snapshot_period: float = 30.0,
 ) -> None:
     """Periodically collapse the buffered window into a Situation.
 
@@ -31,12 +41,23 @@ def run_flusher(
     flush can (closed-loop signatures don't care which code path collapsed the
     window), so this must drain and publish suppressed situations too — otherwise
     a suppression that only ever happens on a timer-flush is silently lost.
+
+    This thread also piggybacks the periodic baseline snapshot. Because the loop
+    wakes on the (possibly shorter) situation-flush cadence, the snapshot runs on
+    its own elapsed-time schedule tracked with time.monotonic() rather than once
+    per wake. The snapshot is best-effort (_snapshot_baseline_once never raises),
+    so a persistence hiccup can never crash this flusher.
     """
+    last_snapshot = time.monotonic()
     while not stop_event.wait(period_seconds):
         emitted = engine.flush()
         if emitted is not None:
             publish_model(bus, "situations.detected", emitted)
         _drain_suppressed(bus, engine)
+        now = time.monotonic()
+        if now - last_snapshot >= snapshot_period:
+            _snapshot_baseline_once(engine, baseline_store)
+            last_snapshot = now
 
 
 @asynccontextmanager
