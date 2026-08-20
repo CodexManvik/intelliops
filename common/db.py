@@ -15,6 +15,7 @@ from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
+    Float,
     Index,
     MetaData,
     String,
@@ -66,6 +67,29 @@ playbooks = Table(
     Column("hitl_mode", String, nullable=False),
     Column("reversible", Boolean, nullable=False),
     Column("payload", _JSON, nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+
+approvals = Table(
+    "approvals",
+    METADATA,
+    Column("id", String, primary_key=True),
+    Column("situation_id", String, nullable=False),
+    Column("playbook_id", String, nullable=False),
+    Column("status", String, nullable=False),
+    Column("payload", _JSON, nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+Index("ix_approvals_status", approvals.c.status)
+
+correlation_baseline = Table(
+    "correlation_baseline",
+    METADATA,
+    Column("metric_name", String, primary_key=True),
+    Column("n", Float, nullable=False),
+    Column("mean", Float, nullable=False),
+    Column("variance", Float, nullable=False),
+    Column("count", BigInteger, nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
 )
 
