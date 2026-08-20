@@ -1,7 +1,8 @@
-"""PlaybookStore implementations: in-memory (tests) and YAML-file-backed.
+"""PlaybookStore implementations: in-memory (tests), YAML-file-backed, and Postgres.
 
 The registry is the CoE's shared playbook catalog — standardized, not
-reinvented per team. Postgres is a deferred adapter.
+reinvented per team. The Postgres adapter (behind STORE_BACKEND=postgres)
+upserts on register so playbook graduation re-registers cleanly.
 """
 
 from __future__ import annotations
