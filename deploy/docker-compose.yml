@@ -21,6 +21,33 @@ services:
       timeout: 3s
       retries: 5
 
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: intelliops
+      POSTGRES_PASSWORD: intelliops
+      POSTGRES_DB: intelliops
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U intelliops -d intelliops"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # One-shot: applies Alembic migrations, then exits. The four store-using
+  # services wait for it (service_completed_successfully) before starting.
+  migrate:
+    <<: *service
+    command: uv run alembic upgrade head
+    environment:
+      INTELLIOPS_DATABASE_URL: postgresql+psycopg://intelliops:intelliops@postgres:5432/intelliops
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   ingestion:
     <<: *service
     environment:
@@ -54,8 +81,17 @@ services:
       INTELLIOPS_REDIS_URL: redis://redis:6379
       SERVICE_MODULE: services.rca.app:app
       PORT: "8000"
+      INTELLIOPS_STORE_BACKEND: postgres
+      INTELLIOPS_DATABASE_URL: postgresql+psycopg://intelliops:intelliops@postgres:5432/intelliops
     ports:
       - "8003:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   action:
     <<: *service
@@ -65,8 +101,17 @@ services:
       PORT: "8000"
       INTELLIOPS_GOVERNANCE_MODE: http
       INTELLIOPS_GOVERNANCE_URL: http://governance:8000
+      INTELLIOPS_STORE_BACKEND: postgres
+      INTELLIOPS_DATABASE_URL: postgresql+psycopg://intelliops:intelliops@postgres:5432/intelliops
     ports:
       - "8004:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   governance:
     <<: *service
@@ -74,8 +119,17 @@ services:
       INTELLIOPS_REDIS_URL: redis://redis:6379
       SERVICE_MODULE: services.governance.app:app
       PORT: "8000"
+      INTELLIOPS_STORE_BACKEND: postgres
+      INTELLIOPS_DATABASE_URL: postgresql+psycopg://intelliops:intelliops@postgres:5432/intelliops
     ports:
       - "8005:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   feedback:
     <<: *service
@@ -83,8 +137,17 @@ services:
       INTELLIOPS_REDIS_URL: redis://redis:6379
       SERVICE_MODULE: services.feedback.app:app
       PORT: "8000"
+      INTELLIOPS_STORE_BACKEND: postgres
+      INTELLIOPS_DATABASE_URL: postgresql+psycopg://intelliops:intelliops@postgres:5432/intelliops
     ports:
       - "8006:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   demo-app:
     <<: *service
@@ -118,3 +181,6 @@ services:
       PORT: "8000"
     ports:
       - "8007:8000"
+
+volumes:
+  postgres-data:

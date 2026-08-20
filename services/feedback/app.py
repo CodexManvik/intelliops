@@ -9,8 +9,8 @@ import httpx
 from fastapi import FastAPI
 
 from common.config import get_settings
+from common.stores import make_stores
 from services.base import create_app
-from services.feedback.adapters.training_store import FileTrainingStore
 from services.feedback.consumer import run_consumer
 from services.feedback.metrics import compute_metrics
 
@@ -34,7 +34,9 @@ def _make_graduator(rbac_actor: str = "feedback-service"):
 async def lifespan(app: FastAPI):
     settings = get_settings()
     stop_event = threading.Event()
-    store = FileTrainingStore(settings.training_store_path)
+    stores = make_stores(settings)
+    app.state.db_engine = stores.engine
+    store = stores.training_store
     app.state.training_store = store
     thread = threading.Thread(
         target=run_consumer,
@@ -49,6 +51,8 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         stop_event.set()
+        if stores.engine is not None:
+            stores.engine.dispose()
 
 
 app = create_app("feedback-service")
