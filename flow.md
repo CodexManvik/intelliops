@@ -122,13 +122,16 @@ The swap points that keep the system platform-agnostic and testable
 | `Remediator` | `execute()`, `rollback()` | `DryRunRemediator` (logs steps, touches nothing — the safe default), `RecordingRemediator` (tests), **`KubernetesRemediator`** (real `AppsV1Api` calls — restart via a `restartedAt` annotation patch, scale via `patch_namespaced_deployment_scale`, rollback via a rollout-restart annotation; no shell, no string parsing; never deletes; any API error → `False`, never raises. Behind `REMEDIATOR_MODE=k8s`, targeting a local kind cluster — see [deploy/k8s/README.md](deploy/k8s/README.md)) | — |
 | `HealthChecker` | `check()` | `AlwaysHealthyChecker` (pairs with dry-run), `FixedHealthChecker` (tests), **real `KubernetesHealthChecker`** (two signals — pod readiness from deployment status, and metric recovery re-queried from Prometheus — polled to a timeout; fails closed. Behind `HEALTH_CHECK_MODE=k8s`) | — |
 | `GovernanceGate` (action→governance) | `check_rbac()`, `request_approval()`, `await_decision()`, `write_audit()` | `InProcessGovernanceGate` (shared dict, single-process/tests), **`HttpGovernanceGate`** (REST — works across containers; fail-closed on any error) | — |
-| `AuditSink` | `write()` | `FileAuditSink` (JSONL), `InMemoryAuditSink` (tests) | Postgres |
+| `AuditSink` | `write()`, `records()` | `FileAuditSink` (JSONL), `InMemoryAuditSink` (tests), **`PostgresAuditSink`** (hybrid schema — indexed columns + a JSONB payload that is the source of truth; errors propagate, a lost audit write is a compliance failure. Behind `STORE_BACKEND=postgres` — see [docs/PERSISTENCE.md](docs/PERSISTENCE.md)) | — |
+| `PlaybookStore` | `register()`, `get()`, `list()` | `InMemoryPlaybookStore` (tests), `FilePlaybookStore` (YAML dir), **`PostgresPlaybookStore`** (upsert via `ON CONFLICT`; same `STORE_BACKEND=postgres` switch) | — |
+| `TrainingStore` | `append()`, `read_all()` | `InMemoryTrainingStore` (tests), `FileTrainingStore` (JSONL), **`PostgresTrainingStore`** (same switch; errors propagate) | — |
 | `BusClient` | `publish()`, `consume()` | **`RedisBus`** (Redis Streams, consumer groups) | Kafka (prod) |
 
 Tests bind fakes (`RecordingRemediator`, `FixedHealthChecker`, `InMemory*`) to exercise a
 service in isolation. **Selection is config-driven** — env switches pick the live vs test-safe
-binding (`TELEMETRY_MODE=file|prometheus`, `GOVERNANCE_MODE=in_process|http`), so the default
-build stays test-safe and the compose stack turns the live bindings on.
+binding (`TELEMETRY_MODE=file|prometheus`, `GOVERNANCE_MODE=in_process|http`,
+`STORE_BACKEND=file|postgres`), so the default build stays test-safe and the compose stack turns
+the live bindings on.
 
 ## 5. Per-service function reference
 
@@ -246,6 +249,14 @@ be driven and re-driven on docker-compose. See §8.
   in the console; the loop resolves; live KPIs (real MTTR, noise-reduction) populate.
 - Repeatable simulations via `scripts/reset.sh` (recover demo, forget detector baseline, empty
   the read model — no docker restart).
+
+**Persistence is real — behind a backend switch.** The audit log, playbook registry, and
+training store can be backed by **Postgres** (`STORE_BACKEND=postgres`), which is the compose
+default: a `postgres:16-alpine` service, Alembic migrations applied by a one-shot `migrate`
+step, and a hybrid schema (indexed columns + a JSONB payload that is the source of truth).
+`file` stays the default for tests and quick dev without Docker. See
+[docs/PERSISTENCE.md](docs/PERSISTENCE.md) and
+[ADR-014](architectural.md#adr-014--postgres-persistence-with-a-hybrid-schema).
 
 **Remediation is real — on an opt-in kind cluster.** Behind `REMEDIATOR_MODE=k8s` /
 `HEALTH_CHECK_MODE=k8s`, `action-service` drives a real Kubernetes API: `KubernetesRemediator`

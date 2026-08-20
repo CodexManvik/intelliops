@@ -184,6 +184,11 @@ Kubernetes API, Ansible, Kafka/Redis, Postgres) but put each behind an interface
 (`TelemetrySource`, `Correlator`, `Remediator`, `AuditSink`, `BusClient`). Tool choice is a
 config-time binding, not a code-time assumption.
 
+> **Update.** The Postgres store adapters named here are now **built** — `PostgresAuditSink`,
+> `PostgresPlaybookStore`, `PostgresTrainingStore` sit behind the `AuditSink` / `PlaybookStore` /
+> `TrainingStore` interfaces, selected by the `STORE_BACKEND=file|postgres` switch. See
+> [ADR-014](#adr-014--postgres-persistence-with-a-hybrid-schema).
+
 **Why.** This is the concrete mechanism that makes "platform-agnostic" real rather than
 aspirational. It also makes the whole system testable: unit tests bind fake adapters
 (`FakeBus`, `FakeRemediator`) and exercise a service in complete isolation.
@@ -416,6 +421,65 @@ the purpose of a typed, fail-safe remediator. *Let the adapter resolve its own t
 `Situation`* — duplicates resolution logic per adapter and lets an adapter act on a target the
 rest of the pipeline never agreed on.
 
+### ADR-014 — Postgres persistence with a hybrid schema
+
+**Context.** ADR-005 names Postgres as the durable store behind the `AuditSink` / `PlaybookStore`
+/ `TrainingStore` interfaces, but the only implementations were file-backed (JSONL logs, a YAML
+playbook dir). Files are fine for tests and a single-process demo, but the audit log is the
+compliance backbone (NIST AI RMF) and the training store is the closed loop's memory — both want
+real durability, indexed queries (audit by `correlation_id`, training by `signature`), and a
+schema that survives replicas. The open question was *how* to persist without forcing every model
+change through a migration and without letting the database's shape drift away from the Pydantic
+contracts.
+
+**Decision.** Build Postgres adapters on **SQLAlchemy Core** (not the ORM) plus **Alembic**
+migrations, with a **hybrid schema**: each of the three tables carries a set of *promoted* key
+columns (indexed / queried) alongside a `JSONB` **`payload`** holding the full serialized record.
+The **payload is the source of truth** — reads always reconstruct the Pydantic object from
+`payload`, never from the columns, so the promoted columns are a denormalized index that steers
+*which* rows are found but can never change *what* a row means. The tables are defined once as a
+shared `MetaData` in `common/db.py` (used both by the adapters and by Alembic autogenerate).
+Backend choice is a **`STORE_BACKEND=file|postgres` switch defaulting to `file`**, realized in
+one factory (`common/stores.py` `make_stores`) shared by all four store-constructing services.
+Persistence errors **propagate** — they are not caught and turned into a silent no-op.
+
+**Why.** Core over the ORM keeps the mapping explicit and the payload literal — the adapter
+serializes a Pydantic model to JSON and stores it, with no lazy-loading, session, or identity-map
+machinery between the contract and the row. The hybrid schema gets both properties that matter:
+indexed columns for the few real query paths, and a payload that means a model field added later
+needs no migration to be *stored and read back* (only a migration if it must become a new indexed
+column). Payload-as-source-of-truth is what makes the promoted columns safe — they can't silently
+corrupt a reconstructed record. Alembic as a **dedicated migration step** (never auto-on-startup)
+avoids the race where booting replicas all try to create the same tables; in compose this is the
+one-shot `migrate` service the store services wait on
+(`condition: service_completed_successfully`). The `file`-default switch follows ADR-012's
+config-switch-with-test-safe-default pattern, so a bare `pytest` never needs a database.
+
+**Consequences.** (+) Durable, queryable, replica-safe persistence for audit / playbooks /
+training, with the model contract still owning the record shape. (+) One factory means the backend
+can't split (governance writing playbooks to Postgres while rca reads files is not expressible).
+(+) `playbooks` upserts on `id` via Postgres `ON CONFLICT DO UPDATE`, so re-registering (including
+seed-on-init) is idempotent. (−) Two storage backends to keep behaviorally equivalent, and a
+migration is required whenever a *promoted* column changes. Accepted — a cross-backend contract
+test pins the file / in-memory / Postgres adapters to the same behavior.
+
+**Errors propagate, deliberately unlike the remediator.** A failed audit or training write raises
+rather than degrading to a swallowed no-op — a lost audit record is a compliance failure and must
+be *visible*. This is the opposite of the fail-safe K8s remediator
+([ADR-007](#adr-007--reversible-only-health-verified-remediation),
+[ADR-013](#adr-013--structured-remediationplan-is-what-made-real-k8s-remediation-safe)), which
+catches every API error and returns `False`. The postures diverge because the goals diverge: the
+remediator must never *act* on uncertainty; the store must never *hide* a lost write.
+
+**Alternatives rejected.** *The SQLAlchemy ORM* — more machinery (sessions, identity map, lazy
+loading) than a serialize-to-JSONB adapter needs, and it blurs the line between the Pydantic
+contract and the row. *A fully normalized schema* (a column per model field, no payload) — every
+model change becomes a migration, and the DB shape can drift from the contract; the hybrid schema
+keeps the contract authoritative. *Testing against SQLite* — its JSON and upsert semantics differ
+from Postgres (no real `JSONB`, different `ON CONFLICT`), so the tests use **testcontainers** (a
+real throwaway Postgres) to verify against the database that actually runs. *Auto-migrating on
+service startup* — races across replicas; migrations run as their own step instead.
+
 ---
 
 ## 4. Cross-cutting concerns
@@ -431,9 +495,11 @@ fails **closed**: if governance is unreachable, the action does **not** proceed.
 **Scalability.** The bus partitions by service; correlation (the hot path) scales
 horizontally as a consumer group. RCA and action are lower-frequency and scale independently.
 
-**Data at rest.** Audit records and labeled training outcomes live in Postgres (via
-`AuditSink` / the training store). Both are deployable in-region/on-prem for sovereign-cloud
-requirements.
+**Data at rest.** Audit records, labeled training outcomes, and the playbook registry persist
+to **Postgres** behind the `STORE_BACKEND=postgres` switch (the compose default) — a hybrid
+schema with a JSONB payload as the source of truth, migrated by Alembic
+([ADR-014](#adr-014--postgres-persistence-with-a-hybrid-schema)). `file` stays the default for
+tests and quick dev. Postgres is deployable in-region/on-prem for sovereign-cloud requirements.
 
 ## 5. Compliance mapping
 
@@ -463,6 +529,12 @@ requirements.
   [deploy/k8s/README.md](deploy/k8s/README.md) — a documented runbook, not part of CI. Dry-run
   (`DryRunRemediator` + `AlwaysHealthyChecker`) is still the default everywhere else (compose
   without the k8s overlay, tests, CI), so nothing changes for the base build.
+- **Postgres persistence.** The audit log, playbook registry, and training store now have
+  real Postgres adapters behind their interfaces ([ADR-014](#adr-014--postgres-persistence-with-a-hybrid-schema)):
+  a hybrid schema (indexed columns + a JSONB payload that is the source of truth), Alembic
+  migrations applied as a dedicated step, and a `STORE_BACKEND=file|postgres` switch. Postgres
+  is the compose default; `file` stays the default for tests and quick dev. See
+  [docs/PERSISTENCE.md](docs/PERSISTENCE.md).
 
 **What remains deliberately deferred / simulated — the honest gap and the next milestones:**
 - **Authentication / authorization at the edge.** RBAC gates *actions* internally, but the
