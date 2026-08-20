@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from services.correlation.adapters.baseline_store import PostgresBaselineStore
 from services.feedback.adapters.training_store import FileTrainingStore, PostgresTrainingStore
+from services.governance.adapters.approval_store import InMemoryApprovalStore, PostgresApprovalStore
 from services.governance.adapters.audit_sink import FileAuditSink, PostgresAuditSink
 from services.governance.adapters.playbook_store import FilePlaybookStore, PostgresPlaybookStore
 
@@ -19,6 +21,8 @@ class Stores:
     playbook_store: object
     training_store: object
     engine: object | None
+    approval_store: object
+    baseline_store: object | None
 
 
 def make_stores(settings) -> Stores:
@@ -31,10 +35,14 @@ def make_stores(settings) -> Stores:
             playbook_store=PostgresPlaybookStore(engine, seed_path=settings.playbook_store_path),
             training_store=PostgresTrainingStore(engine),
             engine=engine,
+            approval_store=PostgresApprovalStore(engine),
+            baseline_store=PostgresBaselineStore(engine),
         )
     return Stores(
         audit_sink=FileAuditSink(settings.audit_store_path),
         playbook_store=FilePlaybookStore(settings.playbook_store_path),
         training_store=FileTrainingStore(settings.training_store_path),
         engine=None,
+        approval_store=InMemoryApprovalStore(),
+        baseline_store=None,
     )
