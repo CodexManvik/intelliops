@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from common.contracts import HitlMode, Playbook, RemediationStep
+from services.governance.adapters.approval_store import InMemoryApprovalStore
 from services.governance.adapters.audit_sink import InMemoryAuditSink
 from services.governance.adapters.playbook_store import InMemoryPlaybookStore
 from services.governance.rbac import RbacPolicy
@@ -27,7 +28,7 @@ def _client():
         roles={"coe-admin": [{"action": "graduate", "resource": "playbook:*"}]},
         actors={"feedback-service": ["coe-admin"], "random-bob": []},
     )
-    app.state.approvals = {}
+    app.state.approval_store = InMemoryApprovalStore()
     return TestClient(app), app.state
 
 
