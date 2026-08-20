@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from common.config import get_settings
 from common.contracts import ApprovalRequest, AuditRecord, HitlMode, Playbook
+from common.stores import make_stores
 from services.base import create_app
-from services.governance.adapters.audit_sink import FileAuditSink
-from services.governance.adapters.playbook_store import FilePlaybookStore
 from services.governance.rbac import RbacPolicy
 
 app = create_app("governance-service")
@@ -19,13 +19,30 @@ app = create_app("governance-service")
 
 def _init_state() -> None:
     settings = get_settings()
-    app.state.audit_sink = FileAuditSink(settings.audit_store_path)
-    app.state.playbook_store = FilePlaybookStore(settings.playbook_store_path)
+    stores = make_stores(settings)
+    app.state.db_engine = stores.engine
+    app.state.audit_sink = stores.audit_sink
+    app.state.playbook_store = stores.playbook_store
     app.state.rbac = RbacPolicy.from_file(settings.rbac_policy_path)
     app.state.approvals = {}
 
 
 _init_state()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # State is initialized at import time via _init_state(); the lifespan exists
+    # only to dispose the engine on shutdown, matching rca/action/feedback.
+    try:
+        yield
+    finally:
+        engine = getattr(app.state, "db_engine", None)
+        if engine is not None:
+            engine.dispose()
+
+
+app.router.lifespan_context = lifespan
 
 
 class RbacCheck(BaseModel):
@@ -51,10 +68,7 @@ def write_audit(record: AuditRecord) -> dict[str, str]:
 
 @app.get("/audit")
 def query_audit(correlation_id: str | None = None) -> list[AuditRecord]:
-    records = app.state.audit_sink.records()
-    if correlation_id is not None:
-        records = [r for r in records if r.correlation_id == correlation_id]
-    return records
+    return app.state.audit_sink.records(correlation_id)
 
 
 @app.post("/playbooks")
