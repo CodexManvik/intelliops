@@ -69,16 +69,25 @@ from common.contracts import HitlMode, RemediationOutcome, RemediationResult
 
 def test_outcome_defaults_hitl_mode():
     # existing constructors omit hitl_mode → must still work, defaulting to HITL
-    o = RemediationOutcome(situation_id="s", playbook_id="p",
-                           result=RemediationResult.SUCCESS, health_after="healthy",
-                           ts=datetime.now(UTC))
+    o = RemediationOutcome(
+        situation_id="s",
+        playbook_id="p",
+        result=RemediationResult.SUCCESS,
+        health_after="healthy",
+        ts=datetime.now(UTC),
+    )
     assert o.hitl_mode == HitlMode.HITL
 
 
 def test_outcome_accepts_hitl_mode():
-    o = RemediationOutcome(situation_id="s", playbook_id="p",
-                           result=RemediationResult.SUCCESS, health_after="healthy",
-                           ts=datetime.now(UTC), hitl_mode=HitlMode.AUTO)
+    o = RemediationOutcome(
+        situation_id="s",
+        playbook_id="p",
+        result=RemediationResult.SUCCESS,
+        health_after="healthy",
+        ts=datetime.now(UTC),
+        hitl_mode=HitlMode.AUTO,
+    )
     assert o.hitl_mode == HitlMode.AUTO
 ```
 
@@ -106,11 +115,16 @@ class RemediationOutcome(BaseModel):
 In `services/action/remediate.py`, the `_outcome` helper builds the outcome. Update it to pass the playbook's mode:
 
 ```python
-def _outcome(situation: Situation, playbook: Playbook, result: RemediationResult,
-             health_after: str) -> RemediationOutcome:
+def _outcome(
+    situation: Situation, playbook: Playbook, result: RemediationResult, health_after: str
+) -> RemediationOutcome:
     return RemediationOutcome(
-        situation_id=situation.id, playbook_id=playbook.id, result=result,
-        health_after=health_after, ts=datetime.now(UTC), hitl_mode=playbook.hitl_mode,
+        situation_id=situation.id,
+        playbook_id=playbook.id,
+        result=result,
+        health_after=health_after,
+        ts=datetime.now(UTC),
+        hitl_mode=playbook.hitl_mode,
     )
 ```
 
@@ -144,25 +158,47 @@ git commit -m "feat(contracts): RemediationOutcome.hitl_mode (additive); action 
 from datetime import UTC, datetime
 from common.contracts import Situation, SituationStatus, TelemetryEvent, TelemetryKind
 
+
 def _sit_with_labels(labels):
-    ev = TelemetryEvent(source="prometheus", kind=TelemetryKind.METRIC, name="cpu_usage",
-                        value=90.0, labels=labels, ts=datetime(2026,8,16,tzinfo=UTC),
-                        fingerprint="fp")
-    return Situation(id="sit-x", status=SituationStatus.DETECTED, member_events=[ev],
-                     severity="high", first_seen=datetime(2026,8,16,tzinfo=UTC),
-                     last_seen=datetime(2026,8,16,tzinfo=UTC), signature="x")
+    ev = TelemetryEvent(
+        source="prometheus",
+        kind=TelemetryKind.METRIC,
+        name="cpu_usage",
+        value=90.0,
+        labels=labels,
+        ts=datetime(2026, 8, 16, tzinfo=UTC),
+        fingerprint="fp",
+    )
+    return Situation(
+        id="sit-x",
+        status=SituationStatus.DETECTED,
+        member_events=[ev],
+        severity="high",
+        first_seen=datetime(2026, 8, 16, tzinfo=UTC),
+        last_seen=datetime(2026, 8, 16, tzinfo=UTC),
+        signature="x",
+    )
+
 
 def test_service_of_precedence_service():
     from services.read.projection import ReadModel
-    assert ReadModel._service_of(_sit_with_labels({"service":"web","job":"j","instance":"i"})) == "web"
+
+    assert (
+        ReadModel._service_of(_sit_with_labels({"service": "web", "job": "j", "instance": "i"}))
+        == "web"
+    )
+
 
 def test_service_of_precedence_job_then_instance():
     from services.read.projection import ReadModel
-    assert ReadModel._service_of(_sit_with_labels({"job":"api"})) == "api"
-    assert ReadModel._service_of(_sit_with_labels({"instance":"host:9100"})) == "host:9100"
+
+    assert ReadModel._service_of(_sit_with_labels({"job": "api"})) == "api"
+    assert ReadModel._service_of(_sit_with_labels({"instance": "host:9100"})) == "host:9100"
+
 
 def test_service_of_unknown_when_no_labels():
     from services.read.projection import ReadModel
+
     assert ReadModel._service_of(_sit_with_labels({})) == "unknown"
 ```
 
@@ -224,38 +260,63 @@ In `common/config.py`, after `read_outcomes_max`:
 ```python
 # services/read/tests/test_pruning.py
 from datetime import UTC, datetime
-from common.contracts import (RemediationOutcome, RemediationResult, Situation, SituationStatus)
+from common.contracts import RemediationOutcome, RemediationResult, Situation, SituationStatus
 from services.read.projection import ReadModel
 
-def _sit(sid, status=SituationStatus.DETECTED, t=datetime(2026,8,16,tzinfo=UTC)):
-    return Situation(id=sid, status=status, member_events=[], severity="high",
-                     first_seen=t, last_seen=t, signature=sid.replace("sit-",""))
+
+def _sit(sid, status=SituationStatus.DETECTED, t=datetime(2026, 8, 16, tzinfo=UTC)):
+    return Situation(
+        id=sid,
+        status=status,
+        member_events=[],
+        severity="high",
+        first_seen=t,
+        last_seen=t,
+        signature=sid.replace("sit-", ""),
+    )
+
 
 MS = 1000
+
 
 def test_terminal_old_situation_is_aged_out():
     rm = ReadModel(ttl_seconds=10, max_situations=50)
     rm.apply_detected(_sit("sit-1"))
-    rm.apply_outcome(RemediationOutcome(situation_id="sit-1", playbook_id="p",
-        result=RemediationResult.SUCCESS, health_after="healthy",
-        ts=datetime(2026,8,16,tzinfo=UTC)))
+    rm.apply_outcome(
+        RemediationOutcome(
+            situation_id="sit-1",
+            playbook_id="p",
+            result=RemediationResult.SUCCESS,
+            health_after="healthy",
+            ts=datetime(2026, 8, 16, tzinfo=UTC),
+        )
+    )
     # far in the future: > ttl past the outcome ts
-    base = int(datetime(2026,8,16,tzinfo=UTC).timestamp()*1000)
-    assert len(rm.situations(now_ms=base + 20*MS)) == 0
+    base = int(datetime(2026, 8, 16, tzinfo=UTC).timestamp() * 1000)
+    assert len(rm.situations(now_ms=base + 20 * MS)) == 0
+
 
 def test_active_situation_never_aged_out():
     rm = ReadModel(ttl_seconds=1, max_situations=50)
     rm.apply_detected(_sit("sit-1", status=SituationStatus.DETECTED))
-    base = int(datetime(2026,8,16,tzinfo=UTC).timestamp()*1000)
+    base = int(datetime(2026, 8, 16, tzinfo=UTC).timestamp() * 1000)
     assert len(rm.situations(now_ms=base + 999999)) == 1  # still detected → kept
+
 
 def test_cap_evicts_oldest_terminal_first():
     rm = ReadModel(ttl_seconds=10_000, max_situations=2)
     for i in range(3):
-        t = datetime(2026,8,16,0,0,i,tzinfo=UTC)
+        t = datetime(2026, 8, 16, 0, 0, i, tzinfo=UTC)
         rm.apply_detected(_sit(f"sit-{i}", t=t))
-        rm.apply_outcome(RemediationOutcome(situation_id=f"sit-{i}", playbook_id="p",
-            result=RemediationResult.SUCCESS, health_after="healthy", ts=t))
+        rm.apply_outcome(
+            RemediationOutcome(
+                situation_id=f"sit-{i}",
+                playbook_id="p",
+                result=RemediationResult.SUCCESS,
+                health_after="healthy",
+                ts=t,
+            )
+        )
     ids = {s["id"] for s in rm.situations()}
     assert "sit-0" not in ids and len(ids) == 2  # oldest terminal evicted
 ```
@@ -272,13 +333,14 @@ In `services/read/projection.py`:
 Update `__init__`:
 
 ```python
-    def __init__(self, max_outcomes: int = 200, ttl_seconds: float = 600.0,
-                 max_situations: int = 50) -> None:
-        self._sits: dict[str, dict] = {}
-        self._outcomes: list[dict] = []
-        self._max = max_outcomes
-        self._ttl_ms = ttl_seconds * 1000
-        self._max_sits = max_situations
+def __init__(
+    self, max_outcomes: int = 200, ttl_seconds: float = 600.0, max_situations: int = 50
+) -> None:
+    self._sits: dict[str, dict] = {}
+    self._outcomes: list[dict] = []
+    self._max = max_outcomes
+    self._ttl_ms = ttl_seconds * 1000
+    self._max_sits = max_situations
 ```
 
 Add helpers and wire pruning. A situation is terminal when its status is `resolved` or `failed`. "Last activity" is its outcome ts if present else `first_seen`; store `last_activity` on the dict when an outcome lands (update `apply_outcome` to also set `self._sits[o.situation_id]["last_activity"] = _epoch_ms(o.ts)`), and set `last_activity = first_seen` in `apply_detected`.
@@ -294,28 +356,30 @@ In `apply_outcome`, after setting status, add:
 Add the prune method and use it in `situations()`:
 
 ```python
-    _TERMINAL = {"resolved", "failed"}
+_TERMINAL = {"resolved", "failed"}
 
-    def _prune(self, now_ms: int) -> None:
-        # 1. age-out terminal situations older than ttl
-        for sid in list(self._sits):
-            s = self._sits[sid]
-            if s["status"] in self._TERMINAL and now_ms - s.get("last_activity", 0) > self._ttl_ms:
-                del self._sits[sid]
-        # 2. cap: if over max, evict oldest-terminal-first (never active)
-        if len(self._sits) > self._max_sits:
-            terminal = sorted(
-                (s for s in self._sits.values() if s["status"] in self._TERMINAL),
-                key=lambda s: s.get("last_activity", 0),
-            )
-            n_to_drop = len(self._sits) - self._max_sits
-            for s in terminal[:n_to_drop]:
-                del self._sits[s["id"]]
 
-    def situations(self, now_ms: int | None = None) -> list[dict]:
-        if now_ms is not None:
-            self._prune(now_ms)
-        return list(self._sits.values())
+def _prune(self, now_ms: int) -> None:
+    # 1. age-out terminal situations older than ttl
+    for sid in list(self._sits):
+        s = self._sits[sid]
+        if s["status"] in self._TERMINAL and now_ms - s.get("last_activity", 0) > self._ttl_ms:
+            del self._sits[sid]
+    # 2. cap: if over max, evict oldest-terminal-first (never active)
+    if len(self._sits) > self._max_sits:
+        terminal = sorted(
+            (s for s in self._sits.values() if s["status"] in self._TERMINAL),
+            key=lambda s: s.get("last_activity", 0),
+        )
+        n_to_drop = len(self._sits) - self._max_sits
+        for s in terminal[:n_to_drop]:
+            del self._sits[s["id"]]
+
+
+def situations(self, now_ms: int | None = None) -> list[dict]:
+    if now_ms is not None:
+        self._prune(now_ms)
+    return list(self._sits.values())
 ```
 
 Note: pruning on read (with `now_ms`) is sufficient; do NOT add `now_ms` to `apply_*` (keeps their signatures and all existing callers unchanged). The service passes `now_ms` in the endpoint (Task 7).
@@ -353,20 +417,23 @@ In `services/read/projection.py`, the outcome dict currently lacks the data metr
 So the outcome append becomes:
 
 ```python
-        sit = self._sits.get(o.situation_id, {})
-        mttr_ms = None
-        if sit and o.result == RemediationResult.SUCCESS:
-            mttr_ms = _epoch_ms(o.ts) - sit["first_seen"]
-        self._outcomes.insert(0, {
-            "situation_id": o.situation_id,
-            "playbook_id": o.playbook_id,
-            "result": result,
-            "reason": o.health_after,
-            "ts": _epoch_ms(o.ts),
-            "service": sit.get("service", "unknown"),
-            "hitl_mode": o.hitl_mode.value if hasattr(o.hitl_mode, "value") else str(o.hitl_mode),
-            "mttr_ms": mttr_ms,
-        })
+sit = self._sits.get(o.situation_id, {})
+mttr_ms = None
+if sit and o.result == RemediationResult.SUCCESS:
+    mttr_ms = _epoch_ms(o.ts) - sit["first_seen"]
+self._outcomes.insert(
+    0,
+    {
+        "situation_id": o.situation_id,
+        "playbook_id": o.playbook_id,
+        "result": result,
+        "reason": o.health_after,
+        "ts": _epoch_ms(o.ts),
+        "service": sit.get("service", "unknown"),
+        "hitl_mode": o.hitl_mode.value if hasattr(o.hitl_mode, "value") else str(o.hitl_mode),
+        "mttr_ms": mttr_ms,
+    },
+)
 ```
 
 Also add `self._suppressed_count = 0` to `__init__`.
@@ -376,50 +443,102 @@ Also add `self._suppressed_count = 0` to `__init__`.
 ```python
 # services/read/tests/test_metrics.py
 from datetime import UTC, datetime, timedelta
-from common.contracts import (DiagnosedSituation, HitlMode, RemediationOutcome,
-    RemediationResult, RootCauseHypothesis, Situation, SituationStatus)
+from common.contracts import (
+    DiagnosedSituation,
+    HitlMode,
+    RemediationOutcome,
+    RemediationResult,
+    RootCauseHypothesis,
+    Situation,
+    SituationStatus,
+)
 from services.read.projection import ReadModel
 
 T0 = datetime(2026, 8, 16, tzinfo=UTC)
 
+
 def _sit(sid, status=SituationStatus.DETECTED, members=1, t=T0):
     from common.contracts import TelemetryEvent, TelemetryKind
-    evs = [TelemetryEvent(source="p", kind=TelemetryKind.METRIC, name="cpu_usage",
-           value=90.0, labels={"service":"web"}, ts=t, fingerprint=f"f{i}") for i in range(members)]
-    return Situation(id=sid, status=status, member_events=evs, severity="high",
-                     first_seen=t, last_seen=t, signature=sid.replace("sit-",""))
+
+    evs = [
+        TelemetryEvent(
+            source="p",
+            kind=TelemetryKind.METRIC,
+            name="cpu_usage",
+            value=90.0,
+            labels={"service": "web"},
+            ts=t,
+            fingerprint=f"f{i}",
+        )
+        for i in range(members)
+    ]
+    return Situation(
+        id=sid,
+        status=status,
+        member_events=evs,
+        severity="high",
+        first_seen=t,
+        last_seen=t,
+        signature=sid.replace("sit-", ""),
+    )
+
 
 def test_empty_metrics_all_zero():
     m = ReadModel().metrics()
     assert m["successRate"] == 0.0 and m["mttrMinutes"] == 0.0
     assert m["situationsOpen"] == 0 and m["noiseReductionPct"] == 0.0
-    assert set(m) == {"alertsIngested","situationsOpen","noiseReductionPct","mttrMinutes",
-                      "autoRemediatedPct","suppressedToday","approvalsPending","successRate"}
+    assert set(m) == {
+        "alertsIngested",
+        "situationsOpen",
+        "noiseReductionPct",
+        "mttrMinutes",
+        "autoRemediatedPct",
+        "suppressedToday",
+        "approvalsPending",
+        "successRate",
+    }
+
 
 def test_mttr_and_rates():
     rm = ReadModel()
-    rm.apply_detected(_sit("sit-1", members=10))         # 10 alerts collapsed
+    rm.apply_detected(_sit("sit-1", members=10))  # 10 alerts collapsed
     # resolve 2 minutes later, auto
-    rm.apply_outcome(RemediationOutcome(situation_id="sit-1", playbook_id="p",
-        result=RemediationResult.SUCCESS, health_after="healthy",
-        ts=T0 + timedelta(minutes=2), hitl_mode=HitlMode.AUTO))
+    rm.apply_outcome(
+        RemediationOutcome(
+            situation_id="sit-1",
+            playbook_id="p",
+            result=RemediationResult.SUCCESS,
+            health_after="healthy",
+            ts=T0 + timedelta(minutes=2),
+            hitl_mode=HitlMode.AUTO,
+        )
+    )
     m = rm.metrics()
     assert m["alertsIngested"] == 10
-    assert abs(m["noiseReductionPct"] - 90.0) < 0.01      # 1 situation from 10 alerts
+    assert abs(m["noiseReductionPct"] - 90.0) < 0.01  # 1 situation from 10 alerts
     assert abs(m["mttrMinutes"] - 2.0) < 0.01
     assert m["successRate"] == 1.0
     assert m["autoRemediatedPct"] == 100.0
 
+
 def test_open_and_pending_counts():
     rm = ReadModel()
-    d = DiagnosedSituation(situation=_sit("sit-2", status=SituationStatus.DIAGNOSED),
-        hypotheses=[RootCauseHypothesis(situation_id="sit-2", description="x",
-            confidence=0.6, suggested_runbook_id="scale-service")],
-        suggested_runbook_id="scale-service")
+    d = DiagnosedSituation(
+        situation=_sit("sit-2", status=SituationStatus.DIAGNOSED),
+        hypotheses=[
+            RootCauseHypothesis(
+                situation_id="sit-2",
+                description="x",
+                confidence=0.6,
+                suggested_runbook_id="scale-service",
+            )
+        ],
+        suggested_runbook_id="scale-service",
+    )
     rm.apply_diagnosed(d)
     m = rm.metrics()
     assert m["situationsOpen"] == 1
-    assert m["approvalsPending"] == 1   # diagnosed + hitl + not resolved
+    assert m["approvalsPending"] == 1  # diagnosed + hitl + not resolved
 ```
 
 - [ ] **Step 3: Run test to verify it fails**
@@ -432,31 +551,35 @@ Expected: FAIL — `ReadModel` has no `metrics()`.
 Add to `services/read/projection.py`:
 
 ```python
-    _OPEN = {"detected", "diagnosed", "acting"}
+_OPEN = {"detected", "diagnosed", "acting"}
 
-    def metrics(self) -> dict:
-        sits = list(self._sits.values())
-        outs = self._outcomes
-        total_out = len(outs)
-        successes = sum(1 for o in outs if o["result"] == "success")
-        autos = sum(1 for o in outs if o.get("hitl_mode") == "auto")
-        mttrs = [o["mttr_ms"] for o in outs if o.get("mttr_ms") is not None]
-        alerts = sum(s["memberCount"] for s in sits)
-        n_sits = len(sits)
-        open_sits = [s for s in sits if s["status"] in self._OPEN]
-        pending = [s for s in open_sits
-                   if s.get("hitl_mode") == "hitl" and s["status"] in ("diagnosed", "acting")]
-        noise = ((1 - n_sits / alerts) * 100) if alerts else 0.0
-        return {
-            "alertsIngested": alerts,
-            "situationsOpen": len(open_sits),
-            "noiseReductionPct": round(max(0.0, noise), 1),
-            "mttrMinutes": round((sum(mttrs) / len(mttrs) / 60000), 2) if mttrs else 0.0,
-            "autoRemediatedPct": round(autos / total_out * 100, 1) if total_out else 0.0,
-            "suppressedToday": self._suppressed_count,
-            "approvalsPending": len(pending),
-            "successRate": round(successes / total_out, 3) if total_out else 0.0,
-        }
+
+def metrics(self) -> dict:
+    sits = list(self._sits.values())
+    outs = self._outcomes
+    total_out = len(outs)
+    successes = sum(1 for o in outs if o["result"] == "success")
+    autos = sum(1 for o in outs if o.get("hitl_mode") == "auto")
+    mttrs = [o["mttr_ms"] for o in outs if o.get("mttr_ms") is not None]
+    alerts = sum(s["memberCount"] for s in sits)
+    n_sits = len(sits)
+    open_sits = [s for s in sits if s["status"] in self._OPEN]
+    pending = [
+        s
+        for s in open_sits
+        if s.get("hitl_mode") == "hitl" and s["status"] in ("diagnosed", "acting")
+    ]
+    noise = ((1 - n_sits / alerts) * 100) if alerts else 0.0
+    return {
+        "alertsIngested": alerts,
+        "situationsOpen": len(open_sits),
+        "noiseReductionPct": round(max(0.0, noise), 1),
+        "mttrMinutes": round((sum(mttrs) / len(mttrs) / 60000), 2) if mttrs else 0.0,
+        "autoRemediatedPct": round(autos / total_out * 100, 1) if total_out else 0.0,
+        "suppressedToday": self._suppressed_count,
+        "approvalsPending": len(pending),
+        "successRate": round(successes / total_out, 3) if total_out else 0.0,
+    }
 ```
 
 Note: `pending` uses `s.get("hitl_mode")` — situations default `hitl_mode` to `"hitl"` in `apply_detected`, so a diagnosed HITL situation counts. This is the derived (not authoritative) pending count per the spec.
@@ -493,17 +616,28 @@ from common.contracts import TelemetryEvent, TelemetryKind
 from services.correlation.adapters.river_correlator import RiverCorrelator
 from services.correlation.engine import CorrelationEngine
 
+
 def _ev(v, i, t0):
-    return TelemetryEvent(source="p", kind=TelemetryKind.METRIC, name="cpu", value=v,
-        labels={}, ts=t0+timedelta(seconds=5*i), fingerprint=f"f{i}")
+    return TelemetryEvent(
+        source="p",
+        kind=TelemetryKind.METRIC,
+        name="cpu",
+        value=v,
+        labels={},
+        ts=t0 + timedelta(seconds=5 * i),
+        fingerprint=f"f{i}",
+    )
+
 
 def test_pop_suppressed_returns_suppressed_situation():
     # Force suppression: a correlator whose should_suppress is always True.
     class AlwaysSuppress(RiverCorrelator):
-        def should_suppress(self, signature, threshold): return True
+        def should_suppress(self, signature, threshold):
+            return True
+
     c = AlwaysSuppress(z_threshold=0.0, warmup_samples=0)
     eng = CorrelationEngine(c, window_seconds=0.0)
-    t0 = datetime(2026,8,16,tzinfo=UTC)
+    t0 = datetime(2026, 8, 16, tzinfo=UTC)
     for i in range(3):
         eng.add(_ev(90.0, i, t0))
     eng.flush()  # buffer collapses; suppressed
@@ -522,21 +656,22 @@ Expected: FAIL — no `pop_suppressed`.
 In `services/correlation/engine.py`, add `self._suppressed: Situation | None = None` to `__init__`. In `_correlate_buffer`, capture the suppressed situation before returning None:
 
 ```python
-    def _correlate_buffer(self) -> Situation | None:
-        severity = self._correlator._severity_band(self._max_score)
-        sit = self._correlator.correlate(self._buffer, severity=severity)
-        self._buffer = []
-        self._max_score = 0.0
-        if self._correlator.should_suppress(sit.signature, self._suppress_threshold):
-            self._suppressed = sit
-            return None
-        return sit
+def _correlate_buffer(self) -> Situation | None:
+    severity = self._correlator._severity_band(self._max_score)
+    sit = self._correlator.correlate(self._buffer, severity=severity)
+    self._buffer = []
+    self._max_score = 0.0
+    if self._correlator.should_suppress(sit.signature, self._suppress_threshold):
+        self._suppressed = sit
+        return None
+    return sit
 
-    def pop_suppressed(self) -> Situation | None:
-        with self._lock:
-            s = self._suppressed
-            self._suppressed = None
-            return s
+
+def pop_suppressed(self) -> Situation | None:
+    with self._lock:
+        s = self._suppressed
+        self._suppressed = None
+        return s
 ```
 
 (`_correlate_buffer` already runs under the lock via its callers `add`/`flush`, so setting `self._suppressed` there is safe; `pop_suppressed` takes the lock for the read/clear.)
@@ -580,7 +715,7 @@ In `services/read/projection.py` add:
 In `services/read/consumer.py`, add to `_TOPICS`:
 
 ```python
-    ("situations.suppressed", Situation, "apply_suppressed"),
+(("situations.suppressed", Situation, "apply_suppressed"),)
 ```
 
 - [ ] **Step 6: Add a projection test for apply_suppressed**
@@ -589,6 +724,7 @@ In `services/read/consumer.py`, add to `_TOPICS`:
 # add to services/read/tests/test_metrics.py
 def test_suppressed_count_increments():
     from services.read.projection import ReadModel
+
     rm = ReadModel()
     rm.apply_suppressed(_sit("sit-9"))
     rm.apply_suppressed(_sit("sit-10"))
@@ -627,15 +763,26 @@ from common.contracts import TelemetryEvent, TelemetryKind
 from services.correlation.adapters.river_correlator import RiverCorrelator
 from services.correlation.engine import CorrelationEngine
 
+
 def _ev(v, i, t0):
-    return TelemetryEvent(source="p", kind=TelemetryKind.METRIC, name="cpu", value=v,
-        labels={}, ts=t0+timedelta(seconds=5*i), fingerprint=f"f{i}")
+    return TelemetryEvent(
+        source="p",
+        kind=TelemetryKind.METRIC,
+        name="cpu",
+        value=v,
+        labels={},
+        ts=t0 + timedelta(seconds=5 * i),
+        fingerprint=f"f{i}",
+    )
+
 
 def test_reset_clears_buffer_and_baseline():
-    eng = CorrelationEngine(RiverCorrelator(z_threshold=2.0, warmup_samples=2), window_seconds=100.0)
-    t0 = datetime(2026,8,16,tzinfo=UTC)
+    eng = CorrelationEngine(
+        RiverCorrelator(z_threshold=2.0, warmup_samples=2), window_seconds=100.0
+    )
+    t0 = datetime(2026, 8, 16, tzinfo=UTC)
     for i in range(6):
-        eng.add(_ev(10.0 if i < 3 else 99.0, i, t0))   # baseline then spike → buffered anomaly
+        eng.add(_ev(10.0 if i < 3 else 99.0, i, t0))  # baseline then spike → buffered anomaly
     eng.reset()
     # after reset, buffer empty → flush yields nothing
     assert eng.flush() is None
@@ -692,6 +839,7 @@ def test_reset_baseline_endpoint():
     from services.correlation.app import app
     from services.correlation.engine import CorrelationEngine
     from services.correlation.adapters.river_correlator import RiverCorrelator
+
     app.state.engine = CorrelationEngine(RiverCorrelator())
     c = TestClient(app)
     assert c.post("/reset-baseline").json() == {"reset": True}
@@ -727,19 +875,30 @@ git commit -m "feat(correlation): POST /reset-baseline resets detector for repea
 # add to services/read/tests/test_read_api.py
 def test_metrics_endpoint():
     from services.read.projection import ReadModel
+
     model = ReadModel()
     c = _client(model)  # existing helper that sets app.state.model
     m = c.get("/metrics").json()
     assert "successRate" in m and "mttrMinutes" in m
 
+
 def test_reset_endpoint_clears_model():
     from datetime import UTC, datetime
     from common.contracts import Situation, SituationStatus
     from services.read.projection import ReadModel
+
     model = ReadModel()
-    model.apply_detected(Situation(id="sit-1", status=SituationStatus.DETECTED,
-        member_events=[], severity="high", first_seen=datetime(2026,8,16,tzinfo=UTC),
-        last_seen=datetime(2026,8,16,tzinfo=UTC), signature="1"))
+    model.apply_detected(
+        Situation(
+            id="sit-1",
+            status=SituationStatus.DETECTED,
+            member_events=[],
+            severity="high",
+            first_seen=datetime(2026, 8, 16, tzinfo=UTC),
+            last_seen=datetime(2026, 8, 16, tzinfo=UTC),
+            signature="1",
+        )
+    )
     c = _client(model)
     assert len(c.get("/situations").json()) == 1
     assert c.post("/reset").json() == {"reset": True}
@@ -767,15 +926,18 @@ In `services/read/app.py`:
 ```python
 import time
 
+
 @app.get("/situations")
 def situations() -> list[dict]:
     model = getattr(app.state, "model", None)
     return model.situations(now_ms=int(time.time() * 1000)) if model else []
 
+
 @app.get("/metrics")
 def metrics() -> dict:
     model = getattr(app.state, "model", None)
     return model.metrics() if model else ReadModel().metrics()
+
 
 @app.post("/reset")
 def reset() -> dict:

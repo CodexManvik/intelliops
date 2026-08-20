@@ -65,8 +65,13 @@ class FakeBus:
 
 def _event(name="cpu", value=0.9):
     return TelemetryEvent(
-        source="prometheus", kind=TelemetryKind.METRIC, name=name,
-        value=value, labels={"pod": "web-1"}, ts=NOW, fingerprint="fp1",
+        source="prometheus",
+        kind=TelemetryKind.METRIC,
+        name=name,
+        value=value,
+        labels={"pod": "web-1"},
+        ts=NOW,
+        fingerprint="fp1",
     )
 
 
@@ -98,8 +103,13 @@ def test_iter_models_yields_typed_models():
 def test_iter_models_handles_situation_with_members():
     bus = FakeBus()
     sit = Situation(
-        id="s1", status=SituationStatus.DETECTED, member_events=[_event(), _event("mem", 0.8)],
-        severity="high", first_seen=NOW, last_seen=NOW, signature="sig1",
+        id="s1",
+        status=SituationStatus.DETECTED,
+        member_events=[_event(), _event("mem", 0.8)],
+        severity="high",
+        first_seen=NOW,
+        last_seen=NOW,
+        signature="sig1",
     )
     bus._to_consume["situations.detected"] = [{"data": sit.model_dump_json()}]
     out = list(iter_models(bus, "situations.detected", "g1", Situation))
@@ -205,8 +215,12 @@ def test_fingerprint_differs_on_different_identity():
 
 def test_normalize_builds_telemetry_event():
     raw = {
-        "source": "prometheus", "kind": "metric", "name": "cpu_usage",
-        "value": 0.97, "labels": {"pod": "web-1"}, "ts": TS,
+        "source": "prometheus",
+        "kind": "metric",
+        "name": "cpu_usage",
+        "value": 0.97,
+        "labels": {"pod": "web-1"},
+        "ts": TS,
     }
     ev = normalize(raw)
     assert isinstance(ev, TelemetryEvent)
@@ -455,10 +469,21 @@ def _client():
 
 def test_ingest_publishes_normalized_events_to_telemetry_raw():
     client, bus = _client()
-    resp = client.post("/ingest", json={"events": [
-        {"source": "prom", "kind": "metric", "name": "cpu", "value": 0.9,
-         "labels": {"pod": "web-1"}, "ts": "2026-08-13T00:00:00+00:00"},
-    ]})
+    resp = client.post(
+        "/ingest",
+        json={
+            "events": [
+                {
+                    "source": "prom",
+                    "kind": "metric",
+                    "name": "cpu",
+                    "value": 0.9,
+                    "labels": {"pod": "web-1"},
+                    "ts": "2026-08-13T00:00:00+00:00",
+                },
+            ]
+        },
+    )
     assert resp.status_code == 200
     assert resp.json() == {"accepted": 1}
     assert len(bus.published) == 1
@@ -471,9 +496,14 @@ def test_ingest_publishes_normalized_events_to_telemetry_raw():
 
 def test_ingest_defaults_missing_ts():
     client, bus = _client()
-    resp = client.post("/ingest", json={"events": [
-        {"source": "prom", "kind": "metric", "name": "cpu", "value": 0.1},
-    ]})
+    resp = client.post(
+        "/ingest",
+        json={
+            "events": [
+                {"source": "prom", "kind": "metric", "name": "cpu", "value": 0.1},
+            ]
+        },
+    )
     assert resp.status_code == 200
     ev = decode_model(bus.published[0][1], TelemetryEvent)
     assert ev.ts is not None
@@ -579,8 +609,12 @@ from services.correlation.adapters.river_correlator import RiverCorrelator
 
 def _event(name="cpu", value=10.0, fp="fp", ts_sec=0):
     return TelemetryEvent(
-        source="prom", kind=TelemetryKind.METRIC, name=name, value=value,
-        labels={}, ts=datetime(2026, 8, 13, 0, 0, ts_sec, tzinfo=timezone.utc),
+        source="prom",
+        kind=TelemetryKind.METRIC,
+        name=name,
+        value=value,
+        labels={},
+        ts=datetime(2026, 8, 13, 0, 0, ts_sec, tzinfo=timezone.utc),
         fingerprint=fp,
     )
 
@@ -791,8 +825,12 @@ from services.correlation.engine import CorrelationEngine
 
 def _event(value=10.0, fp="fp", ts_sec=0):
     return TelemetryEvent(
-        source="prom", kind=TelemetryKind.METRIC, name="cpu", value=value,
-        labels={}, ts=datetime(2026, 8, 13, 0, 0, ts_sec, tzinfo=timezone.utc),
+        source="prom",
+        kind=TelemetryKind.METRIC,
+        name="cpu",
+        value=value,
+        labels={},
+        ts=datetime(2026, 8, 13, 0, 0, ts_sec, tzinfo=timezone.utc),
         fingerprint=fp,
     )
 
@@ -828,7 +866,7 @@ def test_flush_emits_situation_from_buffered_anomalies():
 def test_window_span_triggers_emit():
     engine = CorrelationEngine(RiverCorrelator(), window_seconds=10)
     _prime(engine)
-    engine.add(_event(value=100.0, fp="a", ts_sec=1))       # buffer starts at t=1
+    engine.add(_event(value=100.0, fp="a", ts_sec=1))  # buffer starts at t=1
     # an anomaly at t=15 is >10s past buffer start -> flush old buffer, return it
     emitted = engine.add(_event(value=100.0, fp="b", ts_sec=15))
     assert isinstance(emitted, Situation)
@@ -1025,8 +1063,12 @@ from services.correlation.engine import CorrelationEngine
 
 def _raw_event(value, fp, ts_sec):
     ev = TelemetryEvent(
-        source="prom", kind=TelemetryKind.METRIC, name="cpu", value=value,
-        labels={}, ts=datetime(2026, 8, 13, 0, 0, ts_sec, tzinfo=timezone.utc),
+        source="prom",
+        kind=TelemetryKind.METRIC,
+        name="cpu",
+        value=value,
+        labels={},
+        ts=datetime(2026, 8, 13, 0, 0, ts_sec, tzinfo=timezone.utc),
         fingerprint=fp,
     )
     return {"data": ev.model_dump_json()}
@@ -1034,8 +1076,12 @@ def _raw_event(value, fp, ts_sec):
 
 def _event(value, fp, ts_sec):
     return TelemetryEvent(
-        source="prom", kind=TelemetryKind.METRIC, name="cpu", value=value,
-        labels={}, ts=datetime(2026, 8, 13, 0, 0, ts_sec, tzinfo=timezone.utc),
+        source="prom",
+        kind=TelemetryKind.METRIC,
+        name="cpu",
+        value=value,
+        labels={},
+        ts=datetime(2026, 8, 13, 0, 0, ts_sec, tzinfo=timezone.utc),
         fingerprint=fp,
     )
 
@@ -1281,9 +1327,15 @@ def _prime_and_flush(engine, n=200, seed=42):
     for i in range(n):
         engine.add(
             TelemetryEvent.model_validate(
-                {"source": "prom", "kind": "metric", "name": "cpu",
-                 "value": round(rng.gauss(10.0, 1.0), 3), "labels": {},
-                 "ts": "2026-08-13T00:00:00+00:00", "fingerprint": f"base{i}"}
+                {
+                    "source": "prom",
+                    "kind": "metric",
+                    "name": "cpu",
+                    "value": round(rng.gauss(10.0, 1.0), 3),
+                    "labels": {},
+                    "ts": "2026-08-13T00:00:00+00:00",
+                    "fingerprint": f"base{i}",
+                }
             )
         )
     engine.flush()
@@ -1299,9 +1351,7 @@ def test_ingestion_to_correlation_emits_one_situation():
 
     # 2. Ingestion side: read the sample file through the real FileTelemetrySource
     #    and publish the normalized events onto the bus (the ingestion->bus path).
-    events = FileTelemetrySource(
-        "services/ingestion/sample_data/telemetry_sample.jsonl"
-    ).poll()
+    events = FileTelemetrySource("services/ingestion/sample_data/telemetry_sample.jsonl").poll()
     for ev in events:
         publish_model(bus, "telemetry.raw", ev)
 

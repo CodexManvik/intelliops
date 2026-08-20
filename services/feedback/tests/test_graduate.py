@@ -7,8 +7,14 @@ NOW = datetime(2026, 8, 13, tzinfo=UTC)
 
 
 def _rec(pb, result):
-    return TrainingRecord(situation_id="sit-x", signature="x", playbook_id=pb,
-                          result=result, worked=result == RemediationResult.SUCCESS, ts=NOW)
+    return TrainingRecord(
+        situation_id="sit-x",
+        signature="x",
+        playbook_id=pb,
+        result=result,
+        worked=result == RemediationResult.SUCCESS,
+        ts=NOW,
+    )
 
 
 def test_playbook_stats_counts_per_playbook():
@@ -29,12 +35,18 @@ def test_should_graduate_true_on_clean_successes():
 
 
 def test_should_graduate_false_below_threshold():
-    assert should_graduate({"successes": 2, "failures": 0, "rollbacks": 0}, min_successes=3) is False
+    assert (
+        should_graduate({"successes": 2, "failures": 0, "rollbacks": 0}, min_successes=3) is False
+    )
 
 
 def test_should_graduate_false_with_any_rollback():
-    assert should_graduate({"successes": 5, "failures": 0, "rollbacks": 1}, min_successes=3) is False
+    assert (
+        should_graduate({"successes": 5, "failures": 0, "rollbacks": 1}, min_successes=3) is False
+    )
 
 
 def test_should_graduate_false_with_any_failure():
-    assert should_graduate({"successes": 5, "failures": 1, "rollbacks": 0}, min_successes=3) is False
+    assert (
+        should_graduate({"successes": 5, "failures": 1, "rollbacks": 0}, min_successes=3) is False
+    )

@@ -1,4 +1,5 @@
 """initial store tables"""
+
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
 

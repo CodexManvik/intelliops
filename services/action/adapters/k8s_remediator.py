@@ -20,12 +20,14 @@ _MIN_REPLICAS = 1
 
 def _default_apps_v1():
     from kubernetes import client, config
+
     config.load_kube_config()
     return client.AppsV1Api()
 
 
 def _default_exc_type():
     from kubernetes.client.exceptions import ApiException
+
     return ApiException
 
 
@@ -71,8 +73,13 @@ class KubernetesRemediator:
             return  # readiness is the health checker's job
         if step.action == "restart":
             stamp = _dt.datetime.now(_dt.UTC).isoformat()
-            body = {"spec": {"template": {"metadata": {"annotations": {
-                "kubectl.kubernetes.io/restartedAt": stamp}}}}}
+            body = {
+                "spec": {
+                    "template": {
+                        "metadata": {"annotations": {"kubectl.kubernetes.io/restartedAt": stamp}}
+                    }
+                }
+            }
             api.patch_namespaced_deployment(deployment, ns, body)
             return
         if step.action == "scale":
@@ -85,8 +92,11 @@ class KubernetesRemediator:
             # demo, a rolling restart recreates the pod (the fault is in-memory), so
             # we implement rollback_deploy as a rollout restart of the deployment.
             stamp = _dt.datetime.now(_dt.UTC).isoformat()
-            body = {"spec": {"template": {"metadata": {"annotations": {
-                "intelliops.io/rolledBackAt": stamp}}}}}
+            body = {
+                "spec": {
+                    "template": {"metadata": {"annotations": {"intelliops.io/rolledBackAt": stamp}}}
+                }
+            }
             api.patch_namespaced_deployment(deployment, ns, body)
             return
         logger.warning("unknown remediation action: %s", step.action)

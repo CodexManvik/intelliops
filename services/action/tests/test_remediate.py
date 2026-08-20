@@ -20,17 +20,36 @@ NOW = datetime(2026, 8, 13, tzinfo=UTC)
 
 def _situation():
     return Situation(
-        id="s1", status=SituationStatus.DIAGNOSED,
-        member_events=[TelemetryEvent(source="p", kind=TelemetryKind.METRIC, name="cpu",
-                                      value=1.0, labels={}, ts=NOW, fingerprint="f")],
-        severity="high", first_seen=NOW, last_seen=NOW, signature="sig",
+        id="s1",
+        status=SituationStatus.DIAGNOSED,
+        member_events=[
+            TelemetryEvent(
+                source="p",
+                kind=TelemetryKind.METRIC,
+                name="cpu",
+                value=1.0,
+                labels={},
+                ts=NOW,
+                fingerprint="f",
+            )
+        ],
+        severity="high",
+        first_seen=NOW,
+        last_seen=NOW,
+        signature="sig",
     )
 
 
 def _playbook(hitl=HitlMode.AUTO, reversible=True):
-    return Playbook(id="restart-pod", name="Restart", match_rule="x",
-                    steps=[RemediationStep(action="restart")], hitl_mode=hitl,
-                    reversible=reversible, rollback_steps=[RemediationStep(action="restart")])
+    return Playbook(
+        id="restart-pod",
+        name="Restart",
+        match_rule="x",
+        steps=[RemediationStep(action="restart")],
+        hitl_mode=hitl,
+        reversible=reversible,
+        rollback_steps=[RemediationStep(action="restart")],
+    )
 
 
 class FakeGate:
@@ -48,20 +67,33 @@ class FakeGate:
         return request
 
     def await_decision(self, approval_id, timeout_seconds):
-        return ApprovalRequest(id=approval_id, situation_id="s1", playbook_id="restart-pod",
-                               requested_by="action-service", status=self._decision_status,
-                               decided_by="oncall-alice")
+        return ApprovalRequest(
+            id=approval_id,
+            situation_id="s1",
+            playbook_id="restart-pod",
+            requested_by="action-service",
+            status=self._decision_status,
+            decided_by="oncall-alice",
+        )
 
     def write_audit(self, record):
         self.audits.append(record)
 
 
 def _run(playbook, gate, remediator, health):
-    return execute_remediation(_situation(), playbook, gate, remediator, health,
-                               timeout_seconds=1.0, poll_interval_seconds=0.01)
+    return execute_remediation(
+        _situation(),
+        playbook,
+        gate,
+        remediator,
+        health,
+        timeout_seconds=1.0,
+        poll_interval_seconds=0.01,
+    )
 
 
 # --- The three gates BLOCK (each asserts execute was NOT called) ---
+
 
 def test_disabled_playbook_skips_no_execute():
     r = RecordingRemediator()
@@ -89,8 +121,12 @@ def test_rbac_denied_no_execute():
 
 def test_hitl_rejected_no_execute():
     r = RecordingRemediator()
-    out = _run(_playbook(hitl=HitlMode.HITL), FakeGate(decision_status="rejected"), r,
-               FixedHealthChecker(True))
+    out = _run(
+        _playbook(hitl=HitlMode.HITL),
+        FakeGate(decision_status="rejected"),
+        r,
+        FixedHealthChecker(True),
+    )
     assert out.result == RemediationResult.FAILURE
     assert out.health_after == "aborted:rejected"
     assert r.executed_plan is None  # SAFETY: no execute on reject
@@ -98,14 +134,19 @@ def test_hitl_rejected_no_execute():
 
 def test_hitl_timeout_no_execute():
     r = RecordingRemediator()
-    out = _run(_playbook(hitl=HitlMode.HITL), FakeGate(decision_status="pending"), r,
-               FixedHealthChecker(True))
+    out = _run(
+        _playbook(hitl=HitlMode.HITL),
+        FakeGate(decision_status="pending"),
+        r,
+        FixedHealthChecker(True),
+    )
     assert out.result == RemediationResult.FAILURE
     assert out.health_after == "aborted:timeout"
     assert r.executed_plan is None  # SAFETY: fail closed on timeout
 
 
 # --- The happy + rollback paths ---
+
 
 def test_auto_approved_executes_healthy_success():
     r = RecordingRemediator()
@@ -119,8 +160,12 @@ def test_auto_approved_executes_healthy_success():
 
 def test_hitl_approved_executes():
     r = RecordingRemediator()
-    out = _run(_playbook(hitl=HitlMode.HITL), FakeGate(decision_status="approved"), r,
-               FixedHealthChecker(True))
+    out = _run(
+        _playbook(hitl=HitlMode.HITL),
+        FakeGate(decision_status="approved"),
+        r,
+        FixedHealthChecker(True),
+    )
     assert out.result == RemediationResult.SUCCESS
     assert r.executed_plan is not None
 

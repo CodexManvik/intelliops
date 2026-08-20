@@ -46,12 +46,14 @@ through instead. New contracts in `common/contracts.py`:
 ```python
 class RemediationStep(BaseModel):
     action: Literal["restart", "scale", "rollback_deploy", "wait"]
-    replicas: int | None = None   # for scale (delta, e.g. +2)
-    note: str | None = None       # human-readable / wait
+    replicas: int | None = None  # for scale (delta, e.g. +2)
+    note: str | None = None  # human-readable / wait
+
 
 class RemediationTarget(BaseModel):
     namespace: str
-    deployment: str               # resolved from the situation's service label
+    deployment: str  # resolved from the situation's service label
+
 
 class RemediationPlan(BaseModel):
     target: RemediationTarget
@@ -64,6 +66,7 @@ class RemediationPlan(BaseModel):
 class Remediator(Protocol):
     def execute(self, plan: RemediationPlan) -> bool: ...
     def rollback(self, plan: RemediationPlan) -> bool: ...
+
 
 class HealthChecker(Protocol):
     def check(self, situation: Situation, target: RemediationTarget) -> bool: ...

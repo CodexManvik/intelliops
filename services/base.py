@@ -48,7 +48,9 @@ def create_app(
     @app.middleware("http")
     async def _auth_gate(request: Request, call_next):
         current_settings = get_settings()
-        if not _is_exempt(request.method, request.url.path) and not is_authorized(request, current_settings):
+        if not _is_exempt(request.method, request.url.path) and not is_authorized(
+            request, current_settings
+        ):
             return JSONResponse({"detail": "Unauthorized"}, status_code=401)
         return await call_next(request)
 
@@ -57,4 +59,3 @@ def create_app(
         return {"service": service_name, "status": "ok"}
 
     return app
-

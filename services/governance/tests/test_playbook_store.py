@@ -8,9 +8,13 @@ from services.governance.adapters.playbook_store import (
 
 def _playbook(pid="restart-pod"):
     return Playbook(
-        id=pid, name="Restart Pod", match_rule="signature == 'x'",
-        steps=[RemediationStep(action="restart")], hitl_mode=HitlMode.HITL,
-        reversible=True, rollback_steps=[RemediationStep(action="restart")],
+        id=pid,
+        name="Restart Pod",
+        match_rule="signature == 'x'",
+        steps=[RemediationStep(action="restart")],
+        hitl_mode=HitlMode.HITL,
+        reversible=True,
+        rollback_steps=[RemediationStep(action="restart")],
     )
 
 

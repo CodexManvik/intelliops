@@ -9,8 +9,9 @@ NOW = datetime(2026, 8, 13, tzinfo=UTC)
 
 
 def _raw_outcome(result, playbook="restart-pod"):
-    o = RemediationOutcome(situation_id="sit-abc", playbook_id=playbook, result=result,
-                           health_after="healthy", ts=NOW)
+    o = RemediationOutcome(
+        situation_id="sit-abc", playbook_id=playbook, result=result, health_after="healthy", ts=NOW
+    )
     return {"data": o.model_dump_json()}
 
 
@@ -58,10 +59,14 @@ def test_consumer_no_graduation_below_threshold():
 
 
 def test_consumer_no_graduation_with_rollback():
-    bus = ScriptedBus([_raw_outcome(RemediationResult.SUCCESS),
-                       _raw_outcome(RemediationResult.SUCCESS),
-                       _raw_outcome(RemediationResult.ROLLED_BACK),
-                       _raw_outcome(RemediationResult.SUCCESS)])
+    bus = ScriptedBus(
+        [
+            _raw_outcome(RemediationResult.SUCCESS),
+            _raw_outcome(RemediationResult.SUCCESS),
+            _raw_outcome(RemediationResult.ROLLED_BACK),
+            _raw_outcome(RemediationResult.SUCCESS),
+        ]
+    )
     store = InMemoryTrainingStore()
     graduated = []
     _run(bus, store, graduator=graduated.append, min_successes=3)

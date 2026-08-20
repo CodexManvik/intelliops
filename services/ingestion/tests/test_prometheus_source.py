@@ -35,6 +35,7 @@ def test_poll_maps_vector_to_events():
 def test_poll_returns_empty_on_connection_error():
     def boom(req):
         raise httpx.ConnectError("refused", request=req)
+
     src = _source(boom)
     assert src.poll() == []
 

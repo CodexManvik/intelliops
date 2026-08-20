@@ -19,18 +19,26 @@ logger = logging.getLogger("intelliops.action.k8s_health")
 
 def _default_apps_v1():
     from kubernetes import client, config
+
     config.load_kube_config()
     return client.AppsV1Api()
 
 
 def _default_exc_type():
     from kubernetes.client.exceptions import ApiException
+
     return ApiException
 
 
 class KubernetesHealthChecker:
-    def __init__(self, apps_v1=None, metric_healthy=None, timeout_seconds: float = 30.0,
-                 poll_interval_seconds: float = 2.0, exc_type=None) -> None:
+    def __init__(
+        self,
+        apps_v1=None,
+        metric_healthy=None,
+        timeout_seconds: float = 30.0,
+        poll_interval_seconds: float = 2.0,
+        exc_type=None,
+    ) -> None:
         self._apps_v1 = apps_v1
         self._metric_healthy = metric_healthy or (lambda: True)
         self._timeout = timeout_seconds
@@ -66,8 +74,11 @@ class KubernetesHealthChecker:
         # error would escape the try (Python does not consult sibling excepts for
         # an error raised while matching an except type). So: one catch, no gaps.
         try:
-            st = self._api().read_namespaced_deployment_status(
-                target.deployment, target.namespace).status
+            st = (
+                self._api()
+                .read_namespaced_deployment_status(target.deployment, target.namespace)
+                .status
+            )
         except Exception:  # noqa: BLE001 — any client/config/connection error → not-yet-ready
             return False
         ready = st.ready_replicas or 0

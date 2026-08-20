@@ -4,9 +4,15 @@ from common.interfaces import GovernanceGate, HealthChecker
 
 def test_governance_gate_runtime_checkable():
     class FakeGate:
-        def check_rbac(self, actor, action, resource): return True
-        def request_approval(self, request): return request
-        def await_decision(self, approval_id, timeout_seconds): return None
+        def check_rbac(self, actor, action, resource):
+            return True
+
+        def request_approval(self, request):
+            return request
+
+        def await_decision(self, approval_id, timeout_seconds):
+            return None
+
         def write_audit(self, record): ...
 
     assert isinstance(FakeGate(), GovernanceGate)
@@ -14,7 +20,8 @@ def test_governance_gate_runtime_checkable():
 
 def test_health_checker_runtime_checkable():
     class FakeHealth:
-        def check(self, situation): return True
+        def check(self, situation):
+            return True
 
     assert isinstance(FakeHealth(), HealthChecker)
 

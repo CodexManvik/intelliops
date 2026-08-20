@@ -16,5 +16,6 @@ def test_in_process_default():
 
 
 def test_http_when_mode_http():
-    s = _S(); s.governance_mode = "http"
+    s = _S()
+    s.governance_mode = "http"
     assert isinstance(_make_gate(s, InMemoryAuditSink()), HttpGovernanceGate)
