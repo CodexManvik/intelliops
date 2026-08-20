@@ -25,6 +25,6 @@ def playbook_stats(records: list[TrainingRecord], playbook_id: str) -> dict:
 
 
 def should_graduate(stats: dict, min_successes: int) -> bool:
-    return (stats["successes"] >= min_successes
-            and stats["failures"] == 0
-            and stats["rollbacks"] == 0)
+    return (
+        stats["successes"] >= min_successes and stats["failures"] == 0 and stats["rollbacks"] == 0
+    )

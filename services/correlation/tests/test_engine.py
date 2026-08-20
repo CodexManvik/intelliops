@@ -8,8 +8,12 @@ from services.correlation.engine import CorrelationEngine
 
 def _event(value=10.0, fp="fp", ts_sec=0):
     return TelemetryEvent(
-        source="prom", kind=TelemetryKind.METRIC, name="cpu", value=value,
-        labels={}, ts=datetime(2026, 8, 13, 0, 0, ts_sec, tzinfo=UTC),
+        source="prom",
+        kind=TelemetryKind.METRIC,
+        name="cpu",
+        value=value,
+        labels={},
+        ts=datetime(2026, 8, 13, 0, 0, ts_sec, tzinfo=UTC),
         fingerprint=fp,
     )
 
@@ -52,7 +56,7 @@ def test_flush_emits_situation_from_buffered_anomalies():
 def test_window_span_triggers_emit():
     engine = CorrelationEngine(RiverCorrelator(), window_seconds=10)
     _prime(engine)
-    engine.add(_event(value=100.0, fp="a", ts_sec=1))       # buffer starts at t=1
+    engine.add(_event(value=100.0, fp="a", ts_sec=1))  # buffer starts at t=1
     # an anomaly at t=15 is >10s past buffer start -> flush old buffer, return it
     emitted = engine.add(_event(value=100.0, fp="b", ts_sec=15))
     assert isinstance(emitted, Situation)

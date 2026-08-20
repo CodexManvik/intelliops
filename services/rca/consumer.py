@@ -33,7 +33,9 @@ def diagnose(
     return DiagnosedSituation(
         situation=diagnosed_situation,
         hypotheses=hypotheses,
-        suggested_runbook_id=runbook.id if runbook is not None else hypotheses[0].suggested_runbook_id,
+        suggested_runbook_id=runbook.id
+        if runbook is not None
+        else hypotheses[0].suggested_runbook_id,
     )
 
 
@@ -49,11 +51,13 @@ def run_consumer(
             break
         diagnosed = diagnose(situation, provider, store)
         publish_model(bus, "situations.diagnosed", diagnosed)
-        audit_sink.write(AuditRecord(
-            actor="rca-service",
-            action="diagnose",
-            resource=f"situation:{situation.id}",
-            decision="allow",
-            ts=datetime.now(UTC),
-            correlation_id=situation.id,
-        ))
+        audit_sink.write(
+            AuditRecord(
+                actor="rca-service",
+                action="diagnose",
+                resource=f"situation:{situation.id}",
+                decision="allow",
+                ts=datetime.now(UTC),
+                correlation_id=situation.id,
+            )
+        )

@@ -17,14 +17,22 @@ logger = logging.getLogger("intelliops.action.remediator")
 class DryRunRemediator:
     def execute(self, plan: RemediationPlan) -> bool:
         for step in plan.steps:
-            logger.info("DRY-RUN execute on %s/%s: %s", plan.target.namespace,
-                        plan.target.deployment, step.action)
+            logger.info(
+                "DRY-RUN execute on %s/%s: %s",
+                plan.target.namespace,
+                plan.target.deployment,
+                step.action,
+            )
         return True
 
     def rollback(self, plan: RemediationPlan) -> bool:
         for step in plan.rollback_steps:
-            logger.info("DRY-RUN rollback on %s/%s: %s", plan.target.namespace,
-                        plan.target.deployment, step.action)
+            logger.info(
+                "DRY-RUN rollback on %s/%s: %s",
+                plan.target.namespace,
+                plan.target.deployment,
+                step.action,
+            )
         return True
 
 

@@ -25,8 +25,16 @@ def _event(name="http_request_errors_total", value=7.0):
     from datetime import UTC, datetime
 
     from common.contracts import TelemetryEvent, TelemetryKind
-    return TelemetryEvent(source="prometheus", kind=TelemetryKind.METRIC, name=name,
-                          value=value, labels={}, ts=datetime.now(UTC), fingerprint="fp1")
+
+    return TelemetryEvent(
+        source="prometheus",
+        kind=TelemetryKind.METRIC,
+        name=name,
+        value=value,
+        labels={},
+        ts=datetime.now(UTC),
+        fingerprint="fp1",
+    )
 
 
 def test_poll_loop_publishes_events_then_stops():

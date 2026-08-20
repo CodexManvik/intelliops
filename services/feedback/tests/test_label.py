@@ -13,8 +13,13 @@ def test_signature_from_situation_id_strips_prefix():
 
 
 def _outcome(result):
-    return RemediationOutcome(situation_id="sit-abc123", playbook_id="restart-pod",
-                              result=result, health_after="healthy", ts=NOW)
+    return RemediationOutcome(
+        situation_id="sit-abc123",
+        playbook_id="restart-pod",
+        result=result,
+        health_after="healthy",
+        ts=NOW,
+    )
 
 
 def test_label_success_sets_worked_true():

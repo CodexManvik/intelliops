@@ -69,12 +69,23 @@ NOW = datetime(2026, 8, 13, tzinfo=UTC)
 
 def _situation():
     return Situation(
-        id="sit-1", status=SituationStatus.DETECTED,
-        member_events=[TelemetryEvent(
-            source="prom", kind=TelemetryKind.METRIC, name="cpu", value=99.0,
-            labels={"service": "web"}, ts=NOW, fingerprint="fp",
-        )],
-        severity="high", first_seen=NOW, last_seen=NOW, signature="sig",
+        id="sit-1",
+        status=SituationStatus.DETECTED,
+        member_events=[
+            TelemetryEvent(
+                source="prom",
+                kind=TelemetryKind.METRIC,
+                name="cpu",
+                value=99.0,
+                labels={"service": "web"},
+                ts=NOW,
+                fingerprint="fp",
+            )
+        ],
+        severity="high",
+        first_seen=NOW,
+        last_seen=NOW,
+        signature="sig",
     )
 
 
@@ -88,10 +99,15 @@ def test_enrichment_context_defaults_empty():
 def test_diagnosed_situation_roundtrips():
     d = DiagnosedSituation(
         situation=_situation(),
-        hypotheses=[RootCauseHypothesis(
-            situation_id="sit-1", description="recent deploy", confidence=0.8,
-            evidence=["deploy web@v2"], suggested_runbook_id="rollback-deploy",
-        )],
+        hypotheses=[
+            RootCauseHypothesis(
+                situation_id="sit-1",
+                description="recent deploy",
+                confidence=0.8,
+                evidence=["deploy web@v2"],
+                suggested_runbook_id="rollback-deploy",
+            )
+        ],
         suggested_runbook_id="rollback-deploy",
     )
     restored = DiagnosedSituation.model_validate(d.model_dump())
@@ -102,13 +118,21 @@ def test_diagnosed_situation_roundtrips():
 def test_protocols_are_runtime_checkable():
     class FakeStore:
         def register(self, playbook): ...
-        def get(self, playbook_id): return None
-        def list(self): return []
+        def get(self, playbook_id):
+            return None
+
+        def list(self):
+            return []
 
     class FakeProvider:
-        def recent_deploys(self): return []
-        def topology_for(self, labels): return {}
-        def config_changes(self): return []
+        def recent_deploys(self):
+            return []
+
+        def topology_for(self, labels):
+            return {}
+
+        def config_changes(self):
+            return []
 
     assert isinstance(FakeStore(), PlaybookStore)
     assert isinstance(FakeProvider(), ContextProvider)
@@ -390,8 +414,12 @@ NOW = datetime(2026, 8, 13, tzinfo=UTC)
 
 def _record(cid="sit-1"):
     return AuditRecord(
-        actor="rca-service", action="diagnose", resource="situation:sit-1",
-        decision="allow", ts=NOW, correlation_id=cid,
+        actor="rca-service",
+        action="diagnose",
+        resource="situation:sit-1",
+        decision="allow",
+        ts=NOW,
+        correlation_id=cid,
     )
 
 
@@ -527,9 +555,13 @@ from services.governance.adapters.playbook_store import (
 
 def _playbook(pid="restart-pod"):
     return Playbook(
-        id=pid, name="Restart Pod", match_rule="signature == 'x'",
-        steps=["kubectl rollout restart deploy/web"], hitl_mode=HitlMode.HITL,
-        reversible=True, rollback_steps=["kubectl rollout undo deploy/web"],
+        id=pid,
+        name="Restart Pod",
+        match_rule="signature == 'x'",
+        steps=["kubectl rollout restart deploy/web"],
+        hitl_mode=HitlMode.HITL,
+        reversible=True,
+        rollback_steps=["kubectl rollout undo deploy/web"],
     )
 
 
@@ -657,9 +689,7 @@ class FilePlaybookStore:
     def __init__(self, path: str) -> None:
         self._path = path
         os.makedirs(path, exist_ok=True)
-        self._by_id: dict[str, Playbook] = {
-            p.id: p for p in load_seed_playbooks(path)
-        }
+        self._by_id: dict[str, Playbook] = {p.id: p for p in load_seed_playbooks(path)}
 
     def register(self, playbook: Playbook) -> None:
         self._by_id[playbook.id] = playbook
@@ -734,8 +764,14 @@ def test_health_still_works():
 
 def test_audit_write_and_query():
     c = _client()
-    rec = {"actor": "rca-service", "action": "diagnose", "resource": "situation:sit-1",
-           "decision": "allow", "ts": NOW, "correlation_id": "sit-1"}
+    rec = {
+        "actor": "rca-service",
+        "action": "diagnose",
+        "resource": "situation:sit-1",
+        "decision": "allow",
+        "ts": NOW,
+        "correlation_id": "sit-1",
+    }
     assert c.post("/audit", json=rec).status_code == 200
     got = c.get("/audit", params={"correlation_id": "sit-1"}).json()
     assert len(got) == 1
@@ -746,8 +782,9 @@ def test_audit_write_and_query():
 
 def test_playbook_register_and_list():
     c = _client()
-    pb = Playbook(id="restart-pod", name="Restart Pod", match_rule="x",
-                  steps=["s"], hitl_mode=HitlMode.HITL).model_dump(mode="json")
+    pb = Playbook(
+        id="restart-pod", name="Restart Pod", match_rule="x", steps=["s"], hitl_mode=HitlMode.HITL
+    ).model_dump(mode="json")
     assert c.post("/playbooks", json=pb).status_code == 200
     assert c.get("/playbooks/restart-pod").json()["name"] == "Restart Pod"
     assert [p["id"] for p in c.get("/playbooks").json()] == ["restart-pod"]
@@ -756,26 +793,40 @@ def test_playbook_register_and_list():
 
 def test_rbac_check():
     c = _client()
-    allow = c.post("/rbac/check", json={"actor": "rca-service", "action": "diagnose",
-                                        "resource": "situation:sit-1"}).json()
+    allow = c.post(
+        "/rbac/check",
+        json={"actor": "rca-service", "action": "diagnose", "resource": "situation:sit-1"},
+    ).json()
     assert allow == {"allowed": True}
-    deny = c.post("/rbac/check", json={"actor": "rca-service", "action": "approve",
-                                       "resource": "playbook:x"}).json()
+    deny = c.post(
+        "/rbac/check", json={"actor": "rca-service", "action": "approve", "resource": "playbook:x"}
+    ).json()
     assert deny == {"allowed": False}
 
 
 def test_approval_create_and_decide():
     c = _client()
-    created = c.post("/approvals", json={"id": "a1", "situation_id": "sit-1",
-                                         "playbook_id": "restart-pod",
-                                         "requested_by": "action-service"}).json()
+    created = c.post(
+        "/approvals",
+        json={
+            "id": "a1",
+            "situation_id": "sit-1",
+            "playbook_id": "restart-pod",
+            "requested_by": "action-service",
+        },
+    ).json()
     assert created["status"] == "pending"
-    decided = c.post("/approvals/a1/decide",
-                     json={"decision": "approved", "decided_by": "oncall-alice"}).json()
+    decided = c.post(
+        "/approvals/a1/decide", json={"decision": "approved", "decided_by": "oncall-alice"}
+    ).json()
     assert decided["status"] == "approved"
     assert decided["decided_by"] == "oncall-alice"
-    assert c.post("/approvals/missing/decide",
-                  json={"decision": "approved", "decided_by": "x"}).status_code == 404
+    assert (
+        c.post(
+            "/approvals/missing/decide", json={"decision": "approved", "decided_by": "x"}
+        ).status_code
+        == 404
+    )
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -876,7 +927,9 @@ def decide_approval(approval_id: str, decision: Decision) -> ApprovalRequest:
     req = app.state.approvals.get(approval_id)
     if req is None:
         raise HTTPException(status_code=404, detail="approval not found")
-    updated = req.model_copy(update={"status": decision.decision, "decided_by": decision.decided_by})
+    updated = req.model_copy(
+        update={"status": decision.decision, "decided_by": decision.decided_by}
+    )
     app.state.approvals[approval_id] = updated
     return updated
 ```
@@ -942,11 +995,13 @@ def test_null_provider_satisfies_protocol_and_is_empty():
 
 
 def test_file_provider_reads_json(tmp_path):
-    (tmp_path / "deploys.json").write_text(json.dumps(
-        [{"service": "web", "version": "v2", "ts": "2026-08-13T00:00:00+00:00"}]))
+    (tmp_path / "deploys.json").write_text(
+        json.dumps([{"service": "web", "version": "v2", "ts": "2026-08-13T00:00:00+00:00"}])
+    )
     (tmp_path / "topology.json").write_text(json.dumps({"web": ["db", "cache"]}))
-    (tmp_path / "config_changes.json").write_text(json.dumps(
-        [{"key": "web.replicas", "ts": "2026-08-13T00:00:00+00:00"}]))
+    (tmp_path / "config_changes.json").write_text(
+        json.dumps([{"key": "web.replicas", "ts": "2026-08-13T00:00:00+00:00"}])
+    )
     p = FileContextProvider(str(tmp_path))
     assert p.recent_deploys()[0]["service"] == "web"
     assert p.topology_for({"service": "web"}) == {"web": ["db", "cache"]}
@@ -1085,12 +1140,23 @@ class FakeProvider:
 
 def _situation():
     return Situation(
-        id="sit-1", status=SituationStatus.DETECTED,
-        member_events=[TelemetryEvent(
-            source="prom", kind=TelemetryKind.METRIC, name="cpu", value=99.0,
-            labels={"service": "web"}, ts=NOW, fingerprint="fp",
-        )],
-        severity="high", first_seen=NOW, last_seen=NOW, signature="sig",
+        id="sit-1",
+        status=SituationStatus.DETECTED,
+        member_events=[
+            TelemetryEvent(
+                source="prom",
+                kind=TelemetryKind.METRIC,
+                name="cpu",
+                value=99.0,
+                labels={"service": "web"},
+                ts=NOW,
+                fingerprint="fp",
+            )
+        ],
+        severity="high",
+        first_seen=NOW,
+        last_seen=NOW,
+        signature="sig",
     )
 
 
@@ -1125,17 +1191,30 @@ NOW = datetime(2026, 8, 13, tzinfo=UTC)
 
 def _situation(name="cpu", labels=None):
     return Situation(
-        id="sit-1", status=SituationStatus.DETECTED,
-        member_events=[TelemetryEvent(
-            source="prom", kind=TelemetryKind.METRIC, name=name, value=99.0,
-            labels=labels or {"service": "web"}, ts=NOW, fingerprint="fp",
-        )],
-        severity="high", first_seen=NOW, last_seen=NOW, signature="sig",
+        id="sit-1",
+        status=SituationStatus.DETECTED,
+        member_events=[
+            TelemetryEvent(
+                source="prom",
+                kind=TelemetryKind.METRIC,
+                name=name,
+                value=99.0,
+                labels=labels or {"service": "web"},
+                ts=NOW,
+                fingerprint="fp",
+            )
+        ],
+        severity="high",
+        first_seen=NOW,
+        last_seen=NOW,
+        signature="sig",
     )
 
 
 def test_recent_deploy_ranks_first():
-    ctx = EnrichmentContext(recent_deploys=[{"service": "web", "version": "v2", "ts": NOW.isoformat()}])
+    ctx = EnrichmentContext(
+        recent_deploys=[{"service": "web", "version": "v2", "ts": NOW.isoformat()}]
+    )
     hyps = rank_hypotheses(_situation(labels={"service": "web"}), ctx)
     assert hyps[0].suggested_runbook_id == "rollback-deploy"
     assert hyps[0].confidence >= 0.7
@@ -1164,7 +1243,9 @@ def test_fallback_hypothesis_when_nothing_matches():
 
 
 def test_hypotheses_sorted_by_confidence_desc():
-    ctx = EnrichmentContext(recent_deploys=[{"service": "web", "version": "v2", "ts": NOW.isoformat()}])
+    ctx = EnrichmentContext(
+        recent_deploys=[{"service": "web", "version": "v2", "ts": NOW.isoformat()}]
+    )
     hyps = rank_hypotheses(_situation(name="cpu", labels={"service": "web"}), ctx)
     confidences = [h.confidence for h in hyps]
     assert confidences == sorted(confidences, reverse=True)
@@ -1177,10 +1258,17 @@ def test_surface_runbook_looks_up_top_hypothesis():
         def register(self, playbook): ...
         def get(self, playbook_id):
             if playbook_id == "scale-service":
-                return Playbook(id="scale-service", name="Scale", match_rule="x",
-                                steps=["s"], hitl_mode=HitlMode.HITL)
+                return Playbook(
+                    id="scale-service",
+                    name="Scale",
+                    match_rule="x",
+                    steps=["s"],
+                    hitl_mode=HitlMode.HITL,
+                )
             return None
-        def list(self): return []
+
+        def list(self):
+            return []
 
     ctx = EnrichmentContext()
     hyps = rank_hypotheses(_situation(name="cpu_usage"), ctx)
@@ -1266,65 +1354,66 @@ def _service_labels(situation: Situation) -> set[str]:
     return services
 
 
-def rank_hypotheses(
-    situation: Situation, context: EnrichmentContext
-) -> list[RootCauseHypothesis]:
+def rank_hypotheses(situation: Situation, context: EnrichmentContext) -> list[RootCauseHypothesis]:
     hypotheses: list[RootCauseHypothesis] = []
     services = _service_labels(situation)
 
     # Rule: a recent deploy touching one of the situation's services.
-    deploy_hit = next(
-        (d for d in context.recent_deploys if d.get("service") in services), None
-    )
+    deploy_hit = next((d for d in context.recent_deploys if d.get("service") in services), None)
     if deploy_hit is not None:
-        hypotheses.append(RootCauseHypothesis(
-            situation_id=situation.id,
-            description=f"recent deployment of {deploy_hit.get('service')} "
-                        f"({deploy_hit.get('version')}) preceded the incident",
-            confidence=0.8,
-            evidence=[f"deploy {deploy_hit.get('service')}@{deploy_hit.get('version')}"],
-            suggested_runbook_id="rollback-deploy",
-        ))
+        hypotheses.append(
+            RootCauseHypothesis(
+                situation_id=situation.id,
+                description=f"recent deployment of {deploy_hit.get('service')} "
+                f"({deploy_hit.get('version')}) preceded the incident",
+                confidence=0.8,
+                evidence=[f"deploy {deploy_hit.get('service')}@{deploy_hit.get('version')}"],
+                suggested_runbook_id="rollback-deploy",
+            )
+        )
 
     # Rule: resource-saturation metric names.
     names = " ".join(e.name.lower() for e in situation.member_events)
     if any(tok in names for tok in _SATURATION_TOKENS):
-        hypotheses.append(RootCauseHypothesis(
-            situation_id=situation.id,
-            description="resource saturation across the affected service",
-            confidence=0.6,
-            evidence=[f"metrics: {names}"],
-            suggested_runbook_id="scale-service",
-        ))
+        hypotheses.append(
+            RootCauseHypothesis(
+                situation_id=situation.id,
+                description="resource saturation across the affected service",
+                confidence=0.6,
+                evidence=[f"metrics: {names}"],
+                suggested_runbook_id="scale-service",
+            )
+        )
 
     # Rule: log/error events.
-    if any(e.kind.value in ("log",) or "error" in e.name.lower()
-           for e in situation.member_events):
-        hypotheses.append(RootCauseHypothesis(
-            situation_id=situation.id,
-            description="error spike in service logs",
-            confidence=0.5,
-            evidence=["log/error events present"],
-            suggested_runbook_id="restart-pod",
-        ))
+    if any(e.kind.value in ("log",) or "error" in e.name.lower() for e in situation.member_events):
+        hypotheses.append(
+            RootCauseHypothesis(
+                situation_id=situation.id,
+                description="error spike in service logs",
+                confidence=0.5,
+                evidence=["log/error events present"],
+                suggested_runbook_id="restart-pod",
+            )
+        )
 
     # Fallback: always give downstream something.
     if not hypotheses:
-        hypotheses.append(RootCauseHypothesis(
-            situation_id=situation.id,
-            description="root cause undetermined from available signals",
-            confidence=0.2,
-            evidence=[],
-            suggested_runbook_id=None,
-        ))
+        hypotheses.append(
+            RootCauseHypothesis(
+                situation_id=situation.id,
+                description="root cause undetermined from available signals",
+                confidence=0.2,
+                evidence=[],
+                suggested_runbook_id=None,
+            )
+        )
 
     hypotheses.sort(key=lambda h: h.confidence, reverse=True)
     return hypotheses
 
 
-def surface_runbook(
-    hypotheses: list[RootCauseHypothesis], store: PlaybookStore
-) -> Playbook | None:
+def surface_runbook(hypotheses: list[RootCauseHypothesis], store: PlaybookStore) -> Playbook | None:
     if not hypotheses:
         return None
     runbook_id = hypotheses[0].suggested_runbook_id
@@ -1387,12 +1476,23 @@ NOW = datetime(2026, 8, 13, tzinfo=UTC)
 
 def _situation(name="cpu_usage", labels=None):
     return Situation(
-        id="sit-1", status=SituationStatus.DETECTED,
-        member_events=[TelemetryEvent(
-            source="prom", kind=TelemetryKind.METRIC, name=name, value=99.0,
-            labels=labels or {"service": "web"}, ts=NOW, fingerprint="fp",
-        )],
-        severity="high", first_seen=NOW, last_seen=NOW, signature="sig",
+        id="sit-1",
+        status=SituationStatus.DETECTED,
+        member_events=[
+            TelemetryEvent(
+                source="prom",
+                kind=TelemetryKind.METRIC,
+                name=name,
+                value=99.0,
+                labels=labels or {"service": "web"},
+                ts=NOW,
+                fingerprint="fp",
+            )
+        ],
+        severity="high",
+        first_seen=NOW,
+        last_seen=NOW,
+        signature="sig",
     )
 
 
@@ -1446,8 +1546,7 @@ def test_consumer_stops_on_stop_event():
     bus = InfBus([])
     stop = threading.Event()
     stop.set()
-    run_consumer(bus, NullContextProvider(), InMemoryPlaybookStore(),
-                 InMemoryAuditSink(), stop)
+    run_consumer(bus, NullContextProvider(), InMemoryPlaybookStore(), InMemoryAuditSink(), stop)
     assert bus.published == []
 ```
 
@@ -1496,7 +1595,9 @@ def diagnose(
     return DiagnosedSituation(
         situation=diagnosed_situation,
         hypotheses=hypotheses,
-        suggested_runbook_id=runbook.id if runbook is not None else hypotheses[0].suggested_runbook_id,
+        suggested_runbook_id=runbook.id
+        if runbook is not None
+        else hypotheses[0].suggested_runbook_id,
     )
 
 
@@ -1512,14 +1613,16 @@ def run_consumer(
             break
         diagnosed = diagnose(situation, provider, store)
         publish_model(bus, "situations.diagnosed", diagnosed)
-        audit_sink.write(AuditRecord(
-            actor="rca-service",
-            action="diagnose",
-            resource=f"situation:{situation.id}",
-            decision="allow",
-            ts=datetime.now(UTC),
-            correlation_id=situation.id,
-        ))
+        audit_sink.write(
+            AuditRecord(
+                actor="rca-service",
+                action="diagnose",
+                resource=f"situation:{situation.id}",
+                decision="allow",
+                ts=datetime.now(UTC),
+                correlation_id=situation.id,
+            )
+        )
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -1654,19 +1757,37 @@ def test_detected_situation_is_diagnosed_with_recent_deploy_hypothesis():
     bus = InMemoryBus()
     audit = InMemoryAuditSink()
     store = InMemoryPlaybookStore()
-    store.register(Playbook(id="rollback-deploy", name="Rollback Deployment",
-                            match_rule="x", steps=["kubectl rollout undo deploy/web"],
-                            hitl_mode=HitlMode.HITL, reversible=True,
-                            rollback_steps=[]))
+    store.register(
+        Playbook(
+            id="rollback-deploy",
+            name="Rollback Deployment",
+            match_rule="x",
+            steps=["kubectl rollout undo deploy/web"],
+            hitl_mode=HitlMode.HITL,
+            reversible=True,
+            rollback_steps=[],
+        )
+    )
 
     # A detected Situation on the 'web' service.
     situation = Situation(
-        id="sit-web-1", status=SituationStatus.DETECTED,
-        member_events=[TelemetryEvent(
-            source="prom", kind=TelemetryKind.METRIC, name="cpu_usage", value=99.0,
-            labels={"service": "web"}, ts=NOW, fingerprint="fp",
-        )],
-        severity="high", first_seen=NOW, last_seen=NOW, signature="sig-web",
+        id="sit-web-1",
+        status=SituationStatus.DETECTED,
+        member_events=[
+            TelemetryEvent(
+                source="prom",
+                kind=TelemetryKind.METRIC,
+                name="cpu_usage",
+                value=99.0,
+                labels={"service": "web"},
+                ts=NOW,
+                fingerprint="fp",
+            )
+        ],
+        severity="high",
+        first_seen=NOW,
+        last_seen=NOW,
+        signature="sig-web",
     )
     publish_model(bus, "situations.detected", situation)
 

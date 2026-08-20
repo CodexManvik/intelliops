@@ -104,7 +104,12 @@ def test_enums_have_exact_values():
 
 
 def test_reversible_playbook_defaults():
-    pb = Playbook(id="p", name="p", match_rule="true",
-                  steps=[RemediationStep(action="restart")], hitl_mode=HitlMode.AUTO)
+    pb = Playbook(
+        id="p",
+        name="p",
+        match_rule="true",
+        steps=[RemediationStep(action="restart")],
+        hitl_mode=HitlMode.AUTO,
+    )
     assert pb.reversible is False
     assert pb.rollback_steps == []

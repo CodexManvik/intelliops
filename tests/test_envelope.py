@@ -20,8 +20,13 @@ class FakeBus:
 
 def _event(name="cpu", value=0.9):
     return TelemetryEvent(
-        source="prometheus", kind=TelemetryKind.METRIC, name=name,
-        value=value, labels={"pod": "web-1"}, ts=NOW, fingerprint="fp1",
+        source="prometheus",
+        kind=TelemetryKind.METRIC,
+        name=name,
+        value=value,
+        labels={"pod": "web-1"},
+        ts=NOW,
+        fingerprint="fp1",
     )
 
 
@@ -53,8 +58,13 @@ def test_iter_models_yields_typed_models():
 def test_iter_models_handles_situation_with_members():
     bus = FakeBus()
     sit = Situation(
-        id="s1", status=SituationStatus.DETECTED, member_events=[_event(), _event("mem", 0.8)],
-        severity="high", first_seen=NOW, last_seen=NOW, signature="sig1",
+        id="s1",
+        status=SituationStatus.DETECTED,
+        member_events=[_event(), _event("mem", 0.8)],
+        severity="high",
+        first_seen=NOW,
+        last_seen=NOW,
+        signature="sig1",
     )
     bus._to_consume["situations.detected"] = [{"data": sit.model_dump_json()}]
     out = list(iter_models(bus, "situations.detected", "g1", Situation))

@@ -7,8 +7,14 @@ NOW = datetime(2026, 8, 13, tzinfo=UTC)
 
 
 def _rec(sig, result):
-    return TrainingRecord(situation_id=f"sit-{sig}", signature=sig, playbook_id="pb",
-                          result=result, worked=result == RemediationResult.SUCCESS, ts=NOW)
+    return TrainingRecord(
+        situation_id=f"sit-{sig}",
+        signature=sig,
+        playbook_id="pb",
+        result=result,
+        worked=result == RemediationResult.SUCCESS,
+        ts=NOW,
+    )
 
 
 def test_empty_records_are_zeros():

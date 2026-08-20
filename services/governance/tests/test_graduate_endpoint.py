@@ -10,9 +10,17 @@ def _client():
     from services.governance.app import app
 
     store = InMemoryPlaybookStore()
-    store.register(Playbook(id="restart-pod", name="Restart", match_rule="x",
-                            steps=[RemediationStep(action="restart")],
-                            hitl_mode=HitlMode.HITL, reversible=True, rollback_steps=[]))
+    store.register(
+        Playbook(
+            id="restart-pod",
+            name="Restart",
+            match_rule="x",
+            steps=[RemediationStep(action="restart")],
+            hitl_mode=HitlMode.HITL,
+            reversible=True,
+            rollback_steps=[],
+        )
+    )
     app.state.playbook_store = store
     app.state.audit_sink = InMemoryAuditSink()
     app.state.rbac = RbacPolicy(

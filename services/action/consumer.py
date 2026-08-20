@@ -16,8 +16,16 @@ from services.action.remediate import execute_remediation
 from services.action.select import select_playbook
 
 
-def run_consumer(bus, store, gate, remediator, health, timeout_seconds: float,
-                 poll_interval_seconds: float, stop_event: threading.Event) -> None:
+def run_consumer(
+    bus,
+    store,
+    gate,
+    remediator,
+    health,
+    timeout_seconds: float,
+    poll_interval_seconds: float,
+    stop_event: threading.Event,
+) -> None:
     for diagnosed in iter_models(bus, "situations.diagnosed", "action", DiagnosedSituation):
         if stop_event.is_set():
             break
@@ -25,11 +33,20 @@ def run_consumer(bus, store, gate, remediator, health, timeout_seconds: float,
         playbook = select_playbook(diagnosed, store)
         if playbook is None:
             outcome = RemediationOutcome(
-                situation_id=situation.id, playbook_id=diagnosed.suggested_runbook_id or "",
-                result=RemediationResult.FAILURE, health_after="skipped:no-playbook",
+                situation_id=situation.id,
+                playbook_id=diagnosed.suggested_runbook_id or "",
+                result=RemediationResult.FAILURE,
+                health_after="skipped:no-playbook",
                 ts=datetime.now(UTC),
             )
         else:
-            outcome = execute_remediation(situation, playbook, gate, remediator, health,
-                                          timeout_seconds, poll_interval_seconds)
+            outcome = execute_remediation(
+                situation,
+                playbook,
+                gate,
+                remediator,
+                health,
+                timeout_seconds,
+                poll_interval_seconds,
+            )
         publish_model(bus, "remediation.outcomes", outcome)

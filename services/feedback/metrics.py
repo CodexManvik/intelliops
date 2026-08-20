@@ -9,8 +9,10 @@ from __future__ import annotations
 
 from common.contracts import TrainingRecord
 
-_NOTE = ("MTTR/MTTD require end-to-end detection→resolution timestamps not yet "
-         "threaded; reported metrics are outcome-derived.")
+_NOTE = (
+    "MTTR/MTTD require end-to-end detection→resolution timestamps not yet "
+    "threaded; reported metrics are outcome-derived."
+)
 
 
 def compute_metrics(records: list[TrainingRecord]) -> dict:

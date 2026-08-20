@@ -50,8 +50,11 @@ def _make_health_checker(settings):
 
         def metric_healthy() -> bool:
             try:
-                r = httpx.get(f"{settings.prometheus_url}/api/v1/query",
-                              params={"query": "cpu_usage"}, timeout=5.0)
+                r = httpx.get(
+                    f"{settings.prometheus_url}/api/v1/query",
+                    params={"query": "cpu_usage"},
+                    timeout=5.0,
+                )
                 results = r.json().get("data", {}).get("result", [])
                 return all(float(v["value"][1]) < 50 for v in results) if results else False
             except Exception:  # noqa: BLE001
@@ -71,8 +74,16 @@ async def lifespan(app: FastAPI):
     gate = _make_gate(settings, stores.audit_sink)
     thread = threading.Thread(
         target=run_consumer,
-        args=(app.state.bus, store, gate, _make_remediator(settings), _make_health_checker(settings),
-              settings.hitl_poll_timeout_seconds, settings.hitl_poll_interval_seconds, stop_event),
+        args=(
+            app.state.bus,
+            store,
+            gate,
+            _make_remediator(settings),
+            _make_health_checker(settings),
+            settings.hitl_poll_timeout_seconds,
+            settings.hitl_poll_interval_seconds,
+            stop_event,
+        ),
         daemon=True,
     )
     thread.start()

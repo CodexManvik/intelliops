@@ -38,9 +38,15 @@ def _prime_and_flush(engine, n=200, seed=42):
     for i in range(n):
         engine.add(
             TelemetryEvent.model_validate(
-                {"source": "prom", "kind": "metric", "name": "cpu",
-                 "value": round(rng.gauss(10.0, 1.0), 3), "labels": {},
-                 "ts": "2026-08-13T00:00:00+00:00", "fingerprint": f"base{i}"}
+                {
+                    "source": "prom",
+                    "kind": "metric",
+                    "name": "cpu",
+                    "value": round(rng.gauss(10.0, 1.0), 3),
+                    "labels": {},
+                    "ts": "2026-08-13T00:00:00+00:00",
+                    "fingerprint": f"base{i}",
+                }
             )
         )
     engine.flush()
@@ -56,9 +62,7 @@ def test_ingestion_to_correlation_emits_one_situation():
 
     # 2. Ingestion side: read the sample file through the real FileTelemetrySource
     #    and publish the normalized events onto the bus (the ingestion->bus path).
-    events = FileTelemetrySource(
-        "services/ingestion/sample_data/telemetry_sample.jsonl"
-    ).poll()
+    events = FileTelemetrySource("services/ingestion/sample_data/telemetry_sample.jsonl").poll()
     for ev in events:
         publish_model(bus, "telemetry.raw", ev)
 

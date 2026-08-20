@@ -9,8 +9,12 @@ from services.correlation.adapters.river_correlator import RiverCorrelator
 
 def _event(name="cpu", value=10.0, fp="fp", ts_sec=0):
     return TelemetryEvent(
-        source="prom", kind=TelemetryKind.METRIC, name=name, value=value,
-        labels={}, ts=datetime(2026, 8, 13, 0, 0, ts_sec, tzinfo=UTC),
+        source="prom",
+        kind=TelemetryKind.METRIC,
+        name=name,
+        value=value,
+        labels={},
+        ts=datetime(2026, 8, 13, 0, 0, ts_sec, tzinfo=UTC),
         fingerprint=fp,
     )
 

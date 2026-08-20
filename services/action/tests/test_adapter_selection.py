@@ -18,6 +18,8 @@ def test_dry_run_defaults():
 
 
 def test_k8s_mode_selects_k8s_adapters():
-    s = _S(); s.remediator_mode = "k8s"; s.health_check_mode = "k8s"
+    s = _S()
+    s.remediator_mode = "k8s"
+    s.health_check_mode = "k8s"
     assert isinstance(_make_remediator(s), KubernetesRemediator)
     assert isinstance(_make_health_checker(s), KubernetesHealthChecker)

@@ -27,7 +27,9 @@ def test_postgres_backend_selected(monkeypatch):
         lambda _path: [],
     )
 
-    class _P(_S): store_backend = "postgres"
+    class _P(_S):
+        store_backend = "postgres"
+
     # make_engine is called but lazy/pool — constructing the engine object does not connect.
     s = make_stores(_P())
     assert isinstance(s.audit_sink, PostgresAuditSink)

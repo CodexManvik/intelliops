@@ -43,9 +43,15 @@ class InMemoryBus:
 
 
 def _event(value, fp, ts_sec=0):
-    return TelemetryEvent(source="prom", kind=TelemetryKind.METRIC, name="cpu", value=value,
-                          labels={}, ts=datetime(2026, 8, 13, 0, 0, ts_sec, tzinfo=UTC),
-                          fingerprint=fp)
+    return TelemetryEvent(
+        source="prom",
+        kind=TelemetryKind.METRIC,
+        name="cpu",
+        value=value,
+        labels={},
+        ts=datetime(2026, 8, 13, 0, 0, ts_sec, tzinfo=UTC),
+        fingerprint=fp,
+    )
 
 
 def _prime_and_flush(engine, n=200, seed=42):
@@ -68,12 +74,20 @@ def test_loop_closes_reliable_signature_suppressed():
     bus = InMemoryBus()
     store = InMemoryTrainingStore()
     for _ in range(3):
-        publish_model(bus, "remediation.outcomes",
-                      RemediationOutcome(situation_id=situation.id, playbook_id="restart-pod",
-                                         result=RemediationResult.SUCCESS, health_after="healthy",
-                                         ts=NOW))
-    run_consumer(bus, store, graduator=lambda pid: None, min_successes=3,
-                 stop_event=threading.Event())
+        publish_model(
+            bus,
+            "remediation.outcomes",
+            RemediationOutcome(
+                situation_id=situation.id,
+                playbook_id="restart-pod",
+                result=RemediationResult.SUCCESS,
+                health_after="healthy",
+                ts=NOW,
+            ),
+        )
+    run_consumer(
+        bus, store, graduator=lambda pid: None, min_successes=3, stop_event=threading.Event()
+    )
 
     # 3. correlation retrains from the store → learns the signature self-heals.
     training = [{"signature": r.signature, "worked": r.worked} for r in store.read_all()]
@@ -92,9 +106,17 @@ def test_playbook_graduates_through_governance():
     from services.governance.app import app
 
     store = InMemoryPlaybookStore()
-    store.register(Playbook(id="restart-pod", name="Restart", match_rule="x",
-                            steps=[RemediationStep(action="restart")],
-                            hitl_mode=HitlMode.HITL, reversible=True, rollback_steps=[]))
+    store.register(
+        Playbook(
+            id="restart-pod",
+            name="Restart",
+            match_rule="x",
+            steps=[RemediationStep(action="restart")],
+            hitl_mode=HitlMode.HITL,
+            reversible=True,
+            rollback_steps=[],
+        )
+    )
     app.state.playbook_store = store
     app.state.audit_sink = InMemoryAuditSink()
     app.state.rbac = RbacPolicy(
@@ -111,10 +133,17 @@ def test_playbook_graduates_through_governance():
     bus = InMemoryBus()
     tstore = InMemoryTrainingStore()
     for _ in range(3):
-        publish_model(bus, "remediation.outcomes",
-                      RemediationOutcome(situation_id="sit-x", playbook_id="restart-pod",
-                                         result=RemediationResult.SUCCESS, health_after="healthy",
-                                         ts=NOW))
+        publish_model(
+            bus,
+            "remediation.outcomes",
+            RemediationOutcome(
+                situation_id="sit-x",
+                playbook_id="restart-pod",
+                result=RemediationResult.SUCCESS,
+                health_after="healthy",
+                ts=NOW,
+            ),
+        )
     run_consumer(bus, tstore, graduator, min_successes=3, stop_event=threading.Event())
 
     # The playbook is now auto, promoted through governance under RBAC + audit.

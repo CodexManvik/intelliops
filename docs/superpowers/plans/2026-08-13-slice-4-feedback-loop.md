@@ -54,8 +54,14 @@ NOW = datetime(2026, 8, 13, tzinfo=UTC)
 
 
 def test_training_record_roundtrips():
-    r = TrainingRecord(situation_id="sit-abc", signature="abc", playbook_id="restart-pod",
-                       result=RemediationResult.SUCCESS, worked=True, ts=NOW)
+    r = TrainingRecord(
+        situation_id="sit-abc",
+        signature="abc",
+        playbook_id="restart-pod",
+        result=RemediationResult.SUCCESS,
+        worked=True,
+        ts=NOW,
+    )
     restored = TrainingRecord.model_validate(r.model_dump())
     assert restored == r
     assert restored.worked is True
@@ -64,7 +70,8 @@ def test_training_record_roundtrips():
 def test_training_store_runtime_checkable():
     class FakeStore:
         def append(self, record): ...
-        def read_all(self): return []
+        def read_all(self):
+            return []
 
     assert isinstance(FakeStore(), TrainingStore)
 
@@ -185,9 +192,14 @@ NOW = datetime(2026, 8, 13, tzinfo=UTC)
 
 
 def _record(sig="abc", worked=True):
-    return TrainingRecord(situation_id=f"sit-{sig}", signature=sig, playbook_id="restart-pod",
-                          result=RemediationResult.SUCCESS if worked else RemediationResult.FAILURE,
-                          worked=worked, ts=NOW)
+    return TrainingRecord(
+        situation_id=f"sit-{sig}",
+        signature=sig,
+        playbook_id="restart-pod",
+        result=RemediationResult.SUCCESS if worked else RemediationResult.FAILURE,
+        worked=worked,
+        ts=NOW,
+    )
 
 
 def test_inmemory_satisfies_protocol():
@@ -329,8 +341,13 @@ def test_signature_from_situation_id_strips_prefix():
 
 
 def _outcome(result):
-    return RemediationOutcome(situation_id="sit-abc123", playbook_id="restart-pod",
-                              result=result, health_after="healthy", ts=NOW)
+    return RemediationOutcome(
+        situation_id="sit-abc123",
+        playbook_id="restart-pod",
+        result=result,
+        health_after="healthy",
+        ts=NOW,
+    )
 
 
 def test_label_success_sets_worked_true():
@@ -424,8 +441,14 @@ NOW = datetime(2026, 8, 13, tzinfo=UTC)
 
 
 def _rec(sig, result):
-    return TrainingRecord(situation_id=f"sit-{sig}", signature=sig, playbook_id="pb",
-                          result=result, worked=result == RemediationResult.SUCCESS, ts=NOW)
+    return TrainingRecord(
+        situation_id=f"sit-{sig}",
+        signature=sig,
+        playbook_id="pb",
+        result=result,
+        worked=result == RemediationResult.SUCCESS,
+        ts=NOW,
+    )
 
 
 def test_empty_records_are_zeros():
@@ -479,8 +502,10 @@ from __future__ import annotations
 
 from common.contracts import RemediationResult, TrainingRecord
 
-_NOTE = ("MTTR/MTTD require end-to-end detection→resolution timestamps not yet "
-         "threaded; reported metrics are outcome-derived.")
+_NOTE = (
+    "MTTR/MTTD require end-to-end detection→resolution timestamps not yet "
+    "threaded; reported metrics are outcome-derived."
+)
 
 
 def compute_metrics(records: list[TrainingRecord]) -> dict:
@@ -548,8 +573,14 @@ NOW = datetime(2026, 8, 13, tzinfo=UTC)
 
 
 def _rec(pb, result):
-    return TrainingRecord(situation_id="sit-x", signature="x", playbook_id=pb,
-                          result=result, worked=result == RemediationResult.SUCCESS, ts=NOW)
+    return TrainingRecord(
+        situation_id="sit-x",
+        signature="x",
+        playbook_id=pb,
+        result=result,
+        worked=result == RemediationResult.SUCCESS,
+        ts=NOW,
+    )
 
 
 def test_playbook_stats_counts_per_playbook():
@@ -570,15 +601,21 @@ def test_should_graduate_true_on_clean_successes():
 
 
 def test_should_graduate_false_below_threshold():
-    assert should_graduate({"successes": 2, "failures": 0, "rollbacks": 0}, min_successes=3) is False
+    assert (
+        should_graduate({"successes": 2, "failures": 0, "rollbacks": 0}, min_successes=3) is False
+    )
 
 
 def test_should_graduate_false_with_any_rollback():
-    assert should_graduate({"successes": 5, "failures": 0, "rollbacks": 1}, min_successes=3) is False
+    assert (
+        should_graduate({"successes": 5, "failures": 0, "rollbacks": 1}, min_successes=3) is False
+    )
 
 
 def test_should_graduate_false_with_any_failure():
-    assert should_graduate({"successes": 5, "failures": 1, "rollbacks": 0}, min_successes=3) is False
+    assert (
+        should_graduate({"successes": 5, "failures": 1, "rollbacks": 0}, min_successes=3) is False
+    )
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -618,9 +655,9 @@ def playbook_stats(records: list[TrainingRecord], playbook_id: str) -> dict:
 
 
 def should_graduate(stats: dict, min_successes: int) -> bool:
-    return (stats["successes"] >= min_successes
-            and stats["failures"] == 0
-            and stats["rollbacks"] == 0)
+    return (
+        stats["successes"] >= min_successes and stats["failures"] == 0 and stats["rollbacks"] == 0
+    )
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -662,12 +699,14 @@ from services.correlation.adapters.river_correlator import RiverCorrelator
 
 def test_retrain_aggregates_reliability():
     c = RiverCorrelator()
-    c.retrain([
-        {"signature": "a", "worked": True},
-        {"signature": "a", "worked": True},
-        {"signature": "a", "worked": False},
-        {"signature": "b", "worked": False},
-    ])
+    c.retrain(
+        [
+            {"signature": "a", "worked": True},
+            {"signature": "a", "worked": True},
+            {"signature": "a", "worked": False},
+            {"signature": "b", "worked": False},
+        ]
+    )
     assert c.reliability("a") == 2 / 3
     assert c.reliability("b") == 0.0
 
@@ -693,7 +732,7 @@ def test_should_not_suppress_unseen():
     assert RiverCorrelator().should_suppress("never", 0.8) is False
 
 
-def test_retrain_replaces_prior(  ):
+def test_retrain_replaces_prior():
     # a fresh retrain recomputes from the given data (idempotent w.r.t. input set)
     c = RiverCorrelator()
     c.retrain([{"signature": "a", "worked": False}])
@@ -714,9 +753,15 @@ from services.correlation.engine import CorrelationEngine
 
 
 def _event(value, fp, ts_sec=0):
-    return TelemetryEvent(source="prom", kind=TelemetryKind.METRIC, name="cpu", value=value,
-                          labels={}, ts=datetime(2026, 8, 13, 0, 0, ts_sec, tzinfo=UTC),
-                          fingerprint=fp)
+    return TelemetryEvent(
+        source="prom",
+        kind=TelemetryKind.METRIC,
+        name="cpu",
+        value=value,
+        labels={},
+        ts=datetime(2026, 8, 13, 0, 0, ts_sec, tzinfo=UTC),
+        fingerprint=fp,
+    )
 
 
 def _prime_and_flush(engine, n=200, seed=42):
@@ -739,9 +784,13 @@ def test_engine_suppresses_reliable_signature():
     sig = situation.signature
 
     # Teach the correlator that this signature reliably self-heals.
-    correlator.retrain([{"signature": sig, "worked": True},
-                        {"signature": sig, "worked": True},
-                        {"signature": sig, "worked": True}])
+    correlator.retrain(
+        [
+            {"signature": sig, "worked": True},
+            {"signature": sig, "worked": True},
+            {"signature": sig, "worked": True},
+        ]
+    )
 
     # The SAME spikes now form the same-signature Situation, which is suppressed.
     engine.add(_event(100.0, "a", 3))
@@ -761,8 +810,7 @@ def test_engine_still_emits_unreliable_signature():
     sig = situation.signature
 
     # This signature keeps FAILING — stays sensitive.
-    correlator.retrain([{"signature": sig, "worked": False},
-                        {"signature": sig, "worked": False}])
+    correlator.retrain([{"signature": sig, "worked": False}, {"signature": sig, "worked": False}])
 
     engine.add(_event(100.0, "a", 3))
     engine.add(_event(120.0, "b", 4))
@@ -798,27 +846,27 @@ Add one line at the end of `__init__`:
 Then replace the no-op `retrain` method:
 
 ```python
-    def retrain(self, training_data: list[dict]) -> None:
-        # The closed loop: aggregate per-signature reliability from labeled
-        # outcomes. A signature whose remediation reliably works becomes a
-        # candidate for suppression (see should_suppress); one that fails stays
-        # sensitive. Recomputes from the given data each call.
-        worked: dict[str, int] = {}
-        total: dict[str, int] = {}
-        for record in training_data:
-            sig = record["signature"]
-            total[sig] = total.get(sig, 0) + 1
-            if record.get("worked"):
-                worked[sig] = worked.get(sig, 0) + 1
-        self._reliability = {
-            sig: worked.get(sig, 0) / n for sig, n in total.items()
-        }
+def retrain(self, training_data: list[dict]) -> None:
+    # The closed loop: aggregate per-signature reliability from labeled
+    # outcomes. A signature whose remediation reliably works becomes a
+    # candidate for suppression (see should_suppress); one that fails stays
+    # sensitive. Recomputes from the given data each call.
+    worked: dict[str, int] = {}
+    total: dict[str, int] = {}
+    for record in training_data:
+        sig = record["signature"]
+        total[sig] = total.get(sig, 0) + 1
+        if record.get("worked"):
+            worked[sig] = worked.get(sig, 0) + 1
+    self._reliability = {sig: worked.get(sig, 0) / n for sig, n in total.items()}
 
-    def reliability(self, signature: str) -> float:
-        return self._reliability.get(signature, 0.0)
 
-    def should_suppress(self, signature: str, threshold: float) -> bool:
-        return self.reliability(signature) >= threshold
+def reliability(self, signature: str) -> float:
+    return self._reliability.get(signature, 0.0)
+
+
+def should_suppress(self, signature: str, threshold: float) -> bool:
+    return self.reliability(signature) >= threshold
 ```
 
 - [ ] **Step 4: Add suppression to the engine**
@@ -844,8 +892,12 @@ from services.correlation.adapters.river_correlator import RiverCorrelator
 
 
 class CorrelationEngine:
-    def __init__(self, correlator: RiverCorrelator, window_seconds: float = 30.0,
-                 suppress_threshold: float = 0.8) -> None:
+    def __init__(
+        self,
+        correlator: RiverCorrelator,
+        window_seconds: float = 30.0,
+        suppress_threshold: float = 0.8,
+    ) -> None:
         self._correlator = correlator
         self._window = window_seconds
         self._suppress_threshold = suppress_threshold
@@ -934,8 +986,17 @@ def _client():
     from services.governance.app import app
 
     store = InMemoryPlaybookStore()
-    store.register(Playbook(id="restart-pod", name="Restart", match_rule="x", steps=["s"],
-                            hitl_mode=HitlMode.HITL, reversible=True, rollback_steps=[]))
+    store.register(
+        Playbook(
+            id="restart-pod",
+            name="Restart",
+            match_rule="x",
+            steps=["s"],
+            hitl_mode=HitlMode.HITL,
+            reversible=True,
+            rollback_steps=[],
+        )
+    )
     app.state.playbook_store = store
     app.state.audit_sink = InMemoryAuditSink()
     app.state.rbac = RbacPolicy(
@@ -1000,10 +1061,16 @@ def graduate_playbook(playbook_id: str, body: Graduate) -> Playbook:
         raise HTTPException(status_code=403, detail="actor lacks graduate permission")
     updated = pb.model_copy(update={"hitl_mode": HitlMode.AUTO})
     app.state.playbook_store.register(updated)
-    app.state.audit_sink.write(AuditRecord(
-        actor=body.decided_by, action="graduate", resource=f"playbook:{playbook_id}",
-        decision="allow", ts=datetime.now(UTC), correlation_id=f"playbook:{playbook_id}",
-    ))
+    app.state.audit_sink.write(
+        AuditRecord(
+            actor=body.decided_by,
+            action="graduate",
+            resource=f"playbook:{playbook_id}",
+            decision="allow",
+            ts=datetime.now(UTC),
+            correlation_id=f"playbook:{playbook_id}",
+        )
+    )
     return updated
 ```
 
@@ -1074,8 +1141,9 @@ NOW = datetime(2026, 8, 13, tzinfo=UTC)
 
 
 def _raw_outcome(result, playbook="restart-pod"):
-    o = RemediationOutcome(situation_id="sit-abc", playbook_id=playbook, result=result,
-                           health_after="healthy", ts=NOW)
+    o = RemediationOutcome(
+        situation_id="sit-abc", playbook_id=playbook, result=result, health_after="healthy", ts=NOW
+    )
     return {"data": o.model_dump_json()}
 
 
@@ -1123,10 +1191,14 @@ def test_consumer_no_graduation_below_threshold():
 
 
 def test_consumer_no_graduation_with_rollback():
-    bus = ScriptedBus([_raw_outcome(RemediationResult.SUCCESS),
-                       _raw_outcome(RemediationResult.SUCCESS),
-                       _raw_outcome(RemediationResult.SUCCESS),
-                       _raw_outcome(RemediationResult.ROLLED_BACK)])
+    bus = ScriptedBus(
+        [
+            _raw_outcome(RemediationResult.SUCCESS),
+            _raw_outcome(RemediationResult.SUCCESS),
+            _raw_outcome(RemediationResult.SUCCESS),
+            _raw_outcome(RemediationResult.ROLLED_BACK),
+        ]
+    )
     store = InMemoryTrainingStore()
     graduated = []
     _run(bus, store, graduator=graduated.append, min_successes=3)
@@ -1177,8 +1249,9 @@ from services.feedback.graduate import playbook_stats, should_graduate
 from services.feedback.label import label_outcome
 
 
-def run_consumer(bus, store, graduator: Callable[[str], None], min_successes: int,
-                 stop_event: threading.Event) -> None:
+def run_consumer(
+    bus, store, graduator: Callable[[str], None], min_successes: int, stop_event: threading.Event
+) -> None:
     graduated: set[str] = set()
     for outcome in iter_models(bus, "remediation.outcomes", "feedback", RemediationOutcome):
         if stop_event.is_set():
@@ -1226,10 +1299,14 @@ def _make_graduator(rbac_actor: str = "feedback-service"):
     # next matching outcome will retry on a fresh process. Kept simple here.
     def graduate(playbook_id: str) -> None:
         try:
-            httpx.post(f"http://governance:8005/playbooks/{playbook_id}/graduate",
-                       json={"decided_by": rbac_actor}, timeout=5.0)
+            httpx.post(
+                f"http://governance:8005/playbooks/{playbook_id}/graduate",
+                json={"decided_by": rbac_actor},
+                timeout=5.0,
+            )
         except Exception:
             pass
+
     return graduate
 
 
@@ -1241,8 +1318,13 @@ async def lifespan(app: FastAPI):
     app.state.training_store = store
     thread = threading.Thread(
         target=run_consumer,
-        args=(app.state.bus, store, _make_graduator(), settings.graduation_min_successes,
-              stop_event),
+        args=(
+            app.state.bus,
+            store,
+            _make_graduator(),
+            settings.graduation_min_successes,
+            stop_event,
+        ),
         daemon=True,
     )
     thread.start()
@@ -1344,9 +1426,15 @@ class InMemoryBus:
 
 
 def _event(value, fp, ts_sec=0):
-    return TelemetryEvent(source="prom", kind=TelemetryKind.METRIC, name="cpu", value=value,
-                          labels={}, ts=datetime(2026, 8, 13, 0, 0, ts_sec, tzinfo=UTC),
-                          fingerprint=fp)
+    return TelemetryEvent(
+        source="prom",
+        kind=TelemetryKind.METRIC,
+        name="cpu",
+        value=value,
+        labels={},
+        ts=datetime(2026, 8, 13, 0, 0, ts_sec, tzinfo=UTC),
+        fingerprint=fp,
+    )
 
 
 def _prime_and_flush(engine, n=200, seed=42):
@@ -1370,12 +1458,20 @@ def test_loop_closes_reliable_signature_suppressed():
     bus = InMemoryBus()
     store = InMemoryTrainingStore()
     for _ in range(3):
-        publish_model(bus, "remediation.outcomes",
-                      RemediationOutcome(situation_id=situation.id, playbook_id="restart-pod",
-                                         result=RemediationResult.SUCCESS, health_after="healthy",
-                                         ts=NOW))
-    run_consumer(bus, store, graduator=lambda pid: None, min_successes=3,
-                 stop_event=threading.Event())
+        publish_model(
+            bus,
+            "remediation.outcomes",
+            RemediationOutcome(
+                situation_id=situation.id,
+                playbook_id="restart-pod",
+                result=RemediationResult.SUCCESS,
+                health_after="healthy",
+                ts=NOW,
+            ),
+        )
+    run_consumer(
+        bus, store, graduator=lambda pid: None, min_successes=3, stop_event=threading.Event()
+    )
 
     # 3. correlation retrains from the store → learns the signature self-heals.
     training = [{"signature": r.signature, "worked": r.worked} for r in store.read_all()]
@@ -1394,8 +1490,17 @@ def test_playbook_graduates_through_governance():
     from services.governance.app import app
 
     store = InMemoryPlaybookStore()
-    store.register(Playbook(id="restart-pod", name="Restart", match_rule="x", steps=["s"],
-                            hitl_mode=HitlMode.HITL, reversible=True, rollback_steps=[]))
+    store.register(
+        Playbook(
+            id="restart-pod",
+            name="Restart",
+            match_rule="x",
+            steps=["s"],
+            hitl_mode=HitlMode.HITL,
+            reversible=True,
+            rollback_steps=[],
+        )
+    )
     app.state.playbook_store = store
     app.state.audit_sink = InMemoryAuditSink()
     app.state.rbac = RbacPolicy(
@@ -1412,10 +1517,17 @@ def test_playbook_graduates_through_governance():
     bus = InMemoryBus()
     tstore = InMemoryTrainingStore()
     for _ in range(3):
-        publish_model(bus, "remediation.outcomes",
-                      RemediationOutcome(situation_id="sit-x", playbook_id="restart-pod",
-                                         result=RemediationResult.SUCCESS, health_after="healthy",
-                                         ts=NOW))
+        publish_model(
+            bus,
+            "remediation.outcomes",
+            RemediationOutcome(
+                situation_id="sit-x",
+                playbook_id="restart-pod",
+                result=RemediationResult.SUCCESS,
+                health_after="healthy",
+                ts=NOW,
+            ),
+        )
     run_consumer(bus, tstore, graduator, min_successes=3, stop_event=threading.Event())
 
     # The playbook is now auto, promoted through governance under RBAC + audit.

@@ -30,8 +30,9 @@ _TOPICS = [
 ]
 
 
-def _run_topic(bus, model: ReadModel, topic: str, model_type, method: str,
-               stop_event: threading.Event) -> None:
+def _run_topic(
+    bus, model: ReadModel, topic: str, model_type, method: str, stop_event: threading.Event
+) -> None:
     apply = getattr(model, method)
     for parsed in iter_models(bus, topic, _GROUP, model_type):
         if stop_event.is_set():
@@ -42,9 +43,9 @@ def _run_topic(bus, model: ReadModel, topic: str, model_type, method: str,
 def run_consumer(bus, model: ReadModel, stop_event: threading.Event) -> list[threading.Thread]:
     threads = []
     for topic, model_type, method in _TOPICS:
-        t = threading.Thread(target=_run_topic,
-                             args=(bus, model, topic, model_type, method, stop_event),
-                             daemon=True)
+        t = threading.Thread(
+            target=_run_topic, args=(bus, model, topic, model_type, method, stop_event), daemon=True
+        )
         t.start()
         threads.append(t)
     return threads

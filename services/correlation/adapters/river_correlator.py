@@ -87,9 +87,7 @@ class RiverCorrelator:
             total[sig] = total.get(sig, 0) + 1
             if record.get("worked"):
                 worked[sig] = worked.get(sig, 0) + 1
-        self._reliability = {
-            sig: worked.get(sig, 0) / n for sig, n in total.items()
-        }
+        self._reliability = {sig: worked.get(sig, 0) / n for sig, n in total.items()}
 
     def reliability(self, signature: str) -> float:
         return self._reliability.get(signature, 0.0)

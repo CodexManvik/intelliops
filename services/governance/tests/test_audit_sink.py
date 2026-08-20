@@ -9,8 +9,12 @@ NOW = datetime(2026, 8, 13, tzinfo=UTC)
 
 def _record(cid="sit-1"):
     return AuditRecord(
-        actor="rca-service", action="diagnose", resource="situation:sit-1",
-        decision="allow", ts=NOW, correlation_id=cid,
+        actor="rca-service",
+        action="diagnose",
+        resource="situation:sit-1",
+        decision="allow",
+        ts=NOW,
+        correlation_id=cid,
     )
 
 

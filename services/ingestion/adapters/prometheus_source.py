@@ -40,7 +40,10 @@ class PrometheusSource:
             # A 200 response with a malformed / non-JSON body (e.g. a reverse
             # proxy returning an HTML error page with status 200). Treat like
             # any other unusable response rather than raising out of poll().
-            logger.info("prometheus returned non-JSON body (%s); will retry next poll", exc.__class__.__name__)
+            logger.info(
+                "prometheus returned non-JSON body (%s); will retry next poll",
+                exc.__class__.__name__,
+            )
             return []
         if not isinstance(body, dict) or body.get("status") != "success":
             return []
@@ -56,17 +59,24 @@ class PrometheusSource:
                 continue
             ts_epoch, raw_value = value_pair[0], value_pair[1]
             try:
-                events.append(normalize({
-                    "source": "prometheus",
-                    "kind": "metric",
-                    "name": name,
-                    "value": float(raw_value),
-                    "labels": {k: v for k, v in metric.items() if k != "__name__"},
-                    # normalize() requires a 'ts'; Prometheus returns epoch seconds.
-                    "ts": datetime.fromtimestamp(float(ts_epoch), tz=UTC).isoformat(),
-                }))
+                events.append(
+                    normalize(
+                        {
+                            "source": "prometheus",
+                            "kind": "metric",
+                            "name": name,
+                            "value": float(raw_value),
+                            "labels": {k: v for k, v in metric.items() if k != "__name__"},
+                            # normalize() requires a 'ts'; Prometheus returns epoch seconds.
+                            "ts": datetime.fromtimestamp(float(ts_epoch), tz=UTC).isoformat(),
+                        }
+                    )
+                )
             except (TypeError, ValueError) as exc:
-                logger.info("prometheus result entry could not be normalized (%s); skipping entry", exc.__class__.__name__)
+                logger.info(
+                    "prometheus result entry could not be normalized (%s); skipping entry",
+                    exc.__class__.__name__,
+                )
                 continue
         return events
 

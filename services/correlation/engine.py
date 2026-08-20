@@ -18,8 +18,12 @@ from services.correlation.adapters.river_correlator import RiverCorrelator
 
 
 class CorrelationEngine:
-    def __init__(self, correlator: RiverCorrelator, window_seconds: float = 30.0,
-                 suppress_threshold: float = 0.8) -> None:
+    def __init__(
+        self,
+        correlator: RiverCorrelator,
+        window_seconds: float = 30.0,
+        suppress_threshold: float = 0.8,
+    ) -> None:
         self._correlator = correlator
         self._correlator_factory = lambda: type(correlator)(
             z_threshold=correlator._z_threshold,

@@ -16,8 +16,9 @@ from services.feedback.graduate import playbook_stats, should_graduate
 from services.feedback.label import label_outcome
 
 
-def run_consumer(bus, store, graduator: Callable[[str], None], min_successes: int,
-                 stop_event: threading.Event) -> None:
+def run_consumer(
+    bus, store, graduator: Callable[[str], None], min_successes: int, stop_event: threading.Event
+) -> None:
     graduated: set[str] = set()
     for outcome in iter_models(bus, "remediation.outcomes", "feedback", RemediationOutcome):
         if stop_event.is_set():

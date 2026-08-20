@@ -45,9 +45,7 @@ class FilePlaybookStore:
     def __init__(self, path: str) -> None:
         self._path = path
         os.makedirs(path, exist_ok=True)
-        self._by_id: dict[str, Playbook] = {
-            p.id: p for p in load_seed_playbooks(path)
-        }
+        self._by_id: dict[str, Playbook] = {p.id: p for p in load_seed_playbooks(path)}
 
     def register(self, playbook: Playbook) -> None:
         self._by_id[playbook.id] = playbook
@@ -69,10 +67,19 @@ class PostgresPlaybookStore:
 
     @staticmethod
     def _values(playbook: Playbook) -> dict:
-        mode = playbook.hitl_mode.value if hasattr(playbook.hitl_mode, "value") else str(playbook.hitl_mode)
-        return {"id": playbook.id, "name": playbook.name, "hitl_mode": mode,
-                "reversible": playbook.reversible, "payload": to_payload(playbook),
-                "updated_at": datetime.now(UTC)}
+        mode = (
+            playbook.hitl_mode.value
+            if hasattr(playbook.hitl_mode, "value")
+            else str(playbook.hitl_mode)
+        )
+        return {
+            "id": playbook.id,
+            "name": playbook.name,
+            "hitl_mode": mode,
+            "reversible": playbook.reversible,
+            "payload": to_payload(playbook),
+            "updated_at": datetime.now(UTC),
+        }
 
     def _seed(self, playbook: Playbook) -> None:
         """Insert a seed playbook only if absent — never clobber a graduated row.
@@ -82,8 +89,11 @@ class PostgresPlaybookStore:
         runtime must survive that, so seeding is INSERT-IF-ABSENT while register()
         stays a full upsert for the graduation path. See ADR-008.
         """
-        stmt = pg_insert(playbooks).values(**self._values(playbook)).on_conflict_do_nothing(
-            index_elements=[playbooks.c.id])
+        stmt = (
+            pg_insert(playbooks)
+            .values(**self._values(playbook))
+            .on_conflict_do_nothing(index_elements=[playbooks.c.id])
+        )
         with self._engine.begin() as conn:
             conn.execute(stmt)
 
@@ -91,9 +101,14 @@ class PostgresPlaybookStore:
         stmt = pg_insert(playbooks).values(**self._values(playbook))
         stmt = stmt.on_conflict_do_update(
             index_elements=[playbooks.c.id],
-            set_={"name": stmt.excluded.name, "hitl_mode": stmt.excluded.hitl_mode,
-                  "reversible": stmt.excluded.reversible, "payload": stmt.excluded.payload,
-                  "updated_at": stmt.excluded.updated_at})
+            set_={
+                "name": stmt.excluded.name,
+                "hitl_mode": stmt.excluded.hitl_mode,
+                "reversible": stmt.excluded.reversible,
+                "payload": stmt.excluded.payload,
+                "updated_at": stmt.excluded.updated_at,
+            },
+        )
         with self._engine.begin() as conn:
             conn.execute(stmt)
 

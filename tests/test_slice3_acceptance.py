@@ -44,26 +44,49 @@ class InMemoryBus:
 
 def _diagnosed():
     sit = Situation(
-        id="sit-web-1", status=SituationStatus.DIAGNOSED,
-        member_events=[TelemetryEvent(source="prom", kind=TelemetryKind.METRIC, name="cpu_usage",
-                                      value=99.0, labels={"service": "web"}, ts=NOW, fingerprint="fp")],
-        severity="high", first_seen=NOW, last_seen=NOW, signature="sig-web",
+        id="sit-web-1",
+        status=SituationStatus.DIAGNOSED,
+        member_events=[
+            TelemetryEvent(
+                source="prom",
+                kind=TelemetryKind.METRIC,
+                name="cpu_usage",
+                value=99.0,
+                labels={"service": "web"},
+                ts=NOW,
+                fingerprint="fp",
+            )
+        ],
+        severity="high",
+        first_seen=NOW,
+        last_seen=NOW,
+        signature="sig-web",
     )
     return DiagnosedSituation(situation=sit, hypotheses=[], suggested_runbook_id="restart-pod")
 
 
 def _store():
     s = InMemoryPlaybookStore()
-    s.register(Playbook(id="restart-pod", name="Restart Pod", match_rule="x",
-                        steps=[RemediationStep(action="restart")], hitl_mode=HitlMode.HITL,
-                        reversible=True, rollback_steps=[RemediationStep(action="restart")]))
+    s.register(
+        Playbook(
+            id="restart-pod",
+            name="Restart Pod",
+            match_rule="x",
+            steps=[RemediationStep(action="restart")],
+            hitl_mode=HitlMode.HITL,
+            reversible=True,
+            rollback_steps=[RemediationStep(action="restart")],
+        )
+    )
     return s
 
 
 def _rbac():
     return RbacPolicy(
-        roles={"operator": [{"action": "execute", "resource": "playbook:*"}],
-               "approver": [{"action": "approve", "resource": "playbook:*"}]},
+        roles={
+            "operator": [{"action": "execute", "resource": "playbook:*"}],
+            "approver": [{"action": "approve", "resource": "playbook:*"}],
+        },
         actors={"action-service": ["operator"], "oncall-alice": ["approver"]},
     )
 
@@ -73,8 +96,9 @@ def _approve_when_pending(approvals, appr_id, audit, done):
     for _ in range(500):
         req = approvals.get(appr_id)
         if req is not None and req.status == "pending":
-            approvals[appr_id] = req.model_copy(update={"status": "approved",
-                                                        "decided_by": "oncall-alice"})
+            approvals[appr_id] = req.model_copy(
+                update={"status": "approved", "decided_by": "oncall-alice"}
+            )
             done.set()
             return
         threading.Event().wait(0.005)
@@ -90,12 +114,21 @@ def test_hitl_approved_healthy_success_end_to_end():
 
     appr_id = "appr-sit-web-1"
     done = threading.Event()
-    approver = threading.Thread(target=_approve_when_pending,
-                                args=(approvals, appr_id, audit, done), daemon=True)
+    approver = threading.Thread(
+        target=_approve_when_pending, args=(approvals, appr_id, audit, done), daemon=True
+    )
     approver.start()
 
-    run_consumer(bus, _store(), gate, remediator, FixedHealthChecker(True),
-                 timeout_seconds=3.0, poll_interval_seconds=0.01, stop_event=threading.Event())
+    run_consumer(
+        bus,
+        _store(),
+        gate,
+        remediator,
+        FixedHealthChecker(True),
+        timeout_seconds=3.0,
+        poll_interval_seconds=0.01,
+        stop_event=threading.Event(),
+    )
     approver.join(timeout=1.0)
 
     outcomes = bus.topics.get("remediation.outcomes", [])
@@ -105,8 +138,7 @@ def test_hitl_approved_healthy_success_end_to_end():
     assert o.health_after == "healthy"
     assert remediator.executed_plan is not None
     assert remediator.rolled_back_plan is None  # healthy → no rollback
-    assert any(a.action == "execute" and a.correlation_id == "sit-web-1"
-               for a in audit.records())
+    assert any(a.action == "execute" and a.correlation_id == "sit-web-1" for a in audit.records())
 
 
 def test_hitl_approved_unhealthy_rolls_back_end_to_end():
@@ -118,12 +150,21 @@ def test_hitl_approved_unhealthy_rolls_back_end_to_end():
     publish_model(bus, "situations.diagnosed", _diagnosed())
 
     done = threading.Event()
-    approver = threading.Thread(target=_approve_when_pending,
-                                args=(approvals, "appr-sit-web-1", audit, done), daemon=True)
+    approver = threading.Thread(
+        target=_approve_when_pending, args=(approvals, "appr-sit-web-1", audit, done), daemon=True
+    )
     approver.start()
 
-    run_consumer(bus, _store(), gate, remediator, FixedHealthChecker(False),
-                 timeout_seconds=3.0, poll_interval_seconds=0.01, stop_event=threading.Event())
+    run_consumer(
+        bus,
+        _store(),
+        gate,
+        remediator,
+        FixedHealthChecker(False),
+        timeout_seconds=3.0,
+        poll_interval_seconds=0.01,
+        stop_event=threading.Event(),
+    )
     approver.join(timeout=1.0)
 
     o = decode_model(bus.topics["remediation.outcomes"][0], RemediationOutcome)

@@ -63,8 +63,7 @@
 
 ```python
 # tests/test_remediation_contracts.py
-from common.contracts import (HitlMode, Playbook, RemediationPlan, RemediationStep,
-                              RemediationTarget)
+from common.contracts import HitlMode, Playbook, RemediationPlan, RemediationStep, RemediationTarget
 
 
 def test_remediation_step_and_plan():
@@ -80,19 +79,28 @@ def test_remediation_step_and_plan():
 
 
 def test_playbook_steps_are_structured():
-    pb = Playbook(id="restart-pod", name="Restart", match_rule="x",
-                  steps=[RemediationStep(action="restart"),
-                         RemediationStep(action="wait", note="readiness")],
-                  hitl_mode=HitlMode.HITL, reversible=True,
-                  rollback_steps=[RemediationStep(action="restart")])
+    pb = Playbook(
+        id="restart-pod",
+        name="Restart",
+        match_rule="x",
+        steps=[RemediationStep(action="restart"), RemediationStep(action="wait", note="readiness")],
+        hitl_mode=HitlMode.HITL,
+        reversible=True,
+        rollback_steps=[RemediationStep(action="restart")],
+    )
     assert pb.steps[0].action == "restart"
     # parses from dicts too (YAML load path)
-    pb2 = Playbook.model_validate({
-        "id": "scale-service", "name": "Scale", "match_rule": "x",
-        "steps": [{"action": "scale", "replicas": 2}],
-        "hitl_mode": "hitl", "reversible": True,
-        "rollback_steps": [{"action": "scale", "replicas": -2}],
-    })
+    pb2 = Playbook.model_validate(
+        {
+            "id": "scale-service",
+            "name": "Scale",
+            "match_rule": "x",
+            "steps": [{"action": "scale", "replicas": 2}],
+            "hitl_mode": "hitl",
+            "reversible": True,
+            "rollback_steps": [{"action": "scale", "replicas": -2}],
+        }
+    )
     assert pb2.steps[0].action == "scale" and pb2.steps[0].replicas == 2
 ```
 
@@ -108,8 +116,8 @@ In `common/contracts.py`, add `Literal` to the typing imports (`from typing impo
 ```python
 class RemediationStep(BaseModel):
     action: Literal["restart", "scale", "rollback_deploy", "wait"]
-    replicas: int | None = None   # for scale: a delta, e.g. +2 / -2
-    note: str | None = None       # human-readable / wait annotation
+    replicas: int | None = None  # for scale: a delta, e.g. +2 / -2
+    note: str | None = None  # human-readable / wait annotation
 
 
 class RemediationTarget(BaseModel):
@@ -168,6 +176,7 @@ Replace `services/action/tests/test_remediator.py` with:
 from common.contracts import RemediationPlan, RemediationStep, RemediationTarget
 from services.action.adapters.remediator import DryRunRemediator, RecordingRemediator
 
+
 def _plan():
     return RemediationPlan(
         target=RemediationTarget(namespace="ns", deployment="demo-app"),
@@ -175,10 +184,12 @@ def _plan():
         rollback_steps=[RemediationStep(action="restart")],
     )
 
+
 def test_dry_run_always_succeeds():
     r = DryRunRemediator()
     assert r.execute(_plan()) is True
     assert r.rollback(_plan()) is True
+
 
 def test_recording_captures_plan():
     r = RecordingRemediator()
@@ -187,6 +198,7 @@ def test_recording_captures_plan():
     r.rollback(p)
     assert r.executed_plan is p
     assert r.rolled_back_plan is p
+
 
 def test_recording_execute_result_configurable():
     r = RecordingRemediator(execute_result=False)
@@ -201,9 +213,17 @@ def test_fixed_health_checker():
     from common.contracts import RemediationTarget, Situation, SituationStatus
     from datetime import UTC, datetime
     from services.action.adapters.health import FixedHealthChecker
+
     now = datetime(2026, 8, 18, tzinfo=UTC)
-    sit = Situation(id="s", status=SituationStatus.ACTING, member_events=[], severity="high",
-                    first_seen=now, last_seen=now, signature="sig")
+    sit = Situation(
+        id="s",
+        status=SituationStatus.ACTING,
+        member_events=[],
+        severity="high",
+        first_seen=now,
+        last_seen=now,
+        signature="sig",
+    )
     tgt = RemediationTarget(namespace="ns", deployment="demo-app")
     assert FixedHealthChecker(True).check(sit, tgt) is True
     assert FixedHealthChecker(False).check(sit, tgt) is False
@@ -257,14 +277,22 @@ logger = logging.getLogger("intelliops.action.remediator")
 class DryRunRemediator:
     def execute(self, plan: RemediationPlan) -> bool:
         for step in plan.steps:
-            logger.info("DRY-RUN execute on %s/%s: %s", plan.target.namespace,
-                        plan.target.deployment, step.action)
+            logger.info(
+                "DRY-RUN execute on %s/%s: %s",
+                plan.target.namespace,
+                plan.target.deployment,
+                step.action,
+            )
         return True
 
     def rollback(self, plan: RemediationPlan) -> bool:
         for step in plan.rollback_steps:
-            logger.info("DRY-RUN rollback on %s/%s: %s", plan.target.namespace,
-                        plan.target.deployment, step.action)
+            logger.info(
+                "DRY-RUN rollback on %s/%s: %s",
+                plan.target.namespace,
+                plan.target.deployment,
+                step.action,
+            )
         return True
 
 
@@ -342,9 +370,9 @@ git commit -m "feat(action): Remediator/HealthChecker take RemediationPlan/targe
 In `common/config.py`, after the read-model settings:
 
 ```python
-    remediator_mode: str = "dry_run"      # "dry_run" | "k8s"
-    health_check_mode: str = "always"     # "always" | "k8s"
-    k8s_namespace: str = "intelliops-demo"
+remediator_mode: str = "dry_run"  # "dry_run" | "k8s"
+health_check_mode: str = "always"  # "always" | "k8s"
+k8s_namespace: str = "intelliops-demo"
 ```
 
 - [ ] **Step 2: Write the failing target test**
@@ -357,16 +385,34 @@ from services.action.targets import resolve_target
 
 NOW = datetime(2026, 8, 18, tzinfo=UTC)
 
+
 def _sit(service):
     labels = {"service": service} if service else {}
-    return Situation(id="s", status=SituationStatus.DIAGNOSED,
-        member_events=[TelemetryEvent(source="p", kind=TelemetryKind.METRIC, name="cpu_usage",
-            value=90.0, labels=labels, ts=NOW, fingerprint="f")],
-        severity="high", first_seen=NOW, last_seen=NOW, signature="sig")
+    return Situation(
+        id="s",
+        status=SituationStatus.DIAGNOSED,
+        member_events=[
+            TelemetryEvent(
+                source="p",
+                kind=TelemetryKind.METRIC,
+                name="cpu_usage",
+                value=90.0,
+                labels=labels,
+                ts=NOW,
+                fingerprint="f",
+            )
+        ],
+        severity="high",
+        first_seen=NOW,
+        last_seen=NOW,
+        signature="sig",
+    )
+
 
 def test_resolve_target_from_service_label():
     t = resolve_target(_sit("demo-app"), namespace="intelliops-demo")
     assert t.namespace == "intelliops-demo" and t.deployment == "demo-app"
+
 
 def test_resolve_target_unknown_when_no_label():
     t = resolve_target(_sit(None), namespace="intelliops-demo")
@@ -411,24 +457,23 @@ In `services/action/remediate.py`:
 - Build the plan and thread the target. Replace the execute/health/rollback block (currently lines ~71–83) with:
 
 ```python
-    # Resolve the target once and build a typed plan.
-    target = resolve_target(situation, get_settings().k8s_namespace)
-    plan = RemediationPlan(target=target, steps=playbook.steps,
-                           rollback_steps=playbook.rollback_steps)
+# Resolve the target once and build a typed plan.
+target = resolve_target(situation, get_settings().k8s_namespace)
+plan = RemediationPlan(target=target, steps=playbook.steps, rollback_steps=playbook.rollback_steps)
 
-    # Execute.
-    if not remediator.execute(plan):
-        _audit(gate, situation, playbook, "execute-failed")
-        return _outcome(situation, playbook, RemediationResult.FAILURE, "execute-failed")
+# Execute.
+if not remediator.execute(plan):
+    _audit(gate, situation, playbook, "execute-failed")
+    return _outcome(situation, playbook, RemediationResult.FAILURE, "execute-failed")
 
-    # Verify health; roll back if unhealthy.
-    if health.check(situation, target):
-        _audit(gate, situation, playbook, "allow")
-        return _outcome(situation, playbook, RemediationResult.SUCCESS, "healthy")
+# Verify health; roll back if unhealthy.
+if health.check(situation, target):
+    _audit(gate, situation, playbook, "allow")
+    return _outcome(situation, playbook, RemediationResult.SUCCESS, "healthy")
 
-    remediator.rollback(plan)
-    _audit(gate, situation, playbook, "rolled-back")
-    return _outcome(situation, playbook, RemediationResult.ROLLED_BACK, "unhealthy:rolled-back")
+remediator.rollback(plan)
+_audit(gate, situation, playbook, "rolled-back")
+return _outcome(situation, playbook, RemediationResult.ROLLED_BACK, "unhealthy:rolled-back")
 ```
 
 - [ ] **Step 6: Update `test_remediate.py`'s `_playbook` helper**
@@ -438,9 +483,15 @@ In `services/action/tests/test_remediate.py`, change the `_playbook` helper to s
 ```python
 # add to the imports from common.contracts: RemediationStep
 def _playbook(hitl=HitlMode.AUTO, reversible=True):
-    return Playbook(id="restart-pod", name="Restart", match_rule="x",
-                    steps=[RemediationStep(action="restart")], hitl_mode=hitl,
-                    reversible=reversible, rollback_steps=[RemediationStep(action="restart")])
+    return Playbook(
+        id="restart-pod",
+        name="Restart",
+        match_rule="x",
+        steps=[RemediationStep(action="restart")],
+        hitl_mode=hitl,
+        reversible=reversible,
+        rollback_steps=[RemediationStep(action="restart")],
+    )
 ```
 
 The `RecordingRemediator` assertions in that file that checked `executed_steps` (if any) become `executed_plan is not None` / `executed_plan is None`. Scan the file for `executed_steps`/`rolled_back_steps` and update to `executed_plan`/`rolled_back_plan` (the safety tests that assert execute was NOT called become `assert r.executed_plan is None`).
@@ -491,11 +542,12 @@ git commit -m "feat(action): resolve target from service label; remediate builds
 # tests/test_seeded_playbooks_load.py
 from services.governance.adapters.playbook_store import load_seed_playbooks
 
+
 def test_seeded_playbooks_parse_as_structured():
     pbs = {p.id: p for p in load_seed_playbooks("deploy/playbooks")}
     assert "restart-pod" in pbs and "scale-service" in pbs
     rp = pbs["restart-pod"]
-    assert rp.steps[0].action == "restart"       # structured, not a string
+    assert rp.steps[0].action == "restart"  # structured, not a string
     ss = pbs["scale-service"]
     assert any(s.action == "scale" and s.replicas for s in ss.steps)
 ```
@@ -607,8 +659,10 @@ class FakeAppsV1:
     def read_namespaced_deployment(self, name, namespace):
         self._maybe_fail("read")
         self.calls.append(("read", name, namespace))
-        class _Scale: 
+
+        class _Scale:
             spec = type("S", (), {"replicas": self._replicas})()
+
         return _Scale()
 
     def patch_namespaced_deployment(self, name, namespace, body):
@@ -623,7 +677,9 @@ class FakeAppsV1:
 def _plan(*steps, rollback=()):
     return RemediationPlan(
         target=RemediationTarget(namespace="ns", deployment="demo-app"),
-        steps=list(steps), rollback_steps=list(rollback))
+        steps=list(steps),
+        rollback_steps=list(rollback),
+    )
 
 
 def test_restart_patches_restartedat_annotation():
@@ -642,14 +698,14 @@ def test_scale_adds_replicas_to_current():
     r = KubernetesRemediator("ns", apps_v1=api, exc_type=FakeApiException)
     assert r.execute(_plan(RemediationStep(action="scale", replicas=2))) is True
     scale = next(c for c in api.calls if c[0] == "scale")
-    assert scale[3]["spec"]["replicas"] == 3   # 1 + 2
+    assert scale[3]["spec"]["replicas"] == 3  # 1 + 2
 
 
 def test_wait_is_a_noop():
     api = FakeAppsV1()
     r = KubernetesRemediator("ns", apps_v1=api, exc_type=FakeApiException)
     assert r.execute(_plan(RemediationStep(action="wait", note="x"))) is True
-    assert api.calls == []   # nothing hit the API
+    assert api.calls == []  # nothing hit the API
 
 
 def test_api_error_returns_false_never_raises():
@@ -663,7 +719,7 @@ def test_rollback_runs_rollback_steps():
     r = KubernetesRemediator("ns", apps_v1=api, exc_type=FakeApiException)
     assert r.rollback(_plan(rollback=[RemediationStep(action="scale", replicas=-2)])) is True
     scale = next(c for c in api.calls if c[0] == "scale")
-    assert scale[3]["spec"]["replicas"] == 1   # 3 + (-2)
+    assert scale[3]["spec"]["replicas"] == 1  # 3 + (-2)
 ```
 
 - [ ] **Step 3: Run to verify fail**
@@ -697,12 +753,14 @@ _MIN_REPLICAS = 1
 
 def _default_apps_v1():
     from kubernetes import client, config
+
     config.load_kube_config()
     return client.AppsV1Api()
 
 
 def _default_exc_type():
     from kubernetes.client.exceptions import ApiException
+
     return ApiException
 
 
@@ -747,8 +805,13 @@ class KubernetesRemediator:
             return  # readiness is the health checker's job
         if step.action == "restart":
             stamp = _dt.datetime.now(_dt.UTC).isoformat()
-            body = {"spec": {"template": {"metadata": {"annotations": {
-                "kubectl.kubernetes.io/restartedAt": stamp}}}}}
+            body = {
+                "spec": {
+                    "template": {
+                        "metadata": {"annotations": {"kubectl.kubernetes.io/restartedAt": stamp}}
+                    }
+                }
+            }
             api.patch_namespaced_deployment(deployment, ns, body)
             return
         if step.action == "scale":
@@ -761,8 +824,11 @@ class KubernetesRemediator:
             # demo, a rolling restart recreates the pod (the fault is in-memory), so
             # we implement rollback_deploy as a rollout restart of the deployment.
             stamp = _dt.datetime.now(_dt.UTC).isoformat()
-            body = {"spec": {"template": {"metadata": {"annotations": {
-                "intelliops.io/rolledBackAt": stamp}}}}}
+            body = {
+                "spec": {
+                    "template": {"metadata": {"annotations": {"intelliops.io/rolledBackAt": stamp}}}
+                }
+            }
             api.patch_namespaced_deployment(deployment, ns, body)
             return
         logger.warning("unknown remediation action: %s", step.action)
@@ -801,36 +867,62 @@ from services.action.adapters.k8s_health import KubernetesHealthChecker
 
 NOW = datetime(2026, 8, 18, tzinfo=UTC)
 
+
 def _sit():
-    return Situation(id="s", status=SituationStatus.ACTING, member_events=[], severity="high",
-                     first_seen=NOW, last_seen=NOW, signature="sig")
+    return Situation(
+        id="s",
+        status=SituationStatus.ACTING,
+        member_events=[],
+        severity="high",
+        first_seen=NOW,
+        last_seen=NOW,
+        signature="sig",
+    )
+
 
 def _tgt():
     return RemediationTarget(namespace="ns", deployment="demo-app")
 
-class FakeExc(Exception): pass
+
+class FakeExc(Exception):
+    pass
+
 
 class FakeApps:
     def __init__(self, ready, desired=1, fail=False):
         self._ready, self._desired, self._fail = ready, desired, fail
+
     def read_namespaced_deployment_status(self, name, namespace):
-        if self._fail: raise FakeExc("boom")
-        class _S: status = type("St", (), {"ready_replicas": self._ready, "replicas": self._desired})()
+        if self._fail:
+            raise FakeExc("boom")
+
+        class _S:
+            status = type("St", (), {"ready_replicas": self._ready, "replicas": self._desired})()
+
         return _S()
 
+
 def _hc(apps, metric_ok, timeout=0.2):
-    return KubernetesHealthChecker(apps_v1=apps, metric_healthy=lambda: metric_ok,
-                                   timeout_seconds=timeout, poll_interval_seconds=0.0,
-                                   exc_type=FakeExc)
+    return KubernetesHealthChecker(
+        apps_v1=apps,
+        metric_healthy=lambda: metric_ok,
+        timeout_seconds=timeout,
+        poll_interval_seconds=0.0,
+        exc_type=FakeExc,
+    )
+
 
 def test_both_signals_green_returns_true():
     assert _hc(FakeApps(ready=1, desired=1), metric_ok=True).check(_sit(), _tgt()) is True
 
+
 def test_pod_ready_but_metric_bad_times_out_false():
     assert _hc(FakeApps(ready=1, desired=1), metric_ok=False).check(_sit(), _tgt()) is False
 
+
 def test_pod_not_ready_times_out_false():
     assert _hc(FakeApps(ready=0, desired=1), metric_ok=True).check(_sit(), _tgt()) is False
+
 
 def test_api_error_does_not_raise_times_out_false():
     assert _hc(FakeApps(ready=1, fail=True), metric_ok=True).check(_sit(), _tgt()) is False
@@ -866,18 +958,26 @@ logger = logging.getLogger("intelliops.action.k8s_health")
 
 def _default_apps_v1():
     from kubernetes import client, config
+
     config.load_kube_config()
     return client.AppsV1Api()
 
 
 def _default_exc_type():
     from kubernetes.client.exceptions import ApiException
+
     return ApiException
 
 
 class KubernetesHealthChecker:
-    def __init__(self, apps_v1=None, metric_healthy=None, timeout_seconds: float = 30.0,
-                 poll_interval_seconds: float = 2.0, exc_type=None) -> None:
+    def __init__(
+        self,
+        apps_v1=None,
+        metric_healthy=None,
+        timeout_seconds: float = 30.0,
+        poll_interval_seconds: float = 2.0,
+        exc_type=None,
+    ) -> None:
         self._apps_v1 = apps_v1
         self._metric_healthy = metric_healthy or (lambda: True)
         self._timeout = timeout_seconds
@@ -905,8 +1005,11 @@ class KubernetesHealthChecker:
 
     def _pod_ready(self, target: RemediationTarget) -> bool:
         try:
-            st = self._api().read_namespaced_deployment_status(
-                target.deployment, target.namespace).status
+            st = (
+                self._api()
+                .read_namespaced_deployment_status(target.deployment, target.namespace)
+                .status
+            )
         except self._exc():
             return False
         except Exception:  # noqa: BLE001 — treat any client error as not-yet-ready
@@ -956,18 +1059,23 @@ from services.action.adapters.health import AlwaysHealthyChecker
 from services.action.adapters.k8s_remediator import KubernetesRemediator
 from services.action.adapters.k8s_health import KubernetesHealthChecker
 
+
 class _S:
     remediator_mode = "dry_run"
     health_check_mode = "always"
     k8s_namespace = "intelliops-demo"
     prometheus_url = "http://localhost:9090"
 
+
 def test_dry_run_defaults():
     assert isinstance(_make_remediator(_S()), DryRunRemediator)
     assert isinstance(_make_health_checker(_S()), AlwaysHealthyChecker)
 
+
 def test_k8s_mode_selects_k8s_adapters():
-    s = _S(); s.remediator_mode = "k8s"; s.health_check_mode = "k8s"
+    s = _S()
+    s.remediator_mode = "k8s"
+    s.health_check_mode = "k8s"
     assert isinstance(_make_remediator(s), KubernetesRemediator)
     assert isinstance(_make_health_checker(s), KubernetesHealthChecker)
 ```
@@ -1004,8 +1112,11 @@ def _make_health_checker(settings):
 
         def metric_healthy() -> bool:
             try:
-                r = httpx.get(f"{settings.prometheus_url}/api/v1/query",
-                              params={"query": "cpu_usage"}, timeout=5.0)
+                r = httpx.get(
+                    f"{settings.prometheus_url}/api/v1/query",
+                    params={"query": "cpu_usage"},
+                    timeout=5.0,
+                )
                 results = r.json().get("data", {}).get("result", [])
                 return all(float(v["value"][1]) < 50 for v in results) if results else False
             except Exception:  # noqa: BLE001

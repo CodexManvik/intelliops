@@ -5,9 +5,15 @@ from services.governance.adapters.playbook_store import PostgresPlaybookStore
 
 
 def _pb(pid="restart-pod", mode=HitlMode.HITL):
-    return Playbook(id=pid, name="Restart", match_rule="x",
-                    steps=[RemediationStep(action="restart")], hitl_mode=mode,
-                    reversible=True, rollback_steps=[RemediationStep(action="restart")])
+    return Playbook(
+        id=pid,
+        name="Restart",
+        match_rule="x",
+        steps=[RemediationStep(action="restart")],
+        hitl_mode=mode,
+        reversible=True,
+        rollback_steps=[RemediationStep(action="restart")],
+    )
 
 
 @pytest.mark.postgres
@@ -23,9 +29,9 @@ def test_register_get_list(clean_db):
 def test_register_twice_upserts(clean_db):
     s = PostgresPlaybookStore(clean_db, seed_path="deploy/playbooks")
     s.register(_pb("g", mode=HitlMode.HITL))
-    s.register(_pb("g", mode=HitlMode.AUTO))   # graduation: same id, new mode
+    s.register(_pb("g", mode=HitlMode.AUTO))  # graduation: same id, new mode
     assert s.get("g").hitl_mode == HitlMode.AUTO
-    assert len([p for p in s.list() if p.id == "g"]) == 1   # not duplicated
+    assert len([p for p in s.list() if p.id == "g"]) == 1  # not duplicated
 
 
 @pytest.mark.postgres
@@ -39,7 +45,7 @@ def test_seed_playbooks_present_on_fresh_store(clean_db):
 def test_seed_on_init_does_not_revert_graduation(clean_db):
     # First store seeds + graduates a playbook to AUTO
     s1 = PostgresPlaybookStore(clean_db, seed_path="deploy/playbooks")
-    s1.register(_pb("restart-pod", mode=HitlMode.AUTO))   # graduation
+    s1.register(_pb("restart-pod", mode=HitlMode.AUTO))  # graduation
     assert s1.get("restart-pod").hitl_mode == HitlMode.AUTO
     # A second store constructed against the SAME db (simulates a restart) re-seeds.
     s2 = PostgresPlaybookStore(clean_db, seed_path="deploy/playbooks")
