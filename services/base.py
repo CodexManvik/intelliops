@@ -6,14 +6,31 @@ client on app.state. Service-specific handlers arrive in later slices.
 
 from __future__ import annotations
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from collections.abc import Callable
 
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from common.auth import is_authorized
 from common.bus import make_bus
 from common.config import get_settings
 
 
-def create_app(service_name: str) -> FastAPI:
+def create_app(
+    service_name: str,
+    auth_exempt: Callable[[str, str], bool] | None = None,
+) -> FastAPI:
+    """Create a FastAPI app with standard IntelliOps middleware.
+
+    Args:
+        service_name: Human label shown in /health and OpenAPI title.
+        auth_exempt: Optional predicate ``(method, path) -> bool``;
+            returns True to skip the auth gate.  Defaults to exempting
+            only ``/health``.  Services that host internal-bus endpoints
+            (e.g. governance) pass a broader predicate so inter-service
+            calls are never blocked by AUTH_MODE=token.
+    """
     app = FastAPI(title=f"IntelliOps · {service_name}")
     settings = get_settings()
     app.add_middleware(
@@ -24,8 +41,20 @@ def create_app(service_name: str) -> FastAPI:
     )
     app.state.bus = make_bus(settings)
 
+    _is_exempt = auth_exempt or (lambda method, path: path == "/health")
+
+    # Auth at the edge (AUTH_MODE=off|token). /health is always exempt so
+    # compose/k8s healthchecks never need a token, in any mode.
+    @app.middleware("http")
+    async def _auth_gate(request: Request, call_next):
+        current_settings = get_settings()
+        if not _is_exempt(request.method, request.url.path) and not is_authorized(request, current_settings):
+            return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+        return await call_next(request)
+
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"service": service_name, "status": "ok"}
 
     return app
+

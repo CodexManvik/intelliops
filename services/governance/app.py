@@ -14,7 +14,7 @@ from common.stores import make_stores
 from services.base import create_app
 from services.governance.rbac import RbacPolicy
 
-app = create_app("governance-service")
+app = create_app("governance-service")  # default: only /health is exempt
 
 
 def _init_state() -> None:
@@ -121,7 +121,9 @@ def decide_approval(approval_id: str, decision: Decision) -> ApprovalRequest:
         raise HTTPException(status_code=404, detail="approval not found")
     if not app.state.rbac.check(decision.decided_by, "approve", f"playbook:{req.playbook_id}"):
         raise HTTPException(status_code=403, detail="decider lacks approve permission")
-    updated = req.model_copy(update={"status": decision.decision, "decided_by": decision.decided_by})
+    updated = req.model_copy(
+        update={"status": decision.decision, "decided_by": decision.decided_by}
+    )
     app.state.approvals[approval_id] = updated
     return updated
 
@@ -135,8 +137,14 @@ def graduate_playbook(playbook_id: str, body: Graduate) -> Playbook:
         raise HTTPException(status_code=403, detail="actor lacks graduate permission")
     updated = pb.model_copy(update={"hitl_mode": HitlMode.AUTO})
     app.state.playbook_store.register(updated)
-    app.state.audit_sink.write(AuditRecord(
-        actor=body.decided_by, action="graduate", resource=f"playbook:{playbook_id}",
-        decision="allow", ts=datetime.now(UTC), correlation_id=f"playbook:{playbook_id}",
-    ))
+    app.state.audit_sink.write(
+        AuditRecord(
+            actor=body.decided_by,
+            action="graduate",
+            resource=f"playbook:{playbook_id}",
+            decision="allow",
+            ts=datetime.now(UTC),
+            correlation_id=f"playbook:{playbook_id}",
+        )
+    )
     return updated
