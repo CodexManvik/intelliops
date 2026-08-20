@@ -91,14 +91,21 @@ async def lifespan(app: FastAPI):
     # consumer thread starts, so the first events are scored against the
     # recovered state (no cold-start blackout). In file mode baseline_store is
     # None and the reload is a no-op; the training-record retrain still runs.
-    stores = make_stores(settings)
+    #
+    # Reload-on-boot is best-effort: a DB-unavailable boot cold-starts (empty
+    # baseline + reliability) rather than crashing (ADR-015). make_stores() can
+    # connect in postgres mode (PostgresPlaybookStore seeds on construction), so
+    # it must be inside the guard too.
+    baseline_store = None
+    training_records: list[dict] = []
     try:
+        stores = make_stores(settings)
+        baseline_store = stores.baseline_store
         training_records = [r.model_dump() for r in stores.training_store.read_all()]
-    except Exception as exc:  # noqa: BLE001 — a failed read just means a cold start
-        logger.warning("training-record reload failed, starting cold: %s", exc)
-        training_records = []
-    _reload_baseline(engine, stores.baseline_store, training_records)
-    app.state.baseline_store = stores.baseline_store
+    except Exception as exc:  # noqa: BLE001 — a failed boot-load just means a cold start
+        logger.warning("store reload failed, starting cold: %s", exc)
+    _reload_baseline(engine, baseline_store, training_records)
+    app.state.baseline_store = baseline_store
     thread = threading.Thread(
         target=run_consumer, args=(app.state.bus, engine, stop_event), daemon=True
     )
@@ -110,7 +117,7 @@ async def lifespan(app: FastAPI):
             engine,
             settings.correlation_window_seconds,
             stop_event,
-            stores.baseline_store,
+            baseline_store,
             settings.baseline_snapshot_seconds,
         ),
         daemon=True,
