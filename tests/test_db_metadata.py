@@ -1,5 +1,6 @@
 # tests/test_db_metadata.py
-from common.db import METADATA, audit_records, training_records, playbooks, to_payload, from_payload
+from common.db import METADATA, audit_records, from_payload, playbooks, to_payload
+
 
 def test_tables_registered():
     names = set(METADATA.tables)
@@ -14,6 +15,7 @@ def test_playbooks_pk_is_id():
 
 def test_payload_roundtrip():
     from datetime import UTC, datetime
+
     from common.contracts import AuditRecord
     rec = AuditRecord(actor="a", action="x", resource="r", decision="allow",
                       ts=datetime(2026, 8, 20, tzinfo=UTC), correlation_id="sit-1")

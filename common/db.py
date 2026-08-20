@@ -10,7 +10,15 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 from sqlalchemy import (
-    JSON, BigInteger, Boolean, Column, DateTime, Index, MetaData, String, Table,
+    JSON,
+    BigInteger,
+    Boolean,
+    Column,
+    DateTime,
+    Index,
+    MetaData,
+    String,
+    Table,
     create_engine,
 )
 from sqlalchemy.dialects.postgresql import JSONB
