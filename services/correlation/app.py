@@ -92,7 +92,11 @@ async def lifespan(app: FastAPI):
     # recovered state (no cold-start blackout). In file mode baseline_store is
     # None and the reload is a no-op; the training-record retrain still runs.
     stores = make_stores(settings)
-    training_records = [r.model_dump() for r in stores.training_store.read_all()]
+    try:
+        training_records = [r.model_dump() for r in stores.training_store.read_all()]
+    except Exception as exc:  # noqa: BLE001 — a failed read just means a cold start
+        logger.warning("training-record reload failed, starting cold: %s", exc)
+        training_records = []
     _reload_baseline(engine, stores.baseline_store, training_records)
     app.state.baseline_store = stores.baseline_store
     thread = threading.Thread(
