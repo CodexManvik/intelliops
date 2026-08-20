@@ -480,6 +480,82 @@ from Postgres (no real `JSONB`, different `ON CONFLICT`), so the tests use **tes
 real throwaway Postgres) to verify against the database that actually runs. *Auto-migrating on
 service startup* — races across replicas; migrations run as their own step instead.
 
+### ADR-015 — Durable runtime state
+
+**Context.** ADR-014 persists the *records* the system writes (audit, playbooks, training). But
+two pieces of live **runtime state** stayed in memory and were lost on restart: the **pending HITL
+approvals** governance holds (a plain dict), and the correlator's **z-score baseline** — the
+per-metric running mean/variance that *is* its learned notion of normal. Both losses hurt mid-run:
+a governance restart during an incident drops a human's in-flight approval, and a
+correlation-service restart throws away a warm detector and re-enters the cold-start warm-up
+blackout (`warmup_samples` observations during which anomalies are suppressed), going blind exactly
+when an operator restarted it to fix something. The question was how to make these durable without
+inventing a second persistence story, and — because the two behave very differently — what to do
+when persistence itself fails.
+
+**Decision.** Persist both behind the **same `STORE_BACKEND=postgres` switch and the same
+`make_stores` factory** as the Tier-1a stores, but with **two different patterns matched to the
+two kinds of state**:
+
+- **Approvals — a synchronous, keyed store**, exactly like the Tier-1a stores. `ApprovalStore`
+  (`create` / `get` / `decide` / `list_pending`) has an `InMemoryApprovalStore` and a
+  `PostgresApprovalStore`; the Postgres table is the hybrid schema again (promoted `id` /
+  `status` columns, JSONB `payload` as source of truth), and `decide` is an upsert on `id`
+  (`ON CONFLICT DO UPDATE`) so a decision flips status in place rather than duplicating a row.
+- **Baseline — a periodic snapshot + reload**, not a per-write store. `BaselineStore`
+  (`save(rows)` / `load_all()`) persists one row per metric in `correlation_baseline`. The
+  correlation-service's existing background **flusher** thread piggybacks the snapshot on its own
+  `time.monotonic()` schedule every `baseline_snapshot_seconds` (default 30). On boot,
+  `_reload_baseline` restores the baseline **before the consumer thread starts**, so the first
+  events are scored against the recovered state — no cold-start blackout.
+
+**Why the split posture — the deliberate part.** The two holders fail *differently on purpose*,
+because one loss is a correctness failure and the other is recoverable:
+
+- **Approvals propagate errors**, exactly like the audit sink (ADR-014). A dropped approval write
+  silently loses a human's decision or a pending request — a correctness failure that must be
+  *visible*, never a swallowed no-op.
+- **The baseline snapshot/reload is best-effort — logged and fail-safe.** A baseline is a
+  slowly-settling statistic; a missed 30-second snapshot, or a failed reload, only makes the
+  detector slightly staler or starts it cold — both recoverable. So `_snapshot_baseline_once` and
+  `_reload_baseline` catch every exception, log a warning, and continue; a persistence hiccup can
+  **never** crash the flusher thread or the service boot. This is the **fail-safe posture of the
+  Kubernetes remediator** (ADR-007 / ADR-013), which catches every API error and degrades rather
+  than escaping — the opposite of the audit sink and the approval store. The system now runs *both*
+  postures side by side, chosen per-holder by what a loss actually costs.
+
+**The river codec — verified, not assumed.** Reloading the baseline means reconstructing river's
+online statistics from stored scalars. The snapshot stores per metric `(n, mean, variance, count)`
+and reload rebuilds via `stats.Mean._from_state(n, mean)` and
+`stats.Var._from_state(n, mean, variance, ddof=1)`. Critically, `Var._from_state` takes the
+**variance** as its `sig` argument — **not** river's internal running sum-of-squares `_S`. Storing
+`_S` reconstructs a diverging detector; this was verified during design and is pinned by a codec
+test (`tests/test_baseline_codec.py`) so a river upgrade can't silently break it.
+
+**Consequences.** (+) A governance or correlation restart mid-incident resumes: approvals survive,
+and the detector reloads warm so a genuine outlier fires immediately (pinned by a restart-survival
+test that settles a baseline, persists it to a real Postgres, reloads into a fresh engine, and
+asserts the outlier fires with no warm-up blackout). (+) No new persistence machinery — same
+switch, same factory, same hybrid schema and testcontainers contract test, now covering
+`ApprovalStore` too. (−) Two error postures to keep straight, and one more pair of tables to
+migrate (Alembic `0002_runtime_state`). Accepted — the postures are documented and each is matched
+to what a loss costs.
+
+**Scope — what is deliberately *not* persisted.** The **read-model stays on event replay**
+(ADR-009): the dashboard projection is rebuilt from the situation/outcome stream, so persisting it
+would duplicate state the event log already owns. And **reliability is recovered, not stored**: the
+closed loop's per-signature reliability is re-derived on boot by replaying the durable **training
+records** through `retrain(...)` — the labeled outcomes are the source of truth, so a separate
+reliability table would be a redundant, drift-prone copy.
+
+**Alternatives rejected.** *One uniform error posture for both holders* — either would be wrong for
+one of them: propagating on a baseline snapshot would let a transient DB blip crash the detector's
+flusher, and swallowing an approval write would hide a lost human decision. *Persisting the baseline
+on every event* — needless write amplification for a statistic that changes slowly; a periodic
+snapshot captures it at a fraction of the cost. *A dedicated reliability table* — duplicates the
+training records that already exist and can drift from them; recomputing on boot keeps one source of
+truth. *Storing river's raw `_S`* — reconstructs a diverging detector (see the codec note).
+
 ---
 
 ## 4. Cross-cutting concerns
@@ -498,8 +574,11 @@ horizontally as a consumer group. RCA and action are lower-frequency and scale i
 **Data at rest.** Audit records, labeled training outcomes, and the playbook registry persist
 to **Postgres** behind the `STORE_BACKEND=postgres` switch (the compose default) — a hybrid
 schema with a JSONB payload as the source of truth, migrated by Alembic
-([ADR-014](#adr-014--postgres-persistence-with-a-hybrid-schema)). `file` stays the default for
-tests and quick dev. Postgres is deployable in-region/on-prem for sovereign-cloud requirements.
+([ADR-014](#adr-014--postgres-persistence-with-a-hybrid-schema)). The same switch makes two
+pieces of live runtime state durable — pending HITL approvals and the correlator's z-score
+baseline ([ADR-015](#adr-015--durable-runtime-state)) — so a restart mid-incident resumes rather
+than forgetting. `file` stays the default for tests and quick dev. Postgres is deployable
+in-region/on-prem for sovereign-cloud requirements.
 
 ## 5. Compliance mapping
 
@@ -535,6 +614,13 @@ tests and quick dev. Postgres is deployable in-region/on-prem for sovereign-clou
   migrations applied as a dedicated step, and a `STORE_BACKEND=file|postgres` switch. Postgres
   is the compose default; `file` stays the default for tests and quick dev. See
   [docs/PERSISTENCE.md](docs/PERSISTENCE.md).
+- **Durable runtime state.** Two pieces of live in-memory state are now durable behind the same
+  switch ([ADR-015](#adr-015--durable-runtime-state)): **pending HITL approvals** (a keyed store
+  whose errors propagate like the audit log) and the correlator's **z-score baseline** (periodic
+  best-effort snapshot on the flusher's `time.monotonic()` schedule, reloaded on boot before the
+  consumer starts — so a restart mid-incident keeps approvals and reloads a warm detector instead
+  of re-entering the cold-start blackout). The read-model stays on event replay and reliability is
+  recovered from training records — neither is a new stored table.
 
 **What remains deliberately deferred / simulated — the honest gap and the next milestones:**
 - **Authentication / authorization at the edge.** RBAC gates *actions* internally, but the
