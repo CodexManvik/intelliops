@@ -64,7 +64,12 @@ class RiverCorrelator:
     def snapshot(self) -> list[dict]:
         """Per-metric baseline as plain scalars (see tests/test_baseline_codec)."""
         out: list[dict] = []
-        for name, mean in self._mean.items():
+        # Copy the items first: the consumer thread's detect() can setdefault a
+        # new metric into _mean/_var mid-snapshot (detect() runs outside the
+        # engine lock), and iterating a live dict during that resize raises
+        # RuntimeError. A snapshotted key list is immune; a metric added after
+        # the copy simply lands in the next snapshot.
+        for name, mean in list(self._mean.items()):
             var = self._var[name]
             out.append(
                 {
