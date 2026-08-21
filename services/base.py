@@ -62,7 +62,7 @@ def create_app(
     # Auth at the edge (AUTH_MODE=off|token). /health and /ready are always
     # exempt so compose/k8s probes never need a token, in any mode — the
     # short-circuit below runs BEFORE the exempt predicate, so probes stay
-    # ungated even when a service passes a custom auth_exempt (governance does).
+    # ungated even for a service that passes a custom auth_exempt.
     @app.middleware("http")
     async def _auth_gate(request: Request, call_next):
         if request.url.path in ("/health", "/ready"):
