@@ -29,6 +29,8 @@ class BusClient(Protocol):
 
     def consume(self, topic: str, group: str) -> Iterator[dict]: ...
 
+    def ping(self) -> None: ...
+
 
 @runtime_checkable
 class TelemetrySource(Protocol):

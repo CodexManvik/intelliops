@@ -22,6 +22,9 @@ class FakeBus:
     def consume(self, topic: str, group: str):
         yield from ()
 
+    def ping(self) -> None:
+        pass
+
 
 class FakeAudit:
     def __init__(self) -> None:
