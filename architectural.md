@@ -601,11 +601,12 @@ has Python but no `curl`); a real cluster maps `livenessProbe: /health` + `readi
 
 **Consequences.** (+) Uniform, aggregator-ready logs with a `service` tag across all seven
 services, behind a switch that keeps local/test output readable. (+) An orchestrator can tell
-*alive* from *ready* and see which dependency is down from the `503` body. (+) It fixed a latent
-inconsistency as a side effect: correlation set `app.state.db_engine` *outside* the guarded store
-init, so a DB-down boot left the attribute unset while other services set it inside the guard;
-wiring the DB readiness closure made the placement uniform (set inside the `try` where `stores` is
-bound), so a cold-start boot and the `/ready` probe now agree. (−) Two error postures in the probe
+*alive* from *ready* and see which dependency is down from the `503` body. (+) It closed a small
+inconsistency as a side effect: unlike the other store-using services, correlation never kept its
+DB engine on `app.state` at all (it stored only the detector engine, under a different attribute).
+Wiring the DB readiness closure added `app.state.db_engine = stores.engine` inside correlation's
+guarded store init (where `stores` is bound), so a DB-down cold-start leaves it unset and the
+`/ready` probe degrades to a bus-only check rather than reporting a false Postgres failure. (−) Two error postures in the probe
 (never-raise for `/ready`, versus the propagate-on-write posture of the stores) and one more env
 switch to document. Accepted — the readiness handler's job is to *report* a failure, not re-raise
 it, which is the opposite need from a store write that must never hide a lost record.
