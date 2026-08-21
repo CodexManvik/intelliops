@@ -5,7 +5,44 @@ system** — the target that earns a PPO. Everyone can speak to a substantial, d
 
 **Read first:** [flow.md](flow.md) (how it works) and [architectural.md](architectural.md) (why).
 This plan assumes you understand the current state described there: the six-service closed loop +
-read-service + React console run live on docker-compose, with remediation **dry-run** today.
+read-service + React console run live on docker-compose.
+
+---
+
+## Current state (updated 2026-08-20)
+
+We reframed the goal from "production-ready" to **production-credible** — the honest,
+defensible version that earns a PPO. Since this plan was first written, the following has
+**shipped and merged to `master`** (all behind test-safe env switches, full `pytest` green):
+
+- ✅ **Stream A — Real Kubernetes remediation (DONE).** `KubernetesRemediator` + two-signal
+  `KubernetesHealthChecker` act on a real **kind** cluster behind `REMEDIATOR_MODE=k8s` /
+  `HEALTH_CHECK_MODE=k8s` (default `dry_run`/`always`). Real pod remediation + rollback verified
+  live end-to-end. See `deploy/k8s/README.md`, ADR-013. *(fake-client tested; CI never touches a
+  cluster.)*
+- ✅ **Stream D — Auth at the edge + CI (DONE).** `AUTH_MODE=off|token` (default `off`) with
+  timing-safe bearer auth; internal service-to-service calls **authenticate** (not bypass) so the
+  pipeline works under `token` mode. CI pipeline (`lint` / `test` / `frontend-build` /
+  `compose-smoke`) runs on every PR. `common/auth.py`, `.github/workflows/ci.yml`, `docs/OPERATIONS.md`.
+  *(Remaining Stream-D items still open: Kafka binding, K8s platform deploy, load/chaos tests.)*
+- ✅ **Persistence — Tier 1a (DONE, NOT in the original plan).** The three append/read stores
+  (audit / training / playbook) on real **Postgres** behind `STORE_BACKEND=file|postgres`
+  (default `file`): SQLAlchemy Core + Alembic migrations, testcontainers, a shared `make_stores`
+  factory across all four store-using services. `common/db.py`, `common/stores.py`,
+  `docs/PERSISTENCE.md`, ADR-014.
+- ✅ **Persistence — Tier 1b: durable runtime state (DONE, NOT in the original plan).** The two
+  live-state holders that had no recovery path now survive a restart: governance's pending
+  **approvals** (durable keyed store) and correlation's learned **z-score baseline** (periodic
+  snapshot via the flusher + reload-on-boot; reliability recovered from the durable training
+  records). Read-model stays on event replay. ADR-015.
+
+**The PR-contract now also requires `ruff format --check .` to pass** (the repo is format-clean;
+CI enforces it) — added to the "every PR must" list below.
+
+**What's next (open streams):** Stream B (intelligence — smarter detection + measured benchmarks),
+Stream C (frontend — real-time updates + live pipeline view), and the remaining Stream-D platform
+items (Kafka binding, whole-stack K8s deploy, load/chaos testing). Details in each stream below;
+the ✅ streams are kept for the record with their acceptance criteria marked met.
 
 ---
 
@@ -18,8 +55,9 @@ read-service + React console run live on docker-compose, with remediation **dry-
   paths is what keeps PRs conflict-free. If you need to touch a *shared* file (contracts, config,
   compose, the bus), see "Shared files" below — coordinate, don't just edit.
 - **Every PR must:** keep `uv run pytest` green (add tests for new code — TDD), keep
-  `uv run ruff check` clean, keep `npm run build` clean if you touched the frontend, and end each
-  commit message with the standard co-author trailer. A PR that reddens the suite doesn't merge.
+  `uv run ruff check` **and** `uv run ruff format --check .` clean, keep `npm run build` clean if
+  you touched the frontend, and end each commit message with the standard co-author trailer. A PR
+  that reddens the suite doesn't merge. (CI now enforces all of these on every PR.)
 - **Keep it test-safe by default.** New behavior goes behind an env switch that defaults to the
   current behavior (the ADR-012 pattern) so `pytest` never needs real infra. The compose stack
   turns live bindings on.
@@ -38,12 +76,13 @@ first.
 
 ## The four streams at a glance
 
-| Stream | Owner | Theme | Depends on |
-|--------|-------|-------|------------|
-| **A — Real remediation (K8s)** | **Manvik** | Make "resolved" real: a Kubernetes remediator + real health checks acting on a real local cluster. The centerpiece production feature. | none (uses existing seams) |
-| **B — Intelligence** | **Member A** | Make the "AI" real: smarter anomaly detection + richer RCA, benchmarked against the current rule-based baseline. | none (self-contained in correlation/rca) |
-| **C — Frontend & observability** | **Member B** | Demo-grade console: real-time updates, a live topology/flow view, dashboards worthy of a demo. | read-service API (stable) |
-| **D — Platform, security & CI/CD** | **Member C** | Make it deployable and safe: auth on the edge, Kafka binding, CI pipeline, K8s manifests/Helm, load/chaos testing. | none (mostly new files) |
+| Stream | Owner | Theme | Status |
+|--------|-------|-------|--------|
+| **A — Real remediation (K8s)** | **Manvik** | Make "resolved" real: a Kubernetes remediator + real health checks acting on a real local cluster. The centerpiece production feature. | ✅ **Done** (merged) |
+| **B — Intelligence** | **Member A** | Make the "AI" real: smarter anomaly detection + richer RCA, benchmarked against the current rule-based baseline. | ⬜ Open |
+| **C — Frontend & observability** | **Member B** | Demo-grade console: real-time updates, a live topology/flow view, dashboards worthy of a demo. | ⬜ Open |
+| **D — Platform, security & CI/CD** | **Member C** | Make it deployable and safe: auth on the edge, Kafka binding, CI pipeline, K8s manifests/Helm, load/chaos testing. | 🟡 Partial — auth + CI done; Kafka / K8s deploy / load+chaos open |
+| **P — Persistence** *(added mid-project)* | **Manvik** | Postgres-backed durability: the append/read stores (Tier 1a) + durable runtime state (Tier 1b), behind `STORE_BACKEND`. The production-credibility backbone. | ✅ **Done** (merged) |
 
 Streams are **parallel** — none blocks another to *start*. The only true dependency is that
 Stream A's real remediation is what makes the end-to-end demo fully "real"; B/C/D land
@@ -51,7 +90,11 @@ independently around it.
 
 ---
 
-## Stream A — Real Kubernetes Remediation  ·  **Manvik** (integration lead)
+## Stream A — Real Kubernetes Remediation  ·  **Manvik** (integration lead)  ·  ✅ DONE
+
+> **Shipped & merged.** All acceptance criteria below are met — real remediation + rollback
+> verified on a live kind cluster, `dry_run` default unchanged, full `pytest` green with a fake
+> K8s client. See `deploy/k8s/README.md` and ADR-013. Kept here for the record.
 
 **Why it's the centerpiece.** Today remediation is dry-run — `DryRunRemediator` logs steps and
 an always-healthy check reports success. This stream makes the loop *act on real workloads*: on
@@ -143,7 +186,12 @@ glance.
 
 ---
 
-## Stream D — Platform, Security & CI/CD  ·  **Member C**
+## Stream D — Platform, Security & CI/CD  ·  **Member C**  ·  🟡 PARTIAL
+
+> **Shipped & merged:** ✅ **Auth at the edge** (`AUTH_MODE=off|token`, internal calls authenticate
+> — PR #6) and ✅ **CI pipeline** (`lint`/`test`/`frontend-build`/`compose-smoke` on every PR).
+> **Still open:** ⬜ Kafka binding, ⬜ whole-stack K8s deploy (Helm/manifests under
+> `deploy/k8s/platform/`), ⬜ load & chaos testing. See `docs/OPERATIONS.md`.
 
 **Why it matters for a PPO.** "It runs on my machine" isn't a production story. This stream makes
 IntelliOps *deployable, secure, and continuously verified* — the operational maturity that
@@ -176,21 +224,69 @@ signals real engineering.
 
 ---
 
+## Stream P — Persistence  ·  **Manvik**  ·  ✅ DONE  *(added mid-project)*
+
+> **Not in the original four streams** — it emerged from the production-credibility pivot: an
+> AIOps system whose audit trail, learned state, and pending human decisions vanish on restart
+> isn't credible. Everything is behind `STORE_BACKEND=file|postgres` (default `file`), so the
+> existing suite, `docker compose up`, and CI are unaffected by default; the compose stack runs
+> Postgres.
+
+**Tier 1a — the append/read stores on Postgres (merged, PR #8).**
+- `common/db.py` — SQLAlchemy **Core** metadata (hybrid schema: indexed key columns + a JSONB
+  `payload` that is the source of truth for reconstruction), `make_engine`, payload helpers.
+- Postgres adapters for `AuditSink` / `TrainingStore` / `PlaybookStore`, each beside its file
+  sibling; `PlaybookStore.register` is a real `ON CONFLICT` **upsert** (the graduation path).
+- Alembic migrations (`alembic/`, run as a one-shot `migrate` compose service, never on startup);
+  **testcontainers** for real-Postgres fidelity tests (`@pytest.mark.postgres`).
+- A shared `common/stores.py` `make_stores` factory wires all four store-using services to one
+  backend (no split-brain). ADR-014, `docs/PERSISTENCE.md`.
+- **Error posture:** persistence errors **propagate loudly** — a lost audit write is a compliance
+  failure that must be visible (deliberately unlike the fail-safe remediator).
+
+**Tier 1b — durable runtime state (merged, PR #12).**
+- Governance **approvals** → a durable `ApprovalStore` (keyed by id, upsert on decide), so a
+  human's in-flight HITL decision survives a restart.
+- Correlation's **z-score baseline** → snapshotted to Postgres by the existing flusher thread on a
+  `baseline_snapshot_seconds` cadence and **reloaded on boot** (river stats reconstructed via
+  `_from_state`), eliminating the post-restart warm-up blackout; the reliability map is recovered
+  by re-running `retrain()` from the durable training records.
+- **Two deliberately different error postures:** approvals propagate (correctness); the baseline
+  snapshot/reload is best-effort and logged (a missed snapshot is recoverable, and it must never
+  crash the flusher or block boot — a DB-down boot cold-starts). ADR-015.
+
+**Acceptance criteria — all met:** `STORE_BACKEND=file` (default) is unchanged and the full suite
+stays green with no Docker; `STORE_BACKEND=postgres` persists and reloads across a restart, proven
+by real-Postgres testcontainer tests (incl. a restart-survival test showing the baseline reloads
+warm); migrations are versioned and applied by the compose `migrate` service.
+
+**Still deferred (noted, not built):** durable governance approvals are done, but broader
+runtime-state concerns like read-replicas, audit retention/partitioning, and connection-pool
+tuning are explicit non-goals for now.
+
+---
+
 ## Suggested sequence (2 sprints)
 
-Nothing blocks anyone from *starting*, but this order de-risks integration:
+Nothing blocks anyone from *starting*, but this order de-risks integration.
 
-**Sprint 1 — land the foundations in parallel:**
-- A: kind cluster + `KubernetesRemediator` behind `REMEDIATOR_MODE` (fake-client tested).
-- B: one better detector behind `CORRELATOR_KIND` + the benchmark harness.
-- C: real-time updates (SSE/WS) + the live pipeline view.
-- D: CI pipeline first (it protects everyone), then auth.
+**Sprint 1 — foundations (largely landed):**
+- ✅ A: kind cluster + `KubernetesRemediator` behind `REMEDIATOR_MODE` (fake-client tested).
+- ⬜ B: one better detector behind `CORRELATOR_KIND` + the benchmark harness.
+- ⬜ C: real-time updates (SSE/WS) + the live pipeline view.
+- ✅ D: CI pipeline first (it protects everyone), then auth.
+- ✅ P: Postgres persistence (Tier 1a) — the durability backbone the rest builds on.
 
 **Sprint 2 — make it production-real and demo-ready:**
-- A: real health check + real rollback, wired into the end-to-end demo.
-- B: close the retrain loop + publish benchmark numbers.
-- C: dashboards + audit explorer + `docs/UI.md`.
-- D: Kafka binding + K8s deploy + load/chaos tests + `docs/OPERATIONS.md`.
+- ✅ A: real health check + real rollback, wired into the end-to-end demo.
+- ⬜ B: close the retrain loop + publish benchmark numbers.
+- ⬜ C: dashboards + audit explorer + `docs/UI.md`.
+- 🟡 D: ✅ `docs/OPERATIONS.md` + CI; ⬜ Kafka binding + K8s deploy + load/chaos tests.
+- ✅ P: durable runtime state (Tier 1b) — approvals + correlation baseline survive restarts.
+
+**Now in focus:** Stream B (intelligence + measured benchmarks) and Stream C (real-time console)
+are the two biggest remaining "impressive demo" pieces; the remaining Stream-D platform items
+(Kafka, whole-stack deploy, load/chaos) round out the operational-maturity story.
 
 **Demo target (what we show for the PPO):** break a real workload on the cluster → IntelliOps
 detects it with the improved model → diagnoses it → the console shows it animate to the HITL gate
