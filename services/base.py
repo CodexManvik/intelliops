@@ -15,11 +15,13 @@ from fastapi.responses import JSONResponse
 from common.auth import is_authorized
 from common.bus import make_bus
 from common.config import get_settings
+from common.logging import configure_logging
 
 
 def create_app(
     service_name: str,
     auth_exempt: Callable[[str, str], bool] | None = None,
+    readiness: Callable[[], None] | None = None,
 ) -> FastAPI:
     """Create a FastAPI app with standard IntelliOps middleware.
 
@@ -30,9 +32,14 @@ def create_app(
             only ``/health``.  Services that host internal-bus endpoints
             (e.g. governance) pass a broader predicate so inter-service
             calls are never blocked by AUTH_MODE=token.
+        readiness: Optional zero-arg callable that raises on a failed
+            dependency check (e.g. a Postgres ping).  Wired into ``/ready``
+            alongside the bus ping.  Services with no database omit it and
+            get bus-only readiness.
     """
-    app = FastAPI(title=f"IntelliOps · {service_name}")
     settings = get_settings()
+    configure_logging(service_name, settings)
+    app = FastAPI(title=f"IntelliOps · {service_name}")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
@@ -41,12 +48,16 @@ def create_app(
     )
     app.state.bus = make_bus(settings)
 
-    _is_exempt = auth_exempt or (lambda method, path: path == "/health")
+    _is_exempt = auth_exempt or (lambda method, path: path in ("/health", "/ready"))
 
-    # Auth at the edge (AUTH_MODE=off|token). /health is always exempt so
-    # compose/k8s healthchecks never need a token, in any mode.
+    # Auth at the edge (AUTH_MODE=off|token). /health and /ready are always
+    # exempt so compose/k8s probes never need a token, in any mode — the
+    # short-circuit below runs BEFORE the exempt predicate, so probes stay
+    # ungated even when a service passes a custom auth_exempt (governance does).
     @app.middleware("http")
     async def _auth_gate(request: Request, call_next):
+        if request.url.path in ("/health", "/ready"):
+            return await call_next(request)
         current_settings = get_settings()
         if not _is_exempt(request.method, request.url.path) and not is_authorized(
             request, current_settings
@@ -57,5 +68,21 @@ def create_app(
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"service": service_name, "status": "ok"}
+
+    @app.get("/ready")
+    def ready():
+        failed = []
+        try:
+            app.state.bus.ping()
+        except Exception:  # noqa: BLE001 — probe reports the failure, never raises
+            failed.append("redis")
+        if readiness is not None:
+            try:
+                readiness()
+            except Exception:  # noqa: BLE001 — probe reports the failure, never raises
+                failed.append("postgres")
+        if failed:
+            return JSONResponse({"ready": False, "failed": failed}, status_code=503)
+        return {"ready": True}
 
     return app
