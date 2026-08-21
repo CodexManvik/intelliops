@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from common.config import get_settings
 from common.envelope import publish_model
 from common.stores import make_stores
-from services.base import create_app
+from services.base import create_app, db_ready
 from services.correlation.adapters.river_correlator import RiverCorrelator
 from services.correlation.consumer import (
     _drain_suppressed,
@@ -100,6 +100,7 @@ async def lifespan(app: FastAPI):
     training_records: list[dict] = []
     try:
         stores = make_stores(settings)
+        app.state.db_engine = stores.engine
         baseline_store = stores.baseline_store
         training_records = [r.model_dump() for r in stores.training_store.read_all()]
     except Exception as exc:  # noqa: BLE001 — a failed boot-load just means a cold start
@@ -132,7 +133,10 @@ async def lifespan(app: FastAPI):
         stop_event.set()
 
 
-app = create_app("correlation-service")
+app = create_app(
+    "correlation-service",
+    readiness=lambda: db_ready(getattr(app.state, "db_engine", None)),
+)
 app.router.lifespan_context = lifespan
 
 

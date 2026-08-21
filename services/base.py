@@ -11,11 +11,20 @@ from collections.abc import Callable
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
 
 from common.auth import is_authorized
 from common.bus import make_bus
 from common.config import get_settings
 from common.logging import configure_logging
+
+
+def db_ready(engine) -> None:
+    """Raise if the DB is unreachable. A None engine (file mode / no DB) is a no-op pass."""
+    if engine is None:
+        return
+    with engine.connect() as conn:
+        conn.execute(text("SELECT 1"))
 
 
 def create_app(
