@@ -11,11 +11,14 @@ from pydantic import BaseModel
 from common.config import get_settings
 from common.contracts import ApprovalRequest, AuditRecord, HitlMode, Playbook
 from common.stores import make_stores
-from services.base import create_app
+from services.base import create_app, db_ready
 from services.governance.adapters.approval_store import InMemoryApprovalStore
 from services.governance.rbac import RbacPolicy
 
-app = create_app("governance-service")  # default: only /health is exempt
+app = create_app(
+    "governance-service",
+    readiness=lambda: db_ready(getattr(app.state, "db_engine", None)),
+)  # default: only /health is exempt
 
 
 def _init_state() -> None:

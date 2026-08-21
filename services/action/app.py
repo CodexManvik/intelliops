@@ -18,7 +18,7 @@ from services.action.adapters.k8s_health import KubernetesHealthChecker
 from services.action.adapters.k8s_remediator import KubernetesRemediator
 from services.action.adapters.remediator import DryRunRemediator
 from services.action.consumer import run_consumer
-from services.base import create_app
+from services.base import create_app, db_ready
 from services.governance.rbac import RbacPolicy
 
 
@@ -97,5 +97,8 @@ async def lifespan(app: FastAPI):
             stores.engine.dispose()
 
 
-app = create_app("action-service")
+app = create_app(
+    "action-service",
+    readiness=lambda: db_ready(getattr(app.state, "db_engine", None)),
+)
 app.router.lifespan_context = lifespan
