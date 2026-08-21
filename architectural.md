@@ -556,6 +556,68 @@ snapshot captures it at a fraction of the cost. *A dedicated reliability table* 
 training records that already exist and can drift from them; recomputing on boot keeps one source of
 truth. *Storing river's raw `_S`* — reconstructs a diverging detector (see the codec note).
 
+### ADR-016 — Observability & readiness
+
+**Context.** The stack ran end-to-end, but two operational surfaces were thin. Logs were the
+default root-logger text — fine to read locally, but nothing a log aggregator could parse across
+services, and with no consistent `service` tag. And the only health signal was `/health`, which
+returns `200` as long as the process is up: it says nothing about whether the service can actually
+reach Redis or Postgres, so an orchestrator had no honest way to know a container was *degraded but
+alive* versus *ready to serve*. Both gaps are cross-cutting — every one of the seven services needs
+the same behavior — so the question was where to put it so it stays uniform.
+
+**Decision.** Add two capabilities, both wired **once in the shared `create_app` factory**
+(`services/base.py`) so every service gets them identically:
+
+- **Structured logging.** `configure_logging(service_name, settings)` installs a single root
+  handler behind `INTELLIOPS_LOG_FORMAT=text|json` (default `text`). `text` keeps the readable
+  formatter for local dev and pytest; `json` emits one object per line via a small stdlib
+  `JsonFormatter` (`ts / level / logger / service / msg / module / line`, plus `exc_info` on an
+  exception and any caller `extra={...}` fields). A filter stamps the `service` name onto every
+  record; the installer is idempotent so repeated `create_app()` calls never stack handlers. The
+  compose stack sets `INTELLIOPS_LOG_FORMAT: json` on each of the seven app services.
+- **An active `/ready` readiness probe, split from `/health` liveness.** `/health` stays the
+  liveness signal — always `200` while the process can answer, checks nothing external, so a
+  dependency outage never triggers a restart loop. `/ready` **actively pings** dependencies on
+  each call: `bus.ping()` always, plus a `db_ready(engine)` `SELECT 1` for services that pass a
+  `readiness` callable and hold a real engine. It returns `200 {"ready": true}`, or
+  `503 {"ready": false, "failed": [...]}` naming the down dependency (`redis` / `postgres`). The
+  handler never raises — a failed check becomes a `failed`-list entry, not a `500`. File-mode or
+  no-DB services (`ingestion`, `read`) get a `None` engine and are bus-only, never claiming a
+  Postgres dependency they don't have. Both probes short-circuit the auth gate, so compose/k8s
+  probes need no token in any `AUTH_MODE`.
+
+**Why.** One seam keeps the behavior honest: because both are wired in `create_app`, a new service
+gets structured logs and a real readiness probe for free, with no per-service opt-in to forget.
+Logging is **zero-dependency** — stdlib `logging` plus a ~20-line `JsonFormatter`, not a new
+logging framework — so it adds no supply-chain surface and can't diverge from Python's own logging.
+Readiness is **active, not assumed**: pinging the bus and running `SELECT 1` reports a dependency
+that is actually reachable *now*, rather than trusting a cached connection. Splitting liveness from
+readiness matters because they drive different orchestrator actions — liveness *restarts* a wedged
+process, readiness *removes a pod from rotation* while a dependency is down without killing it — and
+conflating them would make a transient Redis blip cause pod restarts instead of a brief
+out-of-rotation. The compose healthcheck uses a Python one-liner against `/ready` (the shared image
+has Python but no `curl`); a real cluster maps `livenessProbe: /health` + `readinessProbe: /ready`.
+
+**Consequences.** (+) Uniform, aggregator-ready logs with a `service` tag across all seven
+services, behind a switch that keeps local/test output readable. (+) An orchestrator can tell
+*alive* from *ready* and see which dependency is down from the `503` body. (+) It fixed a latent
+inconsistency as a side effect: correlation set `app.state.db_engine` *outside* the guarded store
+init, so a DB-down boot left the attribute unset while other services set it inside the guard;
+wiring the DB readiness closure made the placement uniform (set inside the `try` where `stores` is
+bound), so a cold-start boot and the `/ready` probe now agree. (−) Two error postures in the probe
+(never-raise for `/ready`, versus the propagate-on-write posture of the stores) and one more env
+switch to document. Accepted — the readiness handler's job is to *report* a failure, not re-raise
+it, which is the opposite need from a store write that must never hide a lost record.
+
+**Alternatives rejected.** *A logging framework* (structlog / loguru) — more dependency and
+configuration surface than a stdlib formatter needs for JSON-lines. *Only `/health`* — cannot
+distinguish a wedged process from a healthy one whose database is down, so an orchestrator either
+restarts on dependency blips or serves traffic it can't fulfill. *A passive readiness flag* set at
+startup — goes stale the moment a dependency drops mid-run; an active per-request ping reports the
+live state. *`curl`-based healthchecks* — the slim shared image ships no `curl`; a Python one-liner
+uses what's already there.
+
 ---
 
 ## 4. Cross-cutting concerns
@@ -621,6 +683,13 @@ in-region/on-prem for sovereign-cloud requirements.
   consumer starts — so a restart mid-incident keeps approvals and reloads a warm detector instead
   of re-entering the cold-start blackout). The read-model stays on event replay and reliability is
   recovered from training records — neither is a new stored table.
+- **Observability & readiness.** All seven services now emit **structured logs**
+  (`INTELLIOPS_LOG_FORMAT=text|json`, default `text`; compose sets `json`) and expose a real
+  **`/ready`** probe that actively pings the bus (and Postgres for the DB-backed services),
+  distinct from the always-`200` `/health` liveness probe — both wired once in `create_app`
+  ([ADR-016](#adr-016--observability--readiness)). Compose runs `/ready` as a per-service
+  healthcheck; a real cluster maps `livenessProbe: /health` + `readinessProbe: /ready`. See
+  [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md).
 
 **What remains deliberately deferred / simulated — the honest gap and the next milestones:**
 - **Authentication / authorization at the edge.** RBAC gates *actions* internally, but the

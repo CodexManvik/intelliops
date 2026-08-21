@@ -8,6 +8,33 @@ part of CI. Everywhere else (compose without this overlay, tests, CI),
 `REMEDIATOR_MODE` defaults to `dry_run` and nothing in a real cluster is ever
 touched.
 
+## Probes for a real app-service deployment
+
+The manifests in this directory cover the **demo-app** and **Prometheus** (the workloads this
+kind story drives). If you deploy the seven IntelliOps app services themselves
+(`ingestion`, `correlation`, `rca`, `action`, `governance`, `feedback`, `read`) to a real
+cluster, wire both probes on each Deployment — they map directly to the two endpoints
+`create_app` exposes on every service (internal port `8000`):
+
+```yaml
+    livenessProbe:
+      httpGet: { path: /health, port: 8000 }
+    readinessProbe:
+      httpGet: { path: /ready, port: 8000 }
+```
+
+- **`livenessProbe -> /health`** — `/health` returns `200` whenever the process can serve a
+  request and checks nothing external, so a Redis/Postgres outage never triggers a restart loop;
+  a non-answering `/health` means the process is wedged and should be restarted.
+- **`readinessProbe -> /ready`** — `/ready` actively pings the bus (and Postgres for the
+  DB-backed services), returning `200 {"ready":true}` or `503 {"ready":false,"failed":[...]}`.
+  Kubernetes pulls a pod out of the Service endpoints while a dependency is unreachable, without
+  killing it, and re-adds it on recovery. Both endpoints are auth-exempt, so no token is needed.
+
+The compose stack wires the same `/ready` check as a container `healthcheck` (see
+`deploy/docker-compose.yml`). Details and the JSON log schema are in
+[docs/OBSERVABILITY.md](../../docs/OBSERVABILITY.md).
+
 ## Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/)

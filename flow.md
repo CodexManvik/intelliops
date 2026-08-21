@@ -278,6 +278,16 @@ clients and never touch a real cluster.
 `AlwaysHealthyChecker` reports success, so "resolved" means *the fix was logged and simulated*,
 no real infrastructure touched ([ADR-007](architectural.md#adr-007--reversible-only-health-verified-remediation)).
 
+**Observability & readiness are wired uniformly.** Every service emits **structured logs**
+through the shared app factory (`INTELLIOPS_LOG_FORMAT=text|json`, default `text`; the compose
+stack sets `json` — one JSON object per line for aggregation) and exposes two probes: `/health`
+(**liveness** — always `200` while the process can answer, checks nothing external) and `/ready`
+(**readiness** — actively pings the bus, plus Postgres for the DB-backed services, returning
+`200 {ready:true}` or `503 {ready:false, failed:[...]}` naming the down dependency). Compose runs
+the `/ready` probe as a per-service healthcheck; a real cluster should map `livenessProbe: /health`
++ `readinessProbe: /ready` ([ADR-016](architectural.md#adr-016--observability--readiness),
+[docs/OBSERVABILITY.md](docs/OBSERVABILITY.md)).
+
 **What is still deliberately simulated / deferred:**
 - **No auth** on the read/console endpoints; the reset/break/fix endpoints are simulation
   controls, not production endpoints.
