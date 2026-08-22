@@ -44,6 +44,7 @@ def test_reset_clears_buffer_and_baseline():
 
 
 def test_reset_baseline_endpoint():
+    from common.config import get_settings
     from fastapi.testclient import TestClient
 
     from common.config import get_settings
@@ -51,6 +52,7 @@ def test_reset_baseline_endpoint():
     from services.correlation.app import app
     from services.correlation.engine import CorrelationEngine
 
+    get_settings.cache_clear()
     app.state.engine = CorrelationEngine(RiverCorrelator())
     c = TestClient(app)
     assert c.post("/reset-baseline").json() == {"reset": True}

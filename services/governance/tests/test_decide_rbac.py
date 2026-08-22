@@ -12,11 +12,13 @@ def _client():
         roles={"approver": [{"action": "approve", "resource": "playbook:*"}]},
         actors={"oncall-alice": ["approver"], "random-bob": []},
     )
-    app.state.approvals = {
-        "a1": ApprovalRequest(
+    store = InMemoryApprovalStore()
+    store.create(
+        ApprovalRequest(
             id="a1", situation_id="s1", playbook_id="restart-pod", requested_by="action-service"
-        ),
-    }
+        )
+    )
+    app.state.approval_store = store
     return TestClient(app)
 
 
