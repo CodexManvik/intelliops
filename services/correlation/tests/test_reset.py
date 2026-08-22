@@ -44,7 +44,6 @@ def test_reset_clears_buffer_and_baseline():
 
 
 def test_reset_baseline_endpoint():
-    from common.config import get_settings
     from fastapi.testclient import TestClient
 
     from common.config import get_settings
