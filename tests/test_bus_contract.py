@@ -12,8 +12,10 @@ Requirements: 1.1, 1.2, 1.3, 1.8
 from __future__ import annotations
 
 import pytest
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
+from common.interfaces import BusClient
 
 # ── marker registration ───────────────────────────────────────────────────────
 
@@ -44,7 +46,7 @@ def kafka_bootstrap(request: pytest.FixtureRequest) -> str:  # type: ignore[retu
     try:
         container = testcontainers_kafka.KafkaContainer()
         container.start()
-    except Exception as exc:  # Docker daemon not running or unavailable
+    except (OSError, RuntimeError) as exc:  # Docker daemon not running or unavailable
         pytest.skip(f"Docker unavailable, skipping Kafka tests: {exc}")
 
     bootstrap = container.get_bootstrap_server()
@@ -120,9 +122,6 @@ group_strategy = st.text(
 
 
 # ── contract tests ────────────────────────────────────────────────────────────
-
-from common.interfaces import BusClient
-from hypothesis import HealthCheck, given, settings
 
 
 def test_satisfies_protocol(bus) -> None:
