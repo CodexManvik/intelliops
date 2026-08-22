@@ -37,6 +37,10 @@ class RedisBus:
                     self._r.xack(topic, group, entry_id)
                     yield fields
 
+    def ping(self) -> None:
+        """Raise if the bus backend is unreachable (readiness probe uses this)."""
+        self._r.ping()  # redis-py returns True; we discard it. Exceptions propagate.
+
 
 class KafkaBus:
     """Kafka implementation of the BusClient protocol using kafka-python.

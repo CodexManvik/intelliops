@@ -9,7 +9,7 @@ from fastapi import FastAPI
 
 from common.config import get_settings
 from common.stores import make_stores
-from services.base import create_app
+from services.base import create_app, db_ready
 from services.rca.adapters.context_provider import FileContextProvider
 from services.rca.consumer import run_consumer
 
@@ -39,5 +39,8 @@ async def lifespan(app: FastAPI):
             stores.engine.dispose()
 
 
-app = create_app("rca-service")
+app = create_app(
+    "rca-service",
+    readiness=lambda: db_ready(getattr(app.state, "db_engine", None)),
+)
 app.router.lifespan_context = lifespan

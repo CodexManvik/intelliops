@@ -52,6 +52,7 @@ services:
     <<: *service
     environment:
       INTELLIOPS_REDIS_URL: redis://redis:6379
+      INTELLIOPS_LOG_FORMAT: json
       SERVICE_MODULE: services.ingestion.app:app
       PORT: "8000"
       INTELLIOPS_TELEMETRY_MODE: prometheus
@@ -59,13 +60,22 @@ services:
       INTELLIOPS_PROMETHEUS_QUERY: cpu_usage
     ports:
       - "8001:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/ready').status==200 else 1)\""]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
 
   correlation:
     <<: *service
     environment:
       INTELLIOPS_REDIS_URL: redis://redis:6379
+      INTELLIOPS_LOG_FORMAT: json
       SERVICE_MODULE: services.correlation.app:app
       PORT: "8000"
+      INTELLIOPS_STORE_BACKEND: postgres
+      INTELLIOPS_DATABASE_URL: postgresql+psycopg://intelliops:intelliops@postgres:5432/intelliops
       # Demo-friendly detection: shorter warm-up/window and a lower z-threshold
       # so the injected 18->92 cpu spike reliably clears detection and surfaces
       # within a minute or two (production would run higher/stricter).
@@ -74,17 +84,37 @@ services:
       INTELLIOPS_CORRELATION_Z_THRESHOLD: "2.0"
     ports:
       - "8002:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/ready').status==200 else 1)\""]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   rca:
     <<: *service
     environment:
       INTELLIOPS_REDIS_URL: redis://redis:6379
+      INTELLIOPS_LOG_FORMAT: json
       SERVICE_MODULE: services.rca.app:app
       PORT: "8000"
       INTELLIOPS_STORE_BACKEND: postgres
       INTELLIOPS_DATABASE_URL: postgresql+psycopg://intelliops:intelliops@postgres:5432/intelliops
     ports:
       - "8003:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/ready').status==200 else 1)\""]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
     depends_on:
       redis:
         condition: service_healthy
@@ -97,6 +127,7 @@ services:
     <<: *service
     environment:
       INTELLIOPS_REDIS_URL: redis://redis:6379
+      INTELLIOPS_LOG_FORMAT: json
       SERVICE_MODULE: services.action.app:app
       PORT: "8000"
       INTELLIOPS_GOVERNANCE_MODE: http
@@ -105,6 +136,12 @@ services:
       INTELLIOPS_DATABASE_URL: postgresql+psycopg://intelliops:intelliops@postgres:5432/intelliops
     ports:
       - "8004:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/ready').status==200 else 1)\""]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
     depends_on:
       redis:
         condition: service_healthy
@@ -117,12 +154,19 @@ services:
     <<: *service
     environment:
       INTELLIOPS_REDIS_URL: redis://redis:6379
+      INTELLIOPS_LOG_FORMAT: json
       SERVICE_MODULE: services.governance.app:app
       PORT: "8000"
       INTELLIOPS_STORE_BACKEND: postgres
       INTELLIOPS_DATABASE_URL: postgresql+psycopg://intelliops:intelliops@postgres:5432/intelliops
     ports:
       - "8005:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/ready').status==200 else 1)\""]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
     depends_on:
       redis:
         condition: service_healthy
@@ -135,12 +179,19 @@ services:
     <<: *service
     environment:
       INTELLIOPS_REDIS_URL: redis://redis:6379
+      INTELLIOPS_LOG_FORMAT: json
       SERVICE_MODULE: services.feedback.app:app
       PORT: "8000"
       INTELLIOPS_STORE_BACKEND: postgres
       INTELLIOPS_DATABASE_URL: postgresql+psycopg://intelliops:intelliops@postgres:5432/intelliops
     ports:
       - "8006:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/ready').status==200 else 1)\""]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
     depends_on:
       redis:
         condition: service_healthy
@@ -177,10 +228,17 @@ services:
     <<: *service
     environment:
       INTELLIOPS_REDIS_URL: redis://redis:6379
+      INTELLIOPS_LOG_FORMAT: json
       SERVICE_MODULE: services.read.app:app
       PORT: "8000"
     ports:
       - "8007:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/ready').status==200 else 1)\""]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
 
   kafka:
     image: bitnami/kafka:3.7

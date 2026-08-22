@@ -34,3 +34,32 @@ def test_postgres_backend_selected(monkeypatch):
     s = make_stores(_P())
     assert isinstance(s.audit_sink, PostgresAuditSink)
     assert s.engine is not None
+
+
+def test_file_backend_has_none_runtime_stores():
+    s = make_stores(_S())  # _S().store_backend == "file"
+    from services.governance.adapters.approval_store import InMemoryApprovalStore
+
+    assert isinstance(s.approval_store, InMemoryApprovalStore)
+    assert s.baseline_store is None
+
+
+def test_postgres_backend_builds_runtime_stores(monkeypatch):
+    from services.correlation.adapters.baseline_store import PostgresBaselineStore
+    from services.governance.adapters.approval_store import PostgresApprovalStore
+
+    # Same as test_postgres_backend_selected: PostgresPlaybookStore seeds on
+    # construction (opens a connection); stub the seed loader to [] so the factory
+    # can be exercised without a live database. The approval/baseline stores do
+    # not connect on construction, so they need no extra stubbing.
+    monkeypatch.setattr(
+        "services.governance.adapters.playbook_store.load_seed_playbooks",
+        lambda _path: [],
+    )
+
+    class _P(_S):
+        store_backend = "postgres"
+
+    s = make_stores(_P())
+    assert isinstance(s.approval_store, PostgresApprovalStore)
+    assert isinstance(s.baseline_store, PostgresBaselineStore)

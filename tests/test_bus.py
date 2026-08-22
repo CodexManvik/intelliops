@@ -34,6 +34,26 @@ def test_settings_default_redis_url():
     assert get_settings().redis_url.startswith("redis://")
 
 
+def test_redisbus_ping_ok():
+    fakeredis = pytest.importorskip("fakeredis")
+    from common.bus import RedisBus
+
+    bus = RedisBus(client=fakeredis.FakeStrictRedis(decode_responses=True))
+    bus.ping()  # must not raise against a live (fake) client
+
+
+def test_redisbus_ping_raises_when_down():
+    from common.bus import RedisBus
+
+    class _DeadClient:
+        def ping(self):
+            raise ConnectionError("redis down")
+
+    bus = RedisBus(client=_DeadClient())
+    with pytest.raises(ConnectionError):
+        bus.ping()
+
+
 def _take(iterator, n):
     out = []
     for item in iterator:

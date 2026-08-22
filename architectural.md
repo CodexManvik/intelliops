@@ -480,6 +480,145 @@ from Postgres (no real `JSONB`, different `ON CONFLICT`), so the tests use **tes
 real throwaway Postgres) to verify against the database that actually runs. *Auto-migrating on
 service startup* — races across replicas; migrations run as their own step instead.
 
+### ADR-015 — Durable runtime state
+
+**Context.** ADR-014 persists the *records* the system writes (audit, playbooks, training). But
+two pieces of live **runtime state** stayed in memory and were lost on restart: the **pending HITL
+approvals** governance holds (a plain dict), and the correlator's **z-score baseline** — the
+per-metric running mean/variance that *is* its learned notion of normal. Both losses hurt mid-run:
+a governance restart during an incident drops a human's in-flight approval, and a
+correlation-service restart throws away a warm detector and re-enters the cold-start warm-up
+blackout (`warmup_samples` observations during which anomalies are suppressed), going blind exactly
+when an operator restarted it to fix something. The question was how to make these durable without
+inventing a second persistence story, and — because the two behave very differently — what to do
+when persistence itself fails.
+
+**Decision.** Persist both behind the **same `STORE_BACKEND=postgres` switch and the same
+`make_stores` factory** as the Tier-1a stores, but with **two different patterns matched to the
+two kinds of state**:
+
+- **Approvals — a synchronous, keyed store**, exactly like the Tier-1a stores. `ApprovalStore`
+  (`create` / `get` / `decide` / `list_pending`) has an `InMemoryApprovalStore` and a
+  `PostgresApprovalStore`; the Postgres table is the hybrid schema again (promoted `id` /
+  `status` columns, JSONB `payload` as source of truth), and `decide` is an upsert on `id`
+  (`ON CONFLICT DO UPDATE`) so a decision flips status in place rather than duplicating a row.
+- **Baseline — a periodic snapshot + reload**, not a per-write store. `BaselineStore`
+  (`save(rows)` / `load_all()`) persists one row per metric in `correlation_baseline`. The
+  correlation-service's existing background **flusher** thread piggybacks the snapshot on its own
+  `time.monotonic()` schedule every `baseline_snapshot_seconds` (default 30). On boot,
+  `_reload_baseline` restores the baseline **before the consumer thread starts**, so the first
+  events are scored against the recovered state — no cold-start blackout.
+
+**Why the split posture — the deliberate part.** The two holders fail *differently on purpose*,
+because one loss is a correctness failure and the other is recoverable:
+
+- **Approvals propagate errors**, exactly like the audit sink (ADR-014). A dropped approval write
+  silently loses a human's decision or a pending request — a correctness failure that must be
+  *visible*, never a swallowed no-op.
+- **The baseline snapshot/reload is best-effort — logged and fail-safe.** A baseline is a
+  slowly-settling statistic; a missed 30-second snapshot, or a failed reload, only makes the
+  detector slightly staler or starts it cold — both recoverable. So `_snapshot_baseline_once` and
+  `_reload_baseline` catch every exception, log a warning, and continue; a persistence hiccup can
+  **never** crash the flusher thread or the service boot. This is the **fail-safe posture of the
+  Kubernetes remediator** (ADR-007 / ADR-013), which catches every API error and degrades rather
+  than escaping — the opposite of the audit sink and the approval store. The system now runs *both*
+  postures side by side, chosen per-holder by what a loss actually costs.
+
+**The river codec — verified, not assumed.** Reloading the baseline means reconstructing river's
+online statistics from stored scalars. The snapshot stores per metric `(n, mean, variance, count)`
+and reload rebuilds via `stats.Mean._from_state(n, mean)` and
+`stats.Var._from_state(n, mean, variance, ddof=1)`. Critically, `Var._from_state` takes the
+**variance** as its `sig` argument — **not** river's internal running sum-of-squares `_S`. Storing
+`_S` reconstructs a diverging detector; this was verified during design and is pinned by a codec
+test (`tests/test_baseline_codec.py`) so a river upgrade can't silently break it.
+
+**Consequences.** (+) A governance or correlation restart mid-incident resumes: approvals survive,
+and the detector reloads warm so a genuine outlier fires immediately (pinned by a restart-survival
+test that settles a baseline, persists it to a real Postgres, reloads into a fresh engine, and
+asserts the outlier fires with no warm-up blackout). (+) No new persistence machinery — same
+switch, same factory, same hybrid schema and testcontainers contract test, now covering
+`ApprovalStore` too. (−) Two error postures to keep straight, and one more pair of tables to
+migrate (Alembic `0002_runtime_state`). Accepted — the postures are documented and each is matched
+to what a loss costs.
+
+**Scope — what is deliberately *not* persisted.** The **read-model stays on event replay**
+(ADR-009): the dashboard projection is rebuilt from the situation/outcome stream, so persisting it
+would duplicate state the event log already owns. And **reliability is recovered, not stored**: the
+closed loop's per-signature reliability is re-derived on boot by replaying the durable **training
+records** through `retrain(...)` — the labeled outcomes are the source of truth, so a separate
+reliability table would be a redundant, drift-prone copy.
+
+**Alternatives rejected.** *One uniform error posture for both holders* — either would be wrong for
+one of them: propagating on a baseline snapshot would let a transient DB blip crash the detector's
+flusher, and swallowing an approval write would hide a lost human decision. *Persisting the baseline
+on every event* — needless write amplification for a statistic that changes slowly; a periodic
+snapshot captures it at a fraction of the cost. *A dedicated reliability table* — duplicates the
+training records that already exist and can drift from them; recomputing on boot keeps one source of
+truth. *Storing river's raw `_S`* — reconstructs a diverging detector (see the codec note).
+
+### ADR-016 — Observability & readiness
+
+**Context.** The stack ran end-to-end, but two operational surfaces were thin. Logs were the
+default root-logger text — fine to read locally, but nothing a log aggregator could parse across
+services, and with no consistent `service` tag. And the only health signal was `/health`, which
+returns `200` as long as the process is up: it says nothing about whether the service can actually
+reach Redis or Postgres, so an orchestrator had no honest way to know a container was *degraded but
+alive* versus *ready to serve*. Both gaps are cross-cutting — every one of the seven services needs
+the same behavior — so the question was where to put it so it stays uniform.
+
+**Decision.** Add two capabilities, both wired **once in the shared `create_app` factory**
+(`services/base.py`) so every service gets them identically:
+
+- **Structured logging.** `configure_logging(service_name, settings)` installs a single root
+  handler behind `INTELLIOPS_LOG_FORMAT=text|json` (default `text`). `text` keeps the readable
+  formatter for local dev and pytest; `json` emits one object per line via a small stdlib
+  `JsonFormatter` (`ts / level / logger / service / msg / module / line`, plus `exc_info` on an
+  exception and any caller `extra={...}` fields). A filter stamps the `service` name onto every
+  record; the installer is idempotent so repeated `create_app()` calls never stack handlers. The
+  compose stack sets `INTELLIOPS_LOG_FORMAT: json` on each of the seven app services.
+- **An active `/ready` readiness probe, split from `/health` liveness.** `/health` stays the
+  liveness signal — always `200` while the process can answer, checks nothing external, so a
+  dependency outage never triggers a restart loop. `/ready` **actively pings** dependencies on
+  each call: `bus.ping()` always, plus a `db_ready(engine)` `SELECT 1` for services that pass a
+  `readiness` callable and hold a real engine. It returns `200 {"ready": true}`, or
+  `503 {"ready": false, "failed": [...]}` naming the down dependency (`redis` / `postgres`). The
+  handler never raises — a failed check becomes a `failed`-list entry, not a `500`. File-mode or
+  no-DB services (`ingestion`, `read`) get a `None` engine and are bus-only, never claiming a
+  Postgres dependency they don't have. Both probes short-circuit the auth gate, so compose/k8s
+  probes need no token in any `AUTH_MODE`.
+
+**Why.** One seam keeps the behavior honest: because both are wired in `create_app`, a new service
+gets structured logs and a real readiness probe for free, with no per-service opt-in to forget.
+Logging is **zero-dependency** — stdlib `logging` plus a ~20-line `JsonFormatter`, not a new
+logging framework — so it adds no supply-chain surface and can't diverge from Python's own logging.
+Readiness is **active, not assumed**: pinging the bus and running `SELECT 1` reports a dependency
+that is actually reachable *now*, rather than trusting a cached connection. Splitting liveness from
+readiness matters because they drive different orchestrator actions — liveness *restarts* a wedged
+process, readiness *removes a pod from rotation* while a dependency is down without killing it — and
+conflating them would make a transient Redis blip cause pod restarts instead of a brief
+out-of-rotation. The compose healthcheck uses a Python one-liner against `/ready` (the shared image
+has Python but no `curl`); a real cluster maps `livenessProbe: /health` + `readinessProbe: /ready`.
+
+**Consequences.** (+) Uniform, aggregator-ready logs with a `service` tag across all seven
+services, behind a switch that keeps local/test output readable. (+) An orchestrator can tell
+*alive* from *ready* and see which dependency is down from the `503` body. (+) It closed a small
+inconsistency as a side effect: unlike the other store-using services, correlation never kept its
+DB engine on `app.state` at all (it stored only the detector engine, under a different attribute).
+Wiring the DB readiness closure added `app.state.db_engine = stores.engine` inside correlation's
+guarded store init (where `stores` is bound), so a DB-down cold-start leaves it unset and the
+`/ready` probe degrades to a bus-only check rather than reporting a false Postgres failure. (−) Two error postures in the probe
+(never-raise for `/ready`, versus the propagate-on-write posture of the stores) and one more env
+switch to document. Accepted — the readiness handler's job is to *report* a failure, not re-raise
+it, which is the opposite need from a store write that must never hide a lost record.
+
+**Alternatives rejected.** *A logging framework* (structlog / loguru) — more dependency and
+configuration surface than a stdlib formatter needs for JSON-lines. *Only `/health`* — cannot
+distinguish a wedged process from a healthy one whose database is down, so an orchestrator either
+restarts on dependency blips or serves traffic it can't fulfill. *A passive readiness flag* set at
+startup — goes stale the moment a dependency drops mid-run; an active per-request ping reports the
+live state. *`curl`-based healthchecks* — the slim shared image ships no `curl`; a Python one-liner
+uses what's already there.
+
 ---
 
 ## 4. Cross-cutting concerns
@@ -498,8 +637,11 @@ horizontally as a consumer group. RCA and action are lower-frequency and scale i
 **Data at rest.** Audit records, labeled training outcomes, and the playbook registry persist
 to **Postgres** behind the `STORE_BACKEND=postgres` switch (the compose default) — a hybrid
 schema with a JSONB payload as the source of truth, migrated by Alembic
-([ADR-014](#adr-014--postgres-persistence-with-a-hybrid-schema)). `file` stays the default for
-tests and quick dev. Postgres is deployable in-region/on-prem for sovereign-cloud requirements.
+([ADR-014](#adr-014--postgres-persistence-with-a-hybrid-schema)). The same switch makes two
+pieces of live runtime state durable — pending HITL approvals and the correlator's z-score
+baseline ([ADR-015](#adr-015--durable-runtime-state)) — so a restart mid-incident resumes rather
+than forgetting. `file` stays the default for tests and quick dev. Postgres is deployable
+in-region/on-prem for sovereign-cloud requirements.
 
 ## 5. Compliance mapping
 
@@ -535,6 +677,20 @@ tests and quick dev. Postgres is deployable in-region/on-prem for sovereign-clou
   migrations applied as a dedicated step, and a `STORE_BACKEND=file|postgres` switch. Postgres
   is the compose default; `file` stays the default for tests and quick dev. See
   [docs/PERSISTENCE.md](docs/PERSISTENCE.md).
+- **Durable runtime state.** Two pieces of live in-memory state are now durable behind the same
+  switch ([ADR-015](#adr-015--durable-runtime-state)): **pending HITL approvals** (a keyed store
+  whose errors propagate like the audit log) and the correlator's **z-score baseline** (periodic
+  best-effort snapshot on the flusher's `time.monotonic()` schedule, reloaded on boot before the
+  consumer starts — so a restart mid-incident keeps approvals and reloads a warm detector instead
+  of re-entering the cold-start blackout). The read-model stays on event replay and reliability is
+  recovered from training records — neither is a new stored table.
+- **Observability & readiness.** All seven services now emit **structured logs**
+  (`INTELLIOPS_LOG_FORMAT=text|json`, default `text`; compose sets `json`) and expose a real
+  **`/ready`** probe that actively pings the bus (and Postgres for the DB-backed services),
+  distinct from the always-`200` `/health` liveness probe — both wired once in `create_app`
+  ([ADR-016](#adr-016--observability--readiness)). Compose runs `/ready` as a per-service
+  healthcheck; a real cluster maps `livenessProbe: /health` + `readinessProbe: /ready`. See
+  [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md).
 
 **What remains deliberately deferred / simulated — the honest gap and the next milestones:**
 - **Authentication / authorization at the edge.** RBAC gates *actions* internally, but the

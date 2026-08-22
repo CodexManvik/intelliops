@@ -24,6 +24,7 @@ from services.correlation.adapters.river_correlator import RiverCorrelator
 from services.correlation.engine import CorrelationEngine
 from services.feedback.adapters.training_store import InMemoryTrainingStore
 from services.feedback.consumer import run_consumer
+from services.governance.adapters.approval_store import InMemoryApprovalStore
 from services.governance.adapters.audit_sink import InMemoryAuditSink
 from services.governance.adapters.playbook_store import InMemoryPlaybookStore
 from services.governance.rbac import RbacPolicy
@@ -123,7 +124,7 @@ def test_playbook_graduates_through_governance():
         roles={"coe-admin": [{"action": "graduate", "resource": "playbook:*"}]},
         actors={"feedback-service": ["coe-admin"]},
     )
-    app.state.approvals = {}
+    app.state.approval_store = InMemoryApprovalStore()
     client = TestClient(app)
 
     # feedback's graduator, wired to the real governance endpoint via TestClient.

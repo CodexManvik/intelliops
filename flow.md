@@ -125,6 +125,8 @@ The swap points that keep the system platform-agnostic and testable
 | `AuditSink` | `write()`, `records()` | `FileAuditSink` (JSONL), `InMemoryAuditSink` (tests), **`PostgresAuditSink`** (hybrid schema — indexed columns + a JSONB payload that is the source of truth; errors propagate, a lost audit write is a compliance failure. Behind `STORE_BACKEND=postgres` — see [docs/PERSISTENCE.md](docs/PERSISTENCE.md)) | — |
 | `PlaybookStore` | `register()`, `get()`, `list()` | `InMemoryPlaybookStore` (tests), `FilePlaybookStore` (YAML dir), **`PostgresPlaybookStore`** (upsert via `ON CONFLICT`; same `STORE_BACKEND=postgres` switch) | — |
 | `TrainingStore` | `append()`, `read_all()` | `InMemoryTrainingStore` (tests), `FileTrainingStore` (JSONL), **`PostgresTrainingStore`** (same switch; errors propagate) | — |
+| `ApprovalStore` | `create()`, `get()`, `decide()`, `list_pending()` | `InMemoryApprovalStore` (file/tests), **`PostgresApprovalStore`** (durable pending HITL approvals; errors propagate like the audit sink — same `STORE_BACKEND=postgres` switch; [ADR-015](architectural.md#adr-015--durable-runtime-state)) | — |
+| `BaselineStore` | `save()`, `load_all()` | `InMemoryBaselineStore` (tests), **`PostgresBaselineStore`** (durable z-score baseline; snapshot/reload is **best-effort**, logged and fail-safe — never crashes the flusher or boot; `None` in file mode; [ADR-015](architectural.md#adr-015--durable-runtime-state)) | — |
 | `BusClient` | `publish()`, `consume()` | **`RedisBus`** (Redis Streams, consumer groups) | Kafka (prod) |
 
 Tests bind fakes (`RecordingRemediator`, `FixedHealthChecker`, `InMemory*`) to exercise a
@@ -254,9 +256,13 @@ be driven and re-driven on docker-compose. See §8.
 training store can be backed by **Postgres** (`STORE_BACKEND=postgres`), which is the compose
 default: a `postgres:16-alpine` service, Alembic migrations applied by a one-shot `migrate`
 step, and a hybrid schema (indexed columns + a JSONB payload that is the source of truth).
-`file` stays the default for tests and quick dev without Docker. See
-[docs/PERSISTENCE.md](docs/PERSISTENCE.md) and
-[ADR-014](architectural.md#adr-014--postgres-persistence-with-a-hybrid-schema).
+The same switch also makes two pieces of live **runtime state** durable — **pending HITL
+approvals** and the correlator's **z-score baseline** — so a restart mid-incident resumes rather
+than forgetting (approvals propagate errors like the audit log; the baseline snapshot/reload is
+best-effort and fail-safe). `file` stays the default for tests and quick dev without Docker. See
+[docs/PERSISTENCE.md](docs/PERSISTENCE.md),
+[ADR-014](architectural.md#adr-014--postgres-persistence-with-a-hybrid-schema), and
+[ADR-015](architectural.md#adr-015--durable-runtime-state).
 
 **Remediation is real — on an opt-in kind cluster.** Behind `REMEDIATOR_MODE=k8s` /
 `HEALTH_CHECK_MODE=k8s`, `action-service` drives a real Kubernetes API: `KubernetesRemediator`
@@ -271,6 +277,16 @@ clients and never touch a real cluster.
 `REMEDIATOR_MODE` defaults to `dry_run` — `DryRunRemediator` logs the steps and
 `AlwaysHealthyChecker` reports success, so "resolved" means *the fix was logged and simulated*,
 no real infrastructure touched ([ADR-007](architectural.md#adr-007--reversible-only-health-verified-remediation)).
+
+**Observability & readiness are wired uniformly.** Every service emits **structured logs**
+through the shared app factory (`INTELLIOPS_LOG_FORMAT=text|json`, default `text`; the compose
+stack sets `json` — one JSON object per line for aggregation) and exposes two probes: `/health`
+(**liveness** — always `200` while the process can answer, checks nothing external) and `/ready`
+(**readiness** — actively pings the bus, plus Postgres for the DB-backed services, returning
+`200 {ready:true}` or `503 {ready:false, failed:[...]}` naming the down dependency). Compose runs
+the `/ready` probe as a per-service healthcheck; a real cluster should map `livenessProbe: /health`
++ `readinessProbe: /ready` ([ADR-016](architectural.md#adr-016--observability--readiness),
+[docs/OBSERVABILITY.md](docs/OBSERVABILITY.md)).
 
 **What is still deliberately simulated / deferred:**
 - **No auth** on the read/console endpoints; the reset/break/fix endpoints are simulation
