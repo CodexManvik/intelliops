@@ -2,18 +2,26 @@
 
 from __future__ import annotations
 
+import logging
 import threading
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
 from common.config import get_settings
 from common.envelope import publish_model
-from services.base import create_app
+from common.stores import make_stores
+from services.base import create_app, db_ready
 from services.correlation.adapters.river_correlator import RiverCorrelator
-from services.correlation.consumer import _drain_suppressed, run_consumer
+from services.correlation.consumer import (
+    _drain_suppressed,
+    _snapshot_baseline_once,
+    run_consumer,
+)
 from services.correlation.engine import CorrelationEngine
 
+logger = logging.getLogger(__name__)
 
 def run_flusher(
     bus, engine: CorrelationEngine, period_seconds: float, stop_event: threading.Event
@@ -31,12 +39,34 @@ def run_flusher(
     flush can (closed-loop signatures don't care which code path collapsed the
     window), so this must drain and publish suppressed situations too — otherwise
     a suppression that only ever happens on a timer-flush is silently lost.
+
+    This thread also piggybacks the periodic baseline snapshot. Because the loop
+    wakes on the (possibly shorter) situation-flush cadence, the snapshot runs on
+    its own elapsed-time schedule tracked with time.monotonic() rather than once
+    per wake. The snapshot is best-effort (_snapshot_baseline_once never raises),
+    so a persistence hiccup can never crash this flusher.
     """
+    last_snapshot = time.monotonic()
     while not stop_event.wait(period_seconds):
         emitted = engine.flush()
         if emitted is not None:
             publish_model(bus, "situations.detected", emitted)
         _drain_suppressed(bus, engine)
+        now = time.monotonic()
+        if now - last_snapshot >= snapshot_period:
+            _snapshot_baseline_once(engine, baseline_store)
+            last_snapshot = now
+
+
+def _reload_baseline(engine, baseline_store, training_records: list[dict]) -> None:
+    """On boot: restore the z-score baseline + recover reliability. Best-effort."""
+    if baseline_store is not None:
+        try:
+            engine.load(baseline_store.load_all())
+        except Exception as exc:  # noqa: BLE001 — a failed reload just means a cold start
+            logger.warning("baseline reload failed, starting cold: %s", exc)
+    if training_records:
+        engine._correlator.retrain(training_records)
 
 
 @asynccontextmanager
@@ -51,13 +81,40 @@ async def lifespan(app: FastAPI):
         window_seconds=settings.correlation_window_seconds,
     )
     app.state.engine = engine
+    # Reload-on-boot: restore the durable baseline + reliability BEFORE the
+    # consumer thread starts, so the first events are scored against the
+    # recovered state (no cold-start blackout). In file mode baseline_store is
+    # None and the reload is a no-op; the training-record retrain still runs.
+    #
+    # Reload-on-boot is best-effort: a DB-unavailable boot cold-starts (empty
+    # baseline + reliability) rather than crashing (ADR-015). make_stores() can
+    # connect in postgres mode (PostgresPlaybookStore seeds on construction), so
+    # it must be inside the guard too.
+    baseline_store = None
+    training_records: list[dict] = []
+    try:
+        stores = make_stores(settings)
+        app.state.db_engine = stores.engine
+        baseline_store = stores.baseline_store
+        training_records = [r.model_dump() for r in stores.training_store.read_all()]
+    except Exception as exc:  # noqa: BLE001 — a failed boot-load just means a cold start
+        logger.warning("store reload failed, starting cold: %s", exc)
+    _reload_baseline(engine, baseline_store, training_records)
+    app.state.baseline_store = baseline_store
     thread = threading.Thread(
         target=run_consumer, args=(app.state.bus, engine, stop_event), daemon=True
     )
     thread.start()
     flusher = threading.Thread(
         target=run_flusher,
-        args=(app.state.bus, engine, settings.correlation_window_seconds, stop_event),
+        args=(
+            app.state.bus,
+            engine,
+            settings.correlation_window_seconds,
+            stop_event,
+            baseline_store,
+            settings.baseline_snapshot_seconds,
+        ),
         daemon=True,
     )
     flusher.start()
@@ -70,7 +127,10 @@ async def lifespan(app: FastAPI):
         stop_event.set()
 
 
-app = create_app("correlation-service")
+app = create_app(
+    "correlation-service",
+    readiness=lambda: db_ready(getattr(app.state, "db_engine", None)),
+)
 app.router.lifespan_context = lifespan
 
 

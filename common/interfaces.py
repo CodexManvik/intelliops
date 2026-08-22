@@ -29,6 +29,8 @@ class BusClient(Protocol):
 
     def consume(self, topic: str, group: str) -> Iterator[dict]: ...
 
+    def ping(self) -> None: ...
+
 
 @runtime_checkable
 class TelemetrySource(Protocol):
@@ -77,6 +79,19 @@ class PlaybookStore(Protocol):
     def get(self, playbook_id: str) -> Playbook | None: ...
 
     def list(self) -> list[Playbook]: ...
+
+
+@runtime_checkable
+class ApprovalStore(Protocol):
+    """Pending HITL approvals (in-memory / Postgres)."""
+
+    def create(self, request: ApprovalRequest) -> ApprovalRequest: ...
+
+    def get(self, approval_id: str) -> ApprovalRequest | None: ...
+
+    def decide(self, approval_id: str, status: str, decided_by: str) -> ApprovalRequest | None: ...
+
+    def list_pending(self) -> list[ApprovalRequest]: ...
 
 
 @runtime_checkable

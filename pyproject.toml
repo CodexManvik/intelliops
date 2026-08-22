@@ -42,6 +42,10 @@ filterwarnings = [
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+# Docs hold illustrative Python inside Markdown fences; ruff's formatter would
+# rewrite those snippets and fail `ruff format --check .` in CI. Design docs are
+# not source — exclude them from both lint and format.
+exclude = ["docs"]
 
 [tool.setuptools.packages.find]
 include = ["common*", "services*"]

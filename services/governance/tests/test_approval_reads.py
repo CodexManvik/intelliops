@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from services.governance.adapters.approval_store import InMemoryApprovalStore
 from services.governance.adapters.audit_sink import InMemoryAuditSink
 from services.governance.adapters.playbook_store import InMemoryPlaybookStore
 from services.governance.rbac import RbacPolicy
@@ -11,7 +12,7 @@ def _client():
     app.state.audit_sink = InMemoryAuditSink()
     app.state.playbook_store = InMemoryPlaybookStore()
     app.state.rbac = RbacPolicy(roles={}, actors={})
-    app.state.approvals = {}
+    app.state.approval_store = InMemoryApprovalStore()
     return TestClient(app)
 
 
