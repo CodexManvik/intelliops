@@ -32,7 +32,7 @@ IntelliOps is and how it works:
 | Read this | To understand |
 |-----------|---------------|
 | **[flow.md](flow.md)** | **How a signal flows through the system** — the one-incident journey, every bus topic and data contract, a function-by-function reference for each of the seven services, and the current status (what's real vs. simulated). |
-| **[architectural.md](architectural.md)** | **Why the system is shaped this way** — the layer model and sixteen ADRs (Architecture Decision Records), each with the context, the decision, the trade-offs, and the alternatives rejected. |
+| **[architectural.md](architectural.md)** | **Why the system is shaped this way** — the layer model and seventeen ADRs (Architecture Decision Records), each with the context, the decision, the trade-offs, and the alternatives rejected. |
 
 Then, for the team: **[WORKPLAN.md](WORKPLAN.md)** divides the remaining work into four
 owned streams with acceptance criteria. The full original design spec is at
@@ -136,6 +136,9 @@ Every named tool sits behind an interface, so it is swappable — see
 [ADR-005](architectural.md#adr-005--pluggable-adapters-behind-interfaces).
 
 ## Quickstart
+
+> **For a full guided demo, see [DEMO.md](docs/DEMO.md)** — a two-act walkthrough of the live loop
+> and real kind-cluster remediation.
 
 > Slice 0 is built: the command below brings up Redis and six health-checked service stubs.
 > Slice 1 adds `POST /ingest` on ingestion (8001) and a correlation consumer that emits `Situation`s onto the bus.
@@ -248,8 +251,10 @@ work builds on top of them.
 
 ## Documentation map
 
-- **[architectural.md](architectural.md)** — design principles, the 5→6 layer mapping, sixteen
+- **[architectural.md](architectural.md)** — design principles, the 5→6 layer mapping, seventeen
   ADRs, cross-cutting concerns, compliance mapping.
+- **[docs/DEMO.md](docs/DEMO.md)** — the guided two-act demo walkthrough: the live dry-run loop,
+  then real remediation on a kind cluster.
 - **[flow.md](flow.md)** — the one-incident journey, bus topics, data contracts, and a
   per-function reference for all seven services.
 - **[docs/PERSISTENCE.md](docs/PERSISTENCE.md)** — the Postgres backend: the schema, the

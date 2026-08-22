@@ -38,6 +38,21 @@ IntelliOps service), so it's gated per-route instead: `/break` and `/fix`
 `/metrics` (scraped by Prometheus, unauthenticated), and `/work`
 (simulated app traffic) stay open.
 
+### The React console
+
+The operator console authenticates the same way. Under `AUTH_MODE=token`,
+set `VITE_AUTH_TOKEN` to the same value as `INTELLIOPS_AUTH_TOKEN`; the
+frontend attaches `Authorization: Bearer <VITE_AUTH_TOKEN>` on every call —
+the read/governance-read fetches (`/situations`, `/outcomes`, `/audit`,
+`/playbooks`, `/metrics`) as well as the approve/reject write. Because those
+reads are gated, `token` mode leaves **no public read surface**.
+
+Vite inlines `VITE_*` vars at build time, so the console token is baked into
+the client bundle. That makes it a **shared demo token, not a per-user
+secret** — anyone who can load the bundle has it. A real deployment would
+issue per-user tokens or front the console with an IdP; the shared token is a
+demo convenience, not the production auth model.
+
 ### Compose: shared secret for token mode
 
 When running in `AUTH_MODE=token`, every service that makes or receives

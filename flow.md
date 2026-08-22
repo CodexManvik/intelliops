@@ -289,6 +289,12 @@ the `/ready` probe as a per-service healthcheck; a real cluster should map `live
 [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md)).
 
 **What is still deliberately simulated / deferred:**
-- **No auth** on the read/console endpoints; the reset/break/fix endpoints are simulation
-  controls, not production endpoints.
+- **Auth is a config-switched edge gate** ([ADR-017](architectural.md#adr-017--edge-authentication)).
+  Under `AUTH_MODE=token` the console authenticates with a shared bearer token
+  (`VITE_AUTH_TOKEN`) and the read/console endpoints **are** gated — there's no public read
+  surface. The `/reset`, `/reset-baseline`, `/reset-approvals`, `/break`, and `/fix` endpoints are
+  still **simulation controls** (gated under token mode, but must be removed or gated when this
+  stack is pointed at a real system). `/reset-baseline` and `/reset-approvals` now clear the
+  runtime-state DB tables (`correlation_baseline`, `approvals`) while **preserving** the audit and
+  training records.
 - Smarter detection, observability, and demo/report polish, per [WORKPLAN.md](WORKPLAN.md).
