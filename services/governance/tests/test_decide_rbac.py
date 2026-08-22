@@ -1,7 +1,6 @@
 from fastapi.testclient import TestClient
 
 from common.contracts import ApprovalRequest
-from services.governance.adapters.approval_store import InMemoryApprovalStore
 from services.governance.rbac import RbacPolicy
 
 
