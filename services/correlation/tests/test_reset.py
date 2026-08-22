@@ -39,3 +39,33 @@ def test_reset_baseline_endpoint():
     app.state.engine = CorrelationEngine(RiverCorrelator())
     c = TestClient(app)
     assert c.post("/reset-baseline").json() == {"reset": True}
+
+
+def test_reset_baseline_deletes_db_rows_in_postgres_mode():
+    from fastapi.testclient import TestClient
+
+    from services.correlation.app import app
+
+    executed = []
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def execute(self, stmt):
+            executed.append(str(stmt))
+
+    class _Engine:
+        def begin(self):
+            return _Conn()
+
+    app.state.db_engine = _Engine()
+    # app.state.engine may be unset in this unit context; the endpoint guards it.
+    c = TestClient(app)
+    r = c.post("/reset-baseline")
+    assert r.status_code == 200 and r.json() == {"reset": True}
+    assert any("correlation_baseline" in s.lower() for s in executed)
+    del app.state.db_engine
