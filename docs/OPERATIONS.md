@@ -10,21 +10,22 @@ Controlled by `INTELLIOPS_AUTH_MODE`:
 | Value | Behavior |
 | --- | --- |
 | `off` (default) | Every endpoint open. Current dev/test/CI behavior, unchanged. |
-| `token` | Every request except `/health` must carry `Authorization: Bearer <INTELLIOPS_AUTH_TOKEN>`, or the service returns `401`. |
+| `token` | Every request except `/health` and `/ready` must carry `Authorization: Bearer <INTELLIOPS_AUTH_TOKEN>`, or the service returns `401`. |
 
 Set `INTELLIOPS_AUTH_TOKEN` to the shared token when `AUTH_MODE=token`. A
 service started in `token` mode with no `AUTH_TOKEN` set rejects every
 protected request — there's no accidental-open fallback.
 
-`/health` is exempt in every mode, on every service, so docker-compose
-healthchecks, k8s liveness/readiness probes, and CI's compose-smoke job
-never need a token.
+`/health` (liveness) and `/ready` (readiness) are exempt in every mode, on
+every service, so docker-compose healthchecks, k8s liveness/readiness probes,
+and CI's compose-smoke job never need a token.
 
 ### What's gated
 
 Applied via the shared app factory (`services/base.py`), so it covers every
 route on ingestion, correlation, rca, action, feedback, governance, and
-read — except `/health`.
+read — except `/health` and `/ready`, which are always exempt (probes never
+need a token).
 
 In `token` mode **all** endpoints are gated — including the internal
 service-to-service paths on governance (`POST /audit`, `POST /rbac/check`,
