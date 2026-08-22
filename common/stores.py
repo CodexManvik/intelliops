@@ -24,6 +24,7 @@ class Stores:
 def make_stores(settings) -> Stores:
     if settings.store_backend == "postgres":
         from common.db import make_engine
+
         engine = make_engine(settings.database_url)
         return Stores(
             audit_sink=PostgresAuditSink(engine),

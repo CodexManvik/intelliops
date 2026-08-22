@@ -24,10 +24,21 @@ def _client():
 
 def test_ingest_publishes_normalized_events_to_telemetry_raw():
     client, bus = _client()
-    resp = client.post("/ingest", json={"events": [
-        {"source": "prom", "kind": "metric", "name": "cpu", "value": 0.9,
-         "labels": {"pod": "web-1"}, "ts": "2026-08-13T00:00:00+00:00"},
-    ]})
+    resp = client.post(
+        "/ingest",
+        json={
+            "events": [
+                {
+                    "source": "prom",
+                    "kind": "metric",
+                    "name": "cpu",
+                    "value": 0.9,
+                    "labels": {"pod": "web-1"},
+                    "ts": "2026-08-13T00:00:00+00:00",
+                },
+            ]
+        },
+    )
     assert resp.status_code == 200
     assert resp.json() == {"accepted": 1}
     assert len(bus.published) == 1
@@ -40,9 +51,14 @@ def test_ingest_publishes_normalized_events_to_telemetry_raw():
 
 def test_ingest_defaults_missing_ts():
     client, bus = _client()
-    resp = client.post("/ingest", json={"events": [
-        {"source": "prom", "kind": "metric", "name": "cpu", "value": 0.1},
-    ]})
+    resp = client.post(
+        "/ingest",
+        json={
+            "events": [
+                {"source": "prom", "kind": "metric", "name": "cpu", "value": 0.1},
+            ]
+        },
+    )
     assert resp.status_code == 200
     ev = decode_model(bus.published[0][1], TelemetryEvent)
     assert ev.ts is not None

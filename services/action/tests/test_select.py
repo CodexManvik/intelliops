@@ -18,19 +18,40 @@ NOW = datetime(2026, 8, 13, tzinfo=UTC)
 
 def _diagnosed(runbook_id):
     sit = Situation(
-        id="s1", status=SituationStatus.DIAGNOSED,
-        member_events=[TelemetryEvent(source="p", kind=TelemetryKind.METRIC, name="cpu",
-                                      value=1.0, labels={}, ts=NOW, fingerprint="f")],
-        severity="high", first_seen=NOW, last_seen=NOW, signature="sig",
+        id="s1",
+        status=SituationStatus.DIAGNOSED,
+        member_events=[
+            TelemetryEvent(
+                source="p",
+                kind=TelemetryKind.METRIC,
+                name="cpu",
+                value=1.0,
+                labels={},
+                ts=NOW,
+                fingerprint="f",
+            )
+        ],
+        severity="high",
+        first_seen=NOW,
+        last_seen=NOW,
+        signature="sig",
     )
     return DiagnosedSituation(situation=sit, hypotheses=[], suggested_runbook_id=runbook_id)
 
 
 def _store():
     s = InMemoryPlaybookStore()
-    s.register(Playbook(id="restart-pod", name="Restart", match_rule="x",
-                        steps=[RemediationStep(action="restart")],
-                        hitl_mode=HitlMode.HITL, reversible=True, rollback_steps=[]))
+    s.register(
+        Playbook(
+            id="restart-pod",
+            name="Restart",
+            match_rule="x",
+            steps=[RemediationStep(action="restart")],
+            hitl_mode=HitlMode.HITL,
+            reversible=True,
+            rollback_steps=[],
+        )
+    )
     return s
 
 

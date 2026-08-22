@@ -15,8 +15,9 @@ from services.correlation.consumer import _drain_suppressed, run_consumer
 from services.correlation.engine import CorrelationEngine
 
 
-def run_flusher(bus, engine: CorrelationEngine, period_seconds: float,
-                stop_event: threading.Event) -> None:
+def run_flusher(
+    bus, engine: CorrelationEngine, period_seconds: float, stop_event: threading.Event
+) -> None:
     """Periodically collapse the buffered window into a Situation.
 
     On a continuous stream the consumer's own span-check only fires when a NEW

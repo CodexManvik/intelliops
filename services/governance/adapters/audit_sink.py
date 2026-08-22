@@ -21,7 +21,9 @@ class InMemoryAuditSink:
         self._records.append(record)
 
     def records(self, correlation_id: str | None = None) -> list[AuditRecord]:
-        return [r for r in self._records if correlation_id is None or r.correlation_id == correlation_id]
+        return [
+            r for r in self._records if correlation_id is None or r.correlation_id == correlation_id
+        ]
 
 
 class FileAuditSink:
@@ -55,10 +57,17 @@ class PostgresAuditSink:
 
     def write(self, record: AuditRecord) -> None:
         with self._engine.begin() as conn:
-            conn.execute(audit_records.insert().values(
-                correlation_id=record.correlation_id, actor=record.actor,
-                action=record.action, resource=record.resource,
-                decision=record.decision, ts=record.ts, payload=to_payload(record)))
+            conn.execute(
+                audit_records.insert().values(
+                    correlation_id=record.correlation_id,
+                    actor=record.actor,
+                    action=record.action,
+                    resource=record.resource,
+                    decision=record.decision,
+                    ts=record.ts,
+                    payload=to_payload(record),
+                )
+            )
 
     def records(self, correlation_id: str | None = None) -> list[AuditRecord]:
         stmt = select(audit_records.c.payload)

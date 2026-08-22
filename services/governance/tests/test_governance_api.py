@@ -16,8 +16,10 @@ def _client():
     app.state.audit_sink = InMemoryAuditSink()
     app.state.playbook_store = InMemoryPlaybookStore()
     app.state.rbac = RbacPolicy(
-        roles={"operator": [{"action": "diagnose", "resource": "situation:*"}],
-               "approver": [{"action": "approve", "resource": "playbook:*"}]},
+        roles={
+            "operator": [{"action": "diagnose", "resource": "situation:*"}],
+            "approver": [{"action": "approve", "resource": "playbook:*"}],
+        },
         actors={"rca-service": ["operator"], "oncall-alice": ["approver"]},
     )
     app.state.approvals = {}
@@ -31,8 +33,14 @@ def test_health_still_works():
 
 def test_audit_write_and_query():
     c = _client()
-    rec = {"actor": "rca-service", "action": "diagnose", "resource": "situation:sit-1",
-           "decision": "allow", "ts": NOW, "correlation_id": "sit-1"}
+    rec = {
+        "actor": "rca-service",
+        "action": "diagnose",
+        "resource": "situation:sit-1",
+        "decision": "allow",
+        "ts": NOW,
+        "correlation_id": "sit-1",
+    }
     assert c.post("/audit", json=rec).status_code == 200
     got = c.get("/audit", params={"correlation_id": "sit-1"}).json()
     assert len(got) == 1
@@ -43,9 +51,13 @@ def test_audit_write_and_query():
 
 def test_playbook_register_and_list():
     c = _client()
-    pb = Playbook(id="restart-pod", name="Restart Pod", match_rule="x",
-                  steps=[RemediationStep(action="restart")],
-                  hitl_mode=HitlMode.HITL).model_dump(mode="json")
+    pb = Playbook(
+        id="restart-pod",
+        name="Restart Pod",
+        match_rule="x",
+        steps=[RemediationStep(action="restart")],
+        hitl_mode=HitlMode.HITL,
+    ).model_dump(mode="json")
     assert c.post("/playbooks", json=pb).status_code == 200
     assert c.get("/playbooks/restart-pod").json()["name"] == "Restart Pod"
     assert [p["id"] for p in c.get("/playbooks").json()] == ["restart-pod"]
@@ -54,23 +66,37 @@ def test_playbook_register_and_list():
 
 def test_rbac_check():
     c = _client()
-    allow = c.post("/rbac/check", json={"actor": "rca-service", "action": "diagnose",
-                                        "resource": "situation:sit-1"}).json()
+    allow = c.post(
+        "/rbac/check",
+        json={"actor": "rca-service", "action": "diagnose", "resource": "situation:sit-1"},
+    ).json()
     assert allow == {"allowed": True}
-    deny = c.post("/rbac/check", json={"actor": "rca-service", "action": "approve",
-                                       "resource": "playbook:x"}).json()
+    deny = c.post(
+        "/rbac/check", json={"actor": "rca-service", "action": "approve", "resource": "playbook:x"}
+    ).json()
     assert deny == {"allowed": False}
 
 
 def test_approval_create_and_decide():
     c = _client()
-    created = c.post("/approvals", json={"id": "a1", "situation_id": "sit-1",
-                                         "playbook_id": "restart-pod",
-                                         "requested_by": "action-service"}).json()
+    created = c.post(
+        "/approvals",
+        json={
+            "id": "a1",
+            "situation_id": "sit-1",
+            "playbook_id": "restart-pod",
+            "requested_by": "action-service",
+        },
+    ).json()
     assert created["status"] == "pending"
-    decided = c.post("/approvals/a1/decide",
-                     json={"decision": "approved", "decided_by": "oncall-alice"}).json()
+    decided = c.post(
+        "/approvals/a1/decide", json={"decision": "approved", "decided_by": "oncall-alice"}
+    ).json()
     assert decided["status"] == "approved"
     assert decided["decided_by"] == "oncall-alice"
-    assert c.post("/approvals/missing/decide",
-                  json={"decision": "approved", "decided_by": "x"}).status_code == 404
+    assert (
+        c.post(
+            "/approvals/missing/decide", json={"decision": "approved", "decided_by": "x"}
+        ).status_code
+        == 404
+    )

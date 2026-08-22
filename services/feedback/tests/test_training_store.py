@@ -11,9 +11,14 @@ NOW = datetime(2026, 8, 13, tzinfo=UTC)
 
 
 def _record(sig="abc", worked=True):
-    return TrainingRecord(situation_id=f"sit-{sig}", signature=sig, playbook_id="restart-pod",
-                          result=RemediationResult.SUCCESS if worked else RemediationResult.FAILURE,
-                          worked=worked, ts=NOW)
+    return TrainingRecord(
+        situation_id=f"sit-{sig}",
+        signature=sig,
+        playbook_id="restart-pod",
+        result=RemediationResult.SUCCESS if worked else RemediationResult.FAILURE,
+        worked=worked,
+        ts=NOW,
+    )
 
 
 def test_inmemory_satisfies_protocol():

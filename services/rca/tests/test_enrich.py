@@ -25,12 +25,23 @@ class FakeProvider:
 
 def _situation():
     return Situation(
-        id="sit-1", status=SituationStatus.DETECTED,
-        member_events=[TelemetryEvent(
-            source="prom", kind=TelemetryKind.METRIC, name="cpu", value=99.0,
-            labels={"service": "web"}, ts=NOW, fingerprint="fp",
-        )],
-        severity="high", first_seen=NOW, last_seen=NOW, signature="sig",
+        id="sit-1",
+        status=SituationStatus.DETECTED,
+        member_events=[
+            TelemetryEvent(
+                source="prom",
+                kind=TelemetryKind.METRIC,
+                name="cpu",
+                value=99.0,
+                labels={"service": "web"},
+                ts=NOW,
+                fingerprint="fp",
+            )
+        ],
+        severity="high",
+        first_seen=NOW,
+        last_seen=NOW,
+        signature="sig",
     )
 
 

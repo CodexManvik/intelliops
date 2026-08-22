@@ -15,6 +15,7 @@ from common.db import METADATA, make_engine
 @pytest.fixture(scope="session")
 def postgres_engine():
     from testcontainers.postgres import PostgresContainer
+
     with PostgresContainer("postgres:16-alpine") as pg:
         # testcontainers returns a psycopg2 URL by default; force psycopg (v3).
         url = pg.get_connection_url().replace("postgresql+psycopg2://", "postgresql+psycopg://")
@@ -27,5 +28,7 @@ def postgres_engine():
 @pytest.fixture()
 def clean_db(postgres_engine):
     with postgres_engine.begin() as conn:
-        conn.execute(text("TRUNCATE audit_records, training_records, playbooks RESTART IDENTITY CASCADE"))
+        conn.execute(
+            text("TRUNCATE audit_records, training_records, playbooks RESTART IDENTITY CASCADE")
+        )
     yield postgres_engine

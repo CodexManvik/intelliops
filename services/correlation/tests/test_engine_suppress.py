@@ -7,9 +7,15 @@ from services.correlation.engine import CorrelationEngine
 
 
 def _event(value, fp, ts_sec=0):
-    return TelemetryEvent(source="prom", kind=TelemetryKind.METRIC, name="cpu", value=value,
-                          labels={}, ts=datetime(2026, 8, 13, 0, 0, ts_sec, tzinfo=UTC),
-                          fingerprint=fp)
+    return TelemetryEvent(
+        source="prom",
+        kind=TelemetryKind.METRIC,
+        name="cpu",
+        value=value,
+        labels={},
+        ts=datetime(2026, 8, 13, 0, 0, ts_sec, tzinfo=UTC),
+        fingerprint=fp,
+    )
 
 
 def _prime_and_flush(engine, n=200, seed=42):
@@ -32,9 +38,13 @@ def test_engine_suppresses_reliable_signature():
     sig = situation.signature
 
     # Teach the correlator that this signature reliably self-heals.
-    correlator.retrain([{"signature": sig, "worked": True},
-                        {"signature": sig, "worked": True},
-                        {"signature": sig, "worked": True}])
+    correlator.retrain(
+        [
+            {"signature": sig, "worked": True},
+            {"signature": sig, "worked": True},
+            {"signature": sig, "worked": True},
+        ]
+    )
 
     # The SAME spikes now form the same-signature Situation, which is suppressed.
     engine.add(_event(100.0, "a", 3))
@@ -54,8 +64,7 @@ def test_engine_still_emits_unreliable_signature():
     sig = situation.signature
 
     # This signature keeps FAILING — stays sensitive.
-    correlator.retrain([{"signature": sig, "worked": False},
-                        {"signature": sig, "worked": False}])
+    correlator.retrain([{"signature": sig, "worked": False}, {"signature": sig, "worked": False}])
 
     engine.add(_event(100.0, "a", 3))
     engine.add(_event(120.0, "b", 4))

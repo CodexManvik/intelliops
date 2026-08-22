@@ -65,22 +65,42 @@ In `pyproject.toml` `dependencies`, add: `"sqlalchemy>=2.0"`, `"alembic>=1.13"`,
 # tests/test_db_metadata.py
 from common.db import METADATA, audit_records, training_records, playbooks, to_payload, from_payload
 
+
 def test_tables_registered():
     names = set(METADATA.tables)
     assert {"audit_records", "training_records", "playbooks"} <= names
 
+
 def test_audit_columns():
     cols = {c.name for c in audit_records.columns}
-    assert {"id", "correlation_id", "actor", "action", "resource", "decision", "ts", "payload"} <= cols
+    assert {
+        "id",
+        "correlation_id",
+        "actor",
+        "action",
+        "resource",
+        "decision",
+        "ts",
+        "payload",
+    } <= cols
+
 
 def test_playbooks_pk_is_id():
     assert [c.name for c in playbooks.primary_key.columns] == ["id"]
 
+
 def test_payload_roundtrip():
     from datetime import UTC, datetime
     from common.contracts import AuditRecord
-    rec = AuditRecord(actor="a", action="x", resource="r", decision="allow",
-                      ts=datetime(2026, 8, 20, tzinfo=UTC), correlation_id="sit-1")
+
+    rec = AuditRecord(
+        actor="a",
+        action="x",
+        resource="r",
+        decision="allow",
+        ts=datetime(2026, 8, 20, tzinfo=UTC),
+        correlation_id="sit-1",
+    )
     payload = to_payload(rec)
     assert isinstance(payload, dict) and payload["correlation_id"] == "sit-1"
     back = from_payload(payload, AuditRecord)
@@ -107,7 +127,15 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 from sqlalchemy import (
-    JSON, BigInteger, Boolean, Column, DateTime, Index, MetaData, String, Table,
+    JSON,
+    BigInteger,
+    Boolean,
+    Column,
+    DateTime,
+    Index,
+    MetaData,
+    String,
+    Table,
     create_engine,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -119,7 +147,8 @@ METADATA = MetaData()
 _JSON = JSONB().with_variant(JSON(), "sqlite")
 
 audit_records = Table(
-    "audit_records", METADATA,
+    "audit_records",
+    METADATA,
     Column("id", BigInteger, primary_key=True, autoincrement=True),
     Column("correlation_id", String, nullable=False),
     Column("actor", String, nullable=False),
@@ -133,7 +162,8 @@ audit_records = Table(
 )
 
 training_records = Table(
-    "training_records", METADATA,
+    "training_records",
+    METADATA,
     Column("id", BigInteger, primary_key=True, autoincrement=True),
     Column("situation_id", String, nullable=False),
     Column("signature", String, nullable=False),
@@ -146,7 +176,8 @@ training_records = Table(
 )
 
 playbooks = Table(
-    "playbooks", METADATA,
+    "playbooks",
+    METADATA,
     Column("id", String, primary_key=True),
     Column("name", String, nullable=False),
     Column("hitl_mode", String, nullable=False),
@@ -219,6 +250,7 @@ from common.db import METADATA, make_engine
 @pytest.fixture(scope="session")
 def postgres_engine():
     from testcontainers.postgres import PostgresContainer
+
     with PostgresContainer("postgres:16-alpine") as pg:
         # testcontainers returns a psycopg2 URL by default; force psycopg (v3).
         url = pg.get_connection_url().replace("postgresql+psycopg2://", "postgresql+psycopg://")
@@ -231,7 +263,9 @@ def postgres_engine():
 @pytest.fixture()
 def clean_db(postgres_engine):
     with postgres_engine.begin() as conn:
-        conn.execute(text("TRUNCATE audit_records, training_records, playbooks RESTART IDENTITY CASCADE"))
+        conn.execute(
+            text("TRUNCATE audit_records, training_records, playbooks RESTART IDENTITY CASCADE")
+        )
     yield postgres_engine
 ```
 
@@ -248,12 +282,17 @@ from tests.db_fixtures import postgres_engine, clean_db  # noqa: F401
 import pytest
 from sqlalchemy import text
 
+
 @pytest.mark.postgres
 def test_container_up_and_schema_present(clean_db):
     with clean_db.connect() as conn:
-        tables = conn.execute(text(
-            "SELECT table_name FROM information_schema.tables WHERE table_schema='public'"
-        )).scalars().all()
+        tables = (
+            conn.execute(
+                text("SELECT table_name FROM information_schema.tables WHERE table_schema='public'")
+            )
+            .scalars()
+            .all()
+        )
     assert {"audit_records", "training_records", "playbooks"} <= set(tables)
 ```
 
@@ -302,30 +341,43 @@ import pytest
 from common.contracts import AuditRecord
 from services.governance.adapters.audit_sink import PostgresAuditSink
 
+
 def _rec(cid, actor="a"):
-    return AuditRecord(actor=actor, action="execute", resource="playbook:x",
-                       decision="allow", ts=datetime(2026, 8, 20, tzinfo=UTC), correlation_id=cid)
+    return AuditRecord(
+        actor=actor,
+        action="execute",
+        resource="playbook:x",
+        decision="allow",
+        ts=datetime(2026, 8, 20, tzinfo=UTC),
+        correlation_id=cid,
+    )
+
 
 @pytest.mark.postgres
 def test_write_and_read_all(clean_db):
     s = PostgresAuditSink(clean_db)
-    s.write(_rec("sit-1")); s.write(_rec("sit-2"))
+    s.write(_rec("sit-1"))
+    s.write(_rec("sit-2"))
     got = s.records()
     assert len(got) == 2 and {r.correlation_id for r in got} == {"sit-1", "sit-2"}
+
 
 @pytest.mark.postgres
 def test_filter_by_correlation_id(clean_db):
     s = PostgresAuditSink(clean_db)
-    s.write(_rec("sit-1")); s.write(_rec("sit-1")); s.write(_rec("sit-2"))
+    s.write(_rec("sit-1"))
+    s.write(_rec("sit-1"))
+    s.write(_rec("sit-2"))
     assert len(s.records(correlation_id="sit-1")) == 2
     assert len(s.records(correlation_id="nope")) == 0
+
 
 @pytest.mark.postgres
 def test_jsonb_roundtrip_lossless(clean_db):
     s = PostgresAuditSink(clean_db)
     original = _rec("sit-9", actor="oncall-alice")
     s.write(original)
-    assert s.records()[0] == original   # reconstructed from payload, field-for-field
+    assert s.records()[0] == original  # reconstructed from payload, field-for-field
 ```
 
 - [ ] **Step 3: Run to verify fail**
@@ -352,10 +404,17 @@ class PostgresAuditSink:
 
     def write(self, record: AuditRecord) -> None:
         with self._engine.begin() as conn:
-            conn.execute(audit_records.insert().values(
-                correlation_id=record.correlation_id, actor=record.actor,
-                action=record.action, resource=record.resource,
-                decision=record.decision, ts=record.ts, payload=to_payload(record)))
+            conn.execute(
+                audit_records.insert().values(
+                    correlation_id=record.correlation_id,
+                    actor=record.actor,
+                    action=record.action,
+                    resource=record.resource,
+                    decision=record.decision,
+                    ts=record.ts,
+                    payload=to_payload(record),
+                )
+            )
 
     def records(self, correlation_id: str | None = None) -> list[AuditRecord]:
         stmt = select(audit_records.c.payload)
@@ -398,17 +457,26 @@ import pytest
 from common.contracts import RemediationResult, TrainingRecord
 from services.feedback.adapters.training_store import PostgresTrainingStore
 
+
 def _rec(sig, worked=True):
-    return TrainingRecord(situation_id="sit-1", signature=sig, playbook_id="restart-pod",
-                          result=RemediationResult.SUCCESS, worked=worked,
-                          ts=datetime(2026, 8, 20, tzinfo=UTC))
+    return TrainingRecord(
+        situation_id="sit-1",
+        signature=sig,
+        playbook_id="restart-pod",
+        result=RemediationResult.SUCCESS,
+        worked=worked,
+        ts=datetime(2026, 8, 20, tzinfo=UTC),
+    )
+
 
 @pytest.mark.postgres
 def test_append_and_read_all_in_order(clean_db):
     s = PostgresTrainingStore(clean_db)
-    s.append(_rec("aaa")); s.append(_rec("bbb"))
+    s.append(_rec("aaa"))
+    s.append(_rec("bbb"))
     got = s.read_all()
     assert [r.signature for r in got] == ["aaa", "bbb"]
+
 
 @pytest.mark.postgres
 def test_training_roundtrip_lossless(clean_db):
@@ -440,10 +508,17 @@ class PostgresTrainingStore:
     def append(self, record: TrainingRecord) -> None:
         result = record.result.value if hasattr(record.result, "value") else str(record.result)
         with self._engine.begin() as conn:
-            conn.execute(training_records.insert().values(
-                situation_id=record.situation_id, signature=record.signature,
-                playbook_id=record.playbook_id, result=result, worked=record.worked,
-                ts=record.ts, payload=to_payload(record)))
+            conn.execute(
+                training_records.insert().values(
+                    situation_id=record.situation_id,
+                    signature=record.signature,
+                    playbook_id=record.playbook_id,
+                    result=result,
+                    worked=record.worked,
+                    ts=record.ts,
+                    payload=to_payload(record),
+                )
+            )
 
     def read_all(self) -> list[TrainingRecord]:
         stmt = select(training_records.c.payload).order_by(training_records.c.id)
@@ -482,10 +557,18 @@ import pytest
 from common.contracts import HitlMode, Playbook, RemediationStep
 from services.governance.adapters.playbook_store import PostgresPlaybookStore
 
+
 def _pb(pid="restart-pod", mode=HitlMode.HITL):
-    return Playbook(id=pid, name="Restart", match_rule="x",
-                    steps=[RemediationStep(action="restart")], hitl_mode=mode,
-                    reversible=True, rollback_steps=[RemediationStep(action="restart")])
+    return Playbook(
+        id=pid,
+        name="Restart",
+        match_rule="x",
+        steps=[RemediationStep(action="restart")],
+        hitl_mode=mode,
+        reversible=True,
+        rollback_steps=[RemediationStep(action="restart")],
+    )
+
 
 @pytest.mark.postgres
 def test_register_get_list(clean_db):
@@ -495,13 +578,15 @@ def test_register_get_list(clean_db):
     assert got is not None and got.id == "my-pb" and got.steps[0].action == "restart"
     assert "my-pb" in {p.id for p in s.list()}
 
+
 @pytest.mark.postgres
 def test_register_twice_upserts(clean_db):
     s = PostgresPlaybookStore(clean_db, seed_path="deploy/playbooks")
     s.register(_pb("g", mode=HitlMode.HITL))
-    s.register(_pb("g", mode=HitlMode.AUTO))   # graduation: same id, new mode
+    s.register(_pb("g", mode=HitlMode.AUTO))  # graduation: same id, new mode
     assert s.get("g").hitl_mode == HitlMode.AUTO
-    assert len([p for p in s.list() if p.id == "g"]) == 1   # not duplicated
+    assert len([p for p in s.list() if p.id == "g"]) == 1  # not duplicated
+
 
 @pytest.mark.postgres
 def test_seed_playbooks_present_on_fresh_store(clean_db):
@@ -535,16 +620,30 @@ class PostgresPlaybookStore:
             self.register(pb)
 
     def register(self, playbook: Playbook) -> None:
-        mode = playbook.hitl_mode.value if hasattr(playbook.hitl_mode, "value") else str(playbook.hitl_mode)
-        values = dict(id=playbook.id, name=playbook.name, hitl_mode=mode,
-                      reversible=playbook.reversible, payload=to_payload(playbook),
-                      updated_at=datetime.now(UTC))
+        mode = (
+            playbook.hitl_mode.value
+            if hasattr(playbook.hitl_mode, "value")
+            else str(playbook.hitl_mode)
+        )
+        values = dict(
+            id=playbook.id,
+            name=playbook.name,
+            hitl_mode=mode,
+            reversible=playbook.reversible,
+            payload=to_payload(playbook),
+            updated_at=datetime.now(UTC),
+        )
         stmt = pg_insert(playbooks).values(**values)
         stmt = stmt.on_conflict_do_update(
             index_elements=[playbooks.c.id],
-            set_=dict(name=stmt.excluded.name, hitl_mode=stmt.excluded.hitl_mode,
-                      reversible=stmt.excluded.reversible, payload=stmt.excluded.payload,
-                      updated_at=stmt.excluded.updated_at))
+            set_=dict(
+                name=stmt.excluded.name,
+                hitl_mode=stmt.excluded.hitl_mode,
+                reversible=stmt.excluded.reversible,
+                payload=stmt.excluded.payload,
+                updated_at=stmt.excluded.updated_at,
+            ),
+        )
         with self._engine.begin() as conn:
             conn.execute(stmt)
 
@@ -594,10 +693,15 @@ Run: `uv run alembic init alembic` (creates `alembic.ini` + `alembic/`). Then ed
 # in alembic/env.py, near the top after imports
 import os
 from common.db import METADATA
+
 target_metadata = METADATA
-config.set_main_option("sqlalchemy.url",
-                       os.environ.get("INTELLIOPS_DATABASE_URL",
-                                      "postgresql+psycopg://intelliops:intelliops@localhost:5432/intelliops"))
+config.set_main_option(
+    "sqlalchemy.url",
+    os.environ.get(
+        "INTELLIOPS_DATABASE_URL",
+        "postgresql+psycopg://intelliops:intelliops@localhost:5432/intelliops",
+    ),
+)
 ```
 
 - [ ] **Step 2: Write the initial migration (hand-authored, matching METADATA)**
@@ -605,6 +709,7 @@ config.set_main_option("sqlalchemy.url",
 ```python
 # alembic/versions/0001_initial.py
 """initial store tables"""
+
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
@@ -665,25 +770,36 @@ def downgrade() -> None:
 import pytest
 from sqlalchemy import text
 
+
 @pytest.mark.postgres
 def test_alembic_upgrade_creates_schema():
     from testcontainers.postgres import PostgresContainer
     from alembic.config import Config
     from alembic import command
     import os
+
     with PostgresContainer("postgres:16-alpine") as pg:
         url = pg.get_connection_url().replace("postgresql+psycopg2://", "postgresql+psycopg://")
         os.environ["INTELLIOPS_DATABASE_URL"] = url
         cfg = Config("alembic.ini")
         command.upgrade(cfg, "head")
         from common.db import make_engine
+
         with make_engine(url).connect() as conn:
-            tables = set(conn.execute(text(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema='public'"
-            )).scalars().all())
-            idx = set(conn.execute(text(
-                "SELECT indexname FROM pg_indexes WHERE schemaname='public'"
-            )).scalars().all())
+            tables = set(
+                conn.execute(
+                    text(
+                        "SELECT table_name FROM information_schema.tables WHERE table_schema='public'"
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            idx = set(
+                conn.execute(text("SELECT indexname FROM pg_indexes WHERE schemaname='public'"))
+                .scalars()
+                .all()
+            )
     assert {"audit_records", "training_records", "playbooks"} <= tables
     assert {"ix_audit_correlation_id", "ix_training_signature"} <= idx
 ```
@@ -716,24 +832,35 @@ git commit -m "feat(db): alembic migrations (0001 initial schema) + fidelity tes
 ```python
 # tests/test_store_contract.py
 """Every store backend must be observably interchangeable behind its interface."""
+
 from datetime import UTC, datetime
 import pytest
 from common.contracts import AuditRecord, HitlMode, Playbook, RemediationStep
 
 
 def _audit(cid):
-    return AuditRecord(actor="a", action="x", resource="r", decision="allow",
-                       ts=datetime(2026, 8, 20, tzinfo=UTC), correlation_id=cid)
+    return AuditRecord(
+        actor="a",
+        action="x",
+        resource="r",
+        decision="allow",
+        ts=datetime(2026, 8, 20, tzinfo=UTC),
+        correlation_id=cid,
+    )
 
 
 # --- audit: parametrize over backends, each yielding a fresh empty sink ---
 def _inmem_audit():
     from services.governance.adapters.audit_sink import InMemoryAuditSink
+
     return InMemoryAuditSink()
+
 
 def _file_audit(tmp_path):
     from services.governance.adapters.audit_sink import FileAuditSink
+
     return FileAuditSink(str(tmp_path / "audit.jsonl"))
+
 
 @pytest.mark.parametrize("kind", ["inmem", "file", "postgres"])
 def test_audit_backends_agree(kind, tmp_path, request):
@@ -742,10 +869,13 @@ def test_audit_backends_agree(kind, tmp_path, request):
     elif kind == "file":
         sink = _file_audit(tmp_path)
     else:
-        pg = request.getfixturevalue("clean_db")   # only pulls the container for the postgres param
+        pg = request.getfixturevalue("clean_db")  # only pulls the container for the postgres param
         from services.governance.adapters.audit_sink import PostgresAuditSink
+
         sink = PostgresAuditSink(pg)
-    sink.write(_audit("sit-1")); sink.write(_audit("sit-2")); sink.write(_audit("sit-1"))
+    sink.write(_audit("sit-1"))
+    sink.write(_audit("sit-2"))
+    sink.write(_audit("sit-1"))
     assert len(sink.records()) == 3
     assert len(sink.records(correlation_id="sit-1")) == 2
     assert sink.records(correlation_id="sit-1")[0] == _audit("sit-1")
@@ -753,23 +883,34 @@ def test_audit_backends_agree(kind, tmp_path, request):
 
 # --- playbooks: same idea ---
 def _pb(pid, mode=HitlMode.HITL):
-    return Playbook(id=pid, name="n", match_rule="x", steps=[RemediationStep(action="restart")],
-                    hitl_mode=mode, reversible=True, rollback_steps=[])
+    return Playbook(
+        id=pid,
+        name="n",
+        match_rule="x",
+        steps=[RemediationStep(action="restart")],
+        hitl_mode=mode,
+        reversible=True,
+        rollback_steps=[],
+    )
+
 
 @pytest.mark.parametrize("kind", ["inmem", "file", "postgres"])
 def test_playbook_backends_agree(kind, tmp_path, request):
     if kind == "inmem":
         from services.governance.adapters.playbook_store import InMemoryPlaybookStore
+
         store = InMemoryPlaybookStore()
     elif kind == "file":
         from services.governance.adapters.playbook_store import FilePlaybookStore
+
         store = FilePlaybookStore(str(tmp_path))
     else:
         pg = request.getfixturevalue("clean_db")
         from services.governance.adapters.playbook_store import PostgresPlaybookStore
+
         store = PostgresPlaybookStore(pg, seed_path=str(tmp_path))  # empty seed dir
     store.register(_pb("p1", HitlMode.HITL))
-    store.register(_pb("p1", HitlMode.AUTO))   # upsert on every backend
+    store.register(_pb("p1", HitlMode.AUTO))  # upsert on every backend
     assert store.get("p1").hitl_mode == HitlMode.AUTO
     assert len([p for p in store.list() if p.id == "p1"]) == 1
 ```
@@ -805,8 +946,8 @@ git commit -m "test(db): cross-adapter contract — inmem/file/postgres intercha
 
 In `common/config.py`, after the k8s settings:
 ```python
-    store_backend: str = "file"   # "file" | "postgres"
-    database_url: str = "postgresql+psycopg://intelliops:intelliops@localhost:5432/intelliops"
+store_backend: str = "file"  # "file" | "postgres"
+database_url: str = "postgresql+psycopg://intelliops:intelliops@localhost:5432/intelliops"
 ```
 
 - [ ] **Step 2: Write the failing test**
@@ -816,6 +957,7 @@ In `common/config.py`, after the k8s settings:
 from common.stores import make_stores
 from services.governance.adapters.audit_sink import FileAuditSink
 
+
 class _S:
     store_backend = "file"
     database_url = "postgresql+psycopg://x"
@@ -823,15 +965,20 @@ class _S:
     training_store_path = "data/training.jsonl"
     playbook_store_path = "deploy/playbooks"
 
+
 def test_file_backend_builds_file_adapters():
     s = make_stores(_S())
     assert isinstance(s.audit_sink, FileAuditSink)
     assert s.engine is None
 
+
 def test_postgres_backend_selected(monkeypatch):
     # don't actually connect — just assert the postgres classes are chosen.
     from services.governance.adapters.audit_sink import PostgresAuditSink
-    class _P(_S): store_backend = "postgres"
+
+    class _P(_S):
+        store_backend = "postgres"
+
     # make_engine is called but lazy/pool — constructing the engine object does not connect.
     s = make_stores(_P())
     assert isinstance(s.audit_sink, PostgresAuditSink)
@@ -873,6 +1020,7 @@ class Stores:
 def make_stores(settings) -> Stores:
     if settings.store_backend == "postgres":
         from common.db import make_engine
+
         engine = make_engine(settings.database_url)
         return Stores(
             audit_sink=PostgresAuditSink(engine),

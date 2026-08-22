@@ -49,19 +49,37 @@ def test_detected_situation_is_diagnosed_with_recent_deploy_hypothesis():
     bus = InMemoryBus()
     audit = InMemoryAuditSink()
     store = InMemoryPlaybookStore()
-    store.register(Playbook(id="rollback-deploy", name="Rollback Deployment",
-                            match_rule="x", steps=[RemediationStep(action="restart")],
-                            hitl_mode=HitlMode.HITL, reversible=True,
-                            rollback_steps=[]))
+    store.register(
+        Playbook(
+            id="rollback-deploy",
+            name="Rollback Deployment",
+            match_rule="x",
+            steps=[RemediationStep(action="restart")],
+            hitl_mode=HitlMode.HITL,
+            reversible=True,
+            rollback_steps=[],
+        )
+    )
 
     # A detected Situation on the 'web' service.
     situation = Situation(
-        id="sit-web-1", status=SituationStatus.DETECTED,
-        member_events=[TelemetryEvent(
-            source="prom", kind=TelemetryKind.METRIC, name="cpu_usage", value=99.0,
-            labels={"service": "web"}, ts=NOW, fingerprint="fp",
-        )],
-        severity="high", first_seen=NOW, last_seen=NOW, signature="sig-web",
+        id="sit-web-1",
+        status=SituationStatus.DETECTED,
+        member_events=[
+            TelemetryEvent(
+                source="prom",
+                kind=TelemetryKind.METRIC,
+                name="cpu_usage",
+                value=99.0,
+                labels={"service": "web"},
+                ts=NOW,
+                fingerprint="fp",
+            )
+        ],
+        severity="high",
+        first_seen=NOW,
+        last_seen=NOW,
+        signature="sig-web",
     )
     publish_model(bus, "situations.detected", situation)
 

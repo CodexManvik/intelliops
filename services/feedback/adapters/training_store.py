@@ -56,10 +56,17 @@ class PostgresTrainingStore:
     def append(self, record: TrainingRecord) -> None:
         result = record.result.value if hasattr(record.result, "value") else str(record.result)
         with self._engine.begin() as conn:
-            conn.execute(training_records.insert().values(
-                situation_id=record.situation_id, signature=record.signature,
-                playbook_id=record.playbook_id, result=result, worked=record.worked,
-                ts=record.ts, payload=to_payload(record)))
+            conn.execute(
+                training_records.insert().values(
+                    situation_id=record.situation_id,
+                    signature=record.signature,
+                    playbook_id=record.playbook_id,
+                    result=result,
+                    worked=record.worked,
+                    ts=record.ts,
+                    payload=to_payload(record),
+                )
+            )
 
     def read_all(self) -> list[TrainingRecord]:
         stmt = select(training_records.c.payload).order_by(training_records.c.id)

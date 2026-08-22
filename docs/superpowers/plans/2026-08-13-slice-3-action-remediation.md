@@ -49,9 +49,15 @@ from common.interfaces import GovernanceGate, HealthChecker
 
 def test_governance_gate_runtime_checkable():
     class FakeGate:
-        def check_rbac(self, actor, action, resource): return True
-        def request_approval(self, request): return request
-        def await_decision(self, approval_id, timeout_seconds): return None
+        def check_rbac(self, actor, action, resource):
+            return True
+
+        def request_approval(self, request):
+            return request
+
+        def await_decision(self, approval_id, timeout_seconds):
+            return None
+
         def write_audit(self, record): ...
 
     assert isinstance(FakeGate(), GovernanceGate)
@@ -59,7 +65,8 @@ def test_governance_gate_runtime_checkable():
 
 def test_health_checker_runtime_checkable():
     class FakeHealth:
-        def check(self, situation): return True
+        def check(self, situation):
+            return True
 
     assert isinstance(FakeHealth(), HealthChecker)
 
@@ -159,16 +166,18 @@ def _client():
         actors={"oncall-alice": ["approver"], "random-bob": []},
     )
     app.state.approvals = {
-        "a1": ApprovalRequest(id="a1", situation_id="s1", playbook_id="restart-pod",
-                              requested_by="action-service"),
+        "a1": ApprovalRequest(
+            id="a1", situation_id="s1", playbook_id="restart-pod", requested_by="action-service"
+        ),
     }
     return TestClient(app)
 
 
 def test_authorized_decider_approves():
     c = _client()
-    resp = c.post("/approvals/a1/decide",
-                  json={"decision": "approved", "decided_by": "oncall-alice"})
+    resp = c.post(
+        "/approvals/a1/decide", json={"decision": "approved", "decided_by": "oncall-alice"}
+    )
     assert resp.status_code == 200
     assert resp.json()["status"] == "approved"
     assert resp.json()["decided_by"] == "oncall-alice"
@@ -176,19 +185,22 @@ def test_authorized_decider_approves():
 
 def test_unauthorized_decider_forbidden():
     c = _client()
-    resp = c.post("/approvals/a1/decide",
-                  json={"decision": "approved", "decided_by": "random-bob"})
+    resp = c.post("/approvals/a1/decide", json={"decision": "approved", "decided_by": "random-bob"})
     assert resp.status_code == 403
     # the approval must remain pending — no state change on a forbidden decide
-    assert c.post("/approvals/a1/decide",
-                  json={"decision": "approved", "decided_by": "oncall-alice"}
-                  ).json()["status"] == "approved"
+    assert (
+        c.post(
+            "/approvals/a1/decide", json={"decision": "approved", "decided_by": "oncall-alice"}
+        ).json()["status"]
+        == "approved"
+    )
 
 
 def test_decide_missing_approval_still_404():
     c = _client()
-    resp = c.post("/approvals/missing/decide",
-                  json={"decision": "approved", "decided_by": "oncall-alice"})
+    resp = c.post(
+        "/approvals/missing/decide", json={"decision": "approved", "decided_by": "oncall-alice"}
+    )
     assert resp.status_code == 404
 ```
 
@@ -209,7 +221,9 @@ def decide_approval(approval_id: str, decision: Decision) -> ApprovalRequest:
         raise HTTPException(status_code=404, detail="approval not found")
     if not app.state.rbac.check(decision.decided_by, "approve", f"playbook:{req.playbook_id}"):
         raise HTTPException(status_code=403, detail="decider lacks approve permission")
-    updated = req.model_copy(update={"status": decision.decision, "decided_by": decision.decided_by})
+    updated = req.model_copy(
+        update={"status": decision.decision, "decided_by": decision.decided_by}
+    )
     app.state.approvals[approval_id] = updated
     return updated
 ```
@@ -243,11 +257,13 @@ change the `_client()` rbac block from:
 to:
 
 ```python
-    app.state.rbac = RbacPolicy(
-        roles={"operator": [{"action": "diagnose", "resource": "situation:*"}],
-               "approver": [{"action": "approve", "resource": "playbook:*"}]},
-        actors={"rca-service": ["operator"], "oncall-alice": ["approver"]},
-    )
+app.state.rbac = RbacPolicy(
+    roles={
+        "operator": [{"action": "diagnose", "resource": "situation:*"}],
+        "approver": [{"action": "approve", "resource": "playbook:*"}],
+    },
+    actors={"rca-service": ["operator"], "oncall-alice": ["approver"]},
+)
 ```
 
 Leave the rest of `test_governance_api.py` unchanged. (`test_rbac_check` in that file asserts
@@ -414,10 +430,23 @@ NOW = datetime(2026, 8, 13, tzinfo=UTC)
 
 def _situation():
     return Situation(
-        id="s1", status=SituationStatus.DIAGNOSED,
-        member_events=[TelemetryEvent(source="p", kind=TelemetryKind.METRIC, name="cpu",
-                                      value=1.0, labels={}, ts=NOW, fingerprint="f")],
-        severity="high", first_seen=NOW, last_seen=NOW, signature="sig",
+        id="s1",
+        status=SituationStatus.DIAGNOSED,
+        member_events=[
+            TelemetryEvent(
+                source="p",
+                kind=TelemetryKind.METRIC,
+                name="cpu",
+                value=1.0,
+                labels={},
+                ts=NOW,
+                fingerprint="f",
+            )
+        ],
+        severity="high",
+        first_seen=NOW,
+        last_seen=NOW,
+        signature="sig",
     )
 
 
@@ -522,8 +551,12 @@ def _gate(approvals=None, poll=0.01):
         roles={"operator": [{"action": "execute", "resource": "playbook:*"}]},
         actors={"action-service": ["operator"]},
     )
-    return InProcessGovernanceGate(rbac, approvals if approvals is not None else {},
-                                   InMemoryAuditSink(), poll_interval_seconds=poll)
+    return InProcessGovernanceGate(
+        rbac,
+        approvals if approvals is not None else {},
+        InMemoryAuditSink(),
+        poll_interval_seconds=poll,
+    )
 
 
 def test_satisfies_protocol():
@@ -539,22 +572,28 @@ def test_check_rbac_delegates():
 def test_request_approval_stores_pending():
     approvals = {}
     g = _gate(approvals)
-    req = ApprovalRequest(id="a1", situation_id="s1", playbook_id="restart-pod",
-                          requested_by="action-service")
+    req = ApprovalRequest(
+        id="a1", situation_id="s1", playbook_id="restart-pod", requested_by="action-service"
+    )
     out = g.request_approval(req)
     assert out.status == "pending"
     assert approvals["a1"].status == "pending"
 
 
 def test_await_decision_returns_when_approved():
-    approvals = {"a1": ApprovalRequest(id="a1", situation_id="s1", playbook_id="restart-pod",
-                                       requested_by="action-service")}
+    approvals = {
+        "a1": ApprovalRequest(
+            id="a1", situation_id="s1", playbook_id="restart-pod", requested_by="action-service"
+        )
+    }
     g = _gate(approvals, poll=0.01)
 
     # a background thread approves after a moment
     def approve():
-        approvals["a1"] = approvals["a1"].model_copy(update={"status": "approved",
-                                                             "decided_by": "oncall-alice"})
+        approvals["a1"] = approvals["a1"].model_copy(
+            update={"status": "approved", "decided_by": "oncall-alice"}
+        )
+
     timer = threading.Timer(0.03, approve)
     timer.start()
     decided = g.await_decision("a1", timeout_seconds=2.0)
@@ -563,8 +602,11 @@ def test_await_decision_returns_when_approved():
 
 
 def test_await_decision_times_out_still_pending():
-    approvals = {"a1": ApprovalRequest(id="a1", situation_id="s1", playbook_id="restart-pod",
-                                       requested_by="action-service")}
+    approvals = {
+        "a1": ApprovalRequest(
+            id="a1", situation_id="s1", playbook_id="restart-pod", requested_by="action-service"
+        )
+    }
     g = _gate(approvals, poll=0.01)
     decided = g.await_decision("a1", timeout_seconds=0.05)
     assert decided.status == "pending"  # caller treats still-pending as timeout (fail closed)
@@ -574,8 +616,16 @@ def test_write_audit_persists():
     sink = InMemoryAuditSink()
     rbac = RbacPolicy(roles={}, actors={})
     g = InProcessGovernanceGate(rbac, {}, sink, poll_interval_seconds=0.01)
-    g.write_audit(AuditRecord(actor="action-service", action="execute", resource="playbook:x",
-                              decision="allow", ts=NOW, correlation_id="s1"))
+    g.write_audit(
+        AuditRecord(
+            actor="action-service",
+            action="execute",
+            resource="playbook:x",
+            decision="allow",
+            ts=NOW,
+            correlation_id="s1",
+        )
+    )
     assert len(sink.records()) == 1
 ```
 
@@ -605,7 +655,9 @@ from common.contracts import ApprovalRequest, AuditRecord
 
 
 class InProcessGovernanceGate:
-    def __init__(self, rbac, approvals: dict, audit_sink, poll_interval_seconds: float = 0.5) -> None:
+    def __init__(
+        self, rbac, approvals: dict, audit_sink, poll_interval_seconds: float = 0.5
+    ) -> None:
         self._rbac = rbac
         self._approvals = approvals
         self._audit_sink = audit_sink
@@ -680,18 +732,40 @@ NOW = datetime(2026, 8, 13, tzinfo=UTC)
 
 def _diagnosed(runbook_id):
     sit = Situation(
-        id="s1", status=SituationStatus.DIAGNOSED,
-        member_events=[TelemetryEvent(source="p", kind=TelemetryKind.METRIC, name="cpu",
-                                      value=1.0, labels={}, ts=NOW, fingerprint="f")],
-        severity="high", first_seen=NOW, last_seen=NOW, signature="sig",
+        id="s1",
+        status=SituationStatus.DIAGNOSED,
+        member_events=[
+            TelemetryEvent(
+                source="p",
+                kind=TelemetryKind.METRIC,
+                name="cpu",
+                value=1.0,
+                labels={},
+                ts=NOW,
+                fingerprint="f",
+            )
+        ],
+        severity="high",
+        first_seen=NOW,
+        last_seen=NOW,
+        signature="sig",
     )
     return DiagnosedSituation(situation=sit, hypotheses=[], suggested_runbook_id=runbook_id)
 
 
 def _store():
     s = InMemoryPlaybookStore()
-    s.register(Playbook(id="restart-pod", name="Restart", match_rule="x", steps=["s"],
-                        hitl_mode=HitlMode.HITL, reversible=True, rollback_steps=[]))
+    s.register(
+        Playbook(
+            id="restart-pod",
+            name="Restart",
+            match_rule="x",
+            steps=["s"],
+            hitl_mode=HitlMode.HITL,
+            reversible=True,
+            rollback_steps=[],
+        )
+    )
     return s
 
 
@@ -788,17 +862,36 @@ NOW = datetime(2026, 8, 13, tzinfo=UTC)
 
 def _situation():
     return Situation(
-        id="s1", status=SituationStatus.DIAGNOSED,
-        member_events=[TelemetryEvent(source="p", kind=TelemetryKind.METRIC, name="cpu",
-                                      value=1.0, labels={}, ts=NOW, fingerprint="f")],
-        severity="high", first_seen=NOW, last_seen=NOW, signature="sig",
+        id="s1",
+        status=SituationStatus.DIAGNOSED,
+        member_events=[
+            TelemetryEvent(
+                source="p",
+                kind=TelemetryKind.METRIC,
+                name="cpu",
+                value=1.0,
+                labels={},
+                ts=NOW,
+                fingerprint="f",
+            )
+        ],
+        severity="high",
+        first_seen=NOW,
+        last_seen=NOW,
+        signature="sig",
     )
 
 
 def _playbook(hitl=HitlMode.AUTO, reversible=True):
-    return Playbook(id="restart-pod", name="Restart", match_rule="x",
-                    steps=["do-thing"], hitl_mode=hitl, reversible=reversible,
-                    rollback_steps=["undo-thing"])
+    return Playbook(
+        id="restart-pod",
+        name="Restart",
+        match_rule="x",
+        steps=["do-thing"],
+        hitl_mode=hitl,
+        reversible=reversible,
+        rollback_steps=["undo-thing"],
+    )
 
 
 class FakeGate:
@@ -816,20 +909,33 @@ class FakeGate:
         return request
 
     def await_decision(self, approval_id, timeout_seconds):
-        return ApprovalRequest(id=approval_id, situation_id="s1", playbook_id="restart-pod",
-                               requested_by="action-service", status=self._decision_status,
-                               decided_by="oncall-alice")
+        return ApprovalRequest(
+            id=approval_id,
+            situation_id="s1",
+            playbook_id="restart-pod",
+            requested_by="action-service",
+            status=self._decision_status,
+            decided_by="oncall-alice",
+        )
 
     def write_audit(self, record):
         self.audits.append(record)
 
 
 def _run(playbook, gate, remediator, health):
-    return execute_remediation(_situation(), playbook, gate, remediator, health,
-                               timeout_seconds=1.0, poll_interval_seconds=0.01)
+    return execute_remediation(
+        _situation(),
+        playbook,
+        gate,
+        remediator,
+        health,
+        timeout_seconds=1.0,
+        poll_interval_seconds=0.01,
+    )
 
 
 # --- The three gates BLOCK (each asserts execute was NOT called) ---
+
 
 def test_disabled_playbook_skips_no_execute():
     r = RecordingRemediator()
@@ -857,8 +963,12 @@ def test_rbac_denied_no_execute():
 
 def test_hitl_rejected_no_execute():
     r = RecordingRemediator()
-    out = _run(_playbook(hitl=HitlMode.HITL), FakeGate(decision_status="rejected"), r,
-               FixedHealthChecker(True))
+    out = _run(
+        _playbook(hitl=HitlMode.HITL),
+        FakeGate(decision_status="rejected"),
+        r,
+        FixedHealthChecker(True),
+    )
     assert out.result == RemediationResult.FAILURE
     assert out.health_after == "aborted:rejected"
     assert r.executed_steps == []  # SAFETY: no execute on reject
@@ -866,14 +976,19 @@ def test_hitl_rejected_no_execute():
 
 def test_hitl_timeout_no_execute():
     r = RecordingRemediator()
-    out = _run(_playbook(hitl=HitlMode.HITL), FakeGate(decision_status="pending"), r,
-               FixedHealthChecker(True))
+    out = _run(
+        _playbook(hitl=HitlMode.HITL),
+        FakeGate(decision_status="pending"),
+        r,
+        FixedHealthChecker(True),
+    )
     assert out.result == RemediationResult.FAILURE
     assert out.health_after == "aborted:timeout"
     assert r.executed_steps == []  # SAFETY: fail closed on timeout
 
 
 # --- The happy + rollback paths ---
+
 
 def test_auto_approved_executes_healthy_success():
     r = RecordingRemediator()
@@ -886,8 +1001,12 @@ def test_auto_approved_executes_healthy_success():
 
 def test_hitl_approved_executes():
     r = RecordingRemediator()
-    out = _run(_playbook(hitl=HitlMode.HITL), FakeGate(decision_status="approved"), r,
-               FixedHealthChecker(True))
+    out = _run(
+        _playbook(hitl=HitlMode.HITL),
+        FakeGate(decision_status="approved"),
+        r,
+        FixedHealthChecker(True),
+    )
     assert out.result == RemediationResult.SUCCESS
     assert r.executed_steps == ["do-thing"]
 
@@ -955,24 +1074,40 @@ from common.contracts import (
 _ACTOR = "action-service"
 
 
-def _outcome(situation: Situation, playbook: Playbook, result: RemediationResult,
-             health_after: str) -> RemediationOutcome:
+def _outcome(
+    situation: Situation, playbook: Playbook, result: RemediationResult, health_after: str
+) -> RemediationOutcome:
     return RemediationOutcome(
-        situation_id=situation.id, playbook_id=playbook.id, result=result,
-        health_after=health_after, ts=datetime.now(UTC),
+        situation_id=situation.id,
+        playbook_id=playbook.id,
+        result=result,
+        health_after=health_after,
+        ts=datetime.now(UTC),
     )
 
 
 def _audit(gate, situation: Situation, playbook: Playbook, decision: str) -> None:
-    gate.write_audit(AuditRecord(
-        actor=_ACTOR, action="execute", resource=f"playbook:{playbook.id}",
-        decision=decision, ts=datetime.now(UTC), correlation_id=situation.id,
-    ))
+    gate.write_audit(
+        AuditRecord(
+            actor=_ACTOR,
+            action="execute",
+            resource=f"playbook:{playbook.id}",
+            decision=decision,
+            ts=datetime.now(UTC),
+            correlation_id=situation.id,
+        )
+    )
 
 
-def execute_remediation(situation: Situation, playbook: Playbook, gate, remediator,
-                        health, timeout_seconds: float,
-                        poll_interval_seconds: float) -> RemediationOutcome:
+def execute_remediation(
+    situation: Situation,
+    playbook: Playbook,
+    gate,
+    remediator,
+    health,
+    timeout_seconds: float,
+    poll_interval_seconds: float,
+) -> RemediationOutcome:
     # Gate 0: disabled playbooks never run.
     if playbook.hitl_mode == HitlMode.DISABLED:
         _audit(gate, situation, playbook, "skipped")
@@ -990,10 +1125,14 @@ def execute_remediation(situation: Situation, playbook: Playbook, gate, remediat
 
     # Gate 3: HITL — wait for an explicit human approval (ADR-008).
     if playbook.hitl_mode == HitlMode.HITL:
-        request = gate.request_approval(ApprovalRequest(
-            id=f"appr-{situation.id}", situation_id=situation.id, playbook_id=playbook.id,
-            requested_by=_ACTOR,
-        ))
+        request = gate.request_approval(
+            ApprovalRequest(
+                id=f"appr-{situation.id}",
+                situation_id=situation.id,
+                playbook_id=playbook.id,
+                requested_by=_ACTOR,
+            )
+        )
         decided = gate.await_decision(request.id, timeout_seconds)
         if decided.status != "approved":
             reason = "aborted:rejected" if decided.status == "rejected" else "aborted:timeout"
@@ -1071,9 +1210,15 @@ NOW = datetime(2026, 8, 13, tzinfo=UTC)
 
 
 class FakeGate:
-    def check_rbac(self, actor, action, resource): return True
-    def request_approval(self, request): return request
-    def await_decision(self, approval_id, timeout_seconds): return None
+    def check_rbac(self, actor, action, resource):
+        return True
+
+    def request_approval(self, request):
+        return request
+
+    def await_decision(self, approval_id, timeout_seconds):
+        return None
+
     def write_audit(self, record): ...
 
 
@@ -1091,10 +1236,23 @@ class ScriptedBus:
 
 def _diagnosed(runbook_id):
     sit = Situation(
-        id="s1", status=SituationStatus.DIAGNOSED,
-        member_events=[TelemetryEvent(source="p", kind=TelemetryKind.METRIC, name="cpu",
-                                      value=1.0, labels={}, ts=NOW, fingerprint="f")],
-        severity="high", first_seen=NOW, last_seen=NOW, signature="sig",
+        id="s1",
+        status=SituationStatus.DIAGNOSED,
+        member_events=[
+            TelemetryEvent(
+                source="p",
+                kind=TelemetryKind.METRIC,
+                name="cpu",
+                value=1.0,
+                labels={},
+                ts=NOW,
+                fingerprint="f",
+            )
+        ],
+        severity="high",
+        first_seen=NOW,
+        last_seen=NOW,
+        signature="sig",
     )
     d = DiagnosedSituation(situation=sit, hypotheses=[], suggested_runbook_id=runbook_id)
     return {"data": d.model_dump_json()}
@@ -1102,14 +1260,31 @@ def _diagnosed(runbook_id):
 
 def _store():
     s = InMemoryPlaybookStore()
-    s.register(Playbook(id="restart-pod", name="Restart", match_rule="x", steps=["do"],
-                        hitl_mode=HitlMode.AUTO, reversible=True, rollback_steps=["undo"]))
+    s.register(
+        Playbook(
+            id="restart-pod",
+            name="Restart",
+            match_rule="x",
+            steps=["do"],
+            hitl_mode=HitlMode.AUTO,
+            reversible=True,
+            rollback_steps=["undo"],
+        )
+    )
     return s
 
 
 def _run(bus):
-    run_consumer(bus, _store(), FakeGate(), RecordingRemediator(), AlwaysHealthyChecker(),
-                 timeout_seconds=1.0, poll_interval_seconds=0.01, stop_event=threading.Event())
+    run_consumer(
+        bus,
+        _store(),
+        FakeGate(),
+        RecordingRemediator(),
+        AlwaysHealthyChecker(),
+        timeout_seconds=1.0,
+        poll_interval_seconds=0.01,
+        stop_event=threading.Event(),
+    )
 
 
 def test_consumer_emits_success_outcome():
@@ -1125,8 +1300,9 @@ def test_consumer_emits_success_outcome():
 def test_consumer_emits_skipped_when_no_playbook():
     bus = ScriptedBus([_diagnosed("unknown-runbook")])
     _run(bus)
-    o = decode_model([m for (t, m) in bus.published if t == "remediation.outcomes"][0],
-                     RemediationOutcome)
+    o = decode_model(
+        [m for (t, m) in bus.published if t == "remediation.outcomes"][0], RemediationOutcome
+    )
     assert o.result == RemediationResult.FAILURE
     assert o.health_after == "skipped:no-playbook"
 
@@ -1143,8 +1319,16 @@ def test_consumer_stops_on_stop_event():
     bus = InfBus([])
     stop = threading.Event()
     stop.set()
-    run_consumer(bus, _store(), FakeGate(), RecordingRemediator(), AlwaysHealthyChecker(),
-                 timeout_seconds=1.0, poll_interval_seconds=0.01, stop_event=stop)
+    run_consumer(
+        bus,
+        _store(),
+        FakeGate(),
+        RecordingRemediator(),
+        AlwaysHealthyChecker(),
+        timeout_seconds=1.0,
+        poll_interval_seconds=0.01,
+        stop_event=stop,
+    )
     assert bus.published == []
 ```
 
@@ -1176,8 +1360,16 @@ from services.action.remediate import execute_remediation
 from services.action.select import select_playbook
 
 
-def run_consumer(bus, store, gate, remediator, health, timeout_seconds: float,
-                 poll_interval_seconds: float, stop_event: threading.Event) -> None:
+def run_consumer(
+    bus,
+    store,
+    gate,
+    remediator,
+    health,
+    timeout_seconds: float,
+    poll_interval_seconds: float,
+    stop_event: threading.Event,
+) -> None:
     for diagnosed in iter_models(bus, "situations.diagnosed", "action", DiagnosedSituation):
         if stop_event.is_set():
             break
@@ -1185,13 +1377,22 @@ def run_consumer(bus, store, gate, remediator, health, timeout_seconds: float,
         playbook = select_playbook(diagnosed, store)
         if playbook is None:
             outcome = RemediationOutcome(
-                situation_id=situation.id, playbook_id=diagnosed.suggested_runbook_id or "",
-                result=RemediationResult.FAILURE, health_after="skipped:no-playbook",
+                situation_id=situation.id,
+                playbook_id=diagnosed.suggested_runbook_id or "",
+                result=RemediationResult.FAILURE,
+                health_after="skipped:no-playbook",
                 ts=datetime.now(UTC),
             )
         else:
-            outcome = execute_remediation(situation, playbook, gate, remediator, health,
-                                          timeout_seconds, poll_interval_seconds)
+            outcome = execute_remediation(
+                situation,
+                playbook,
+                gate,
+                remediator,
+                health,
+                timeout_seconds,
+                poll_interval_seconds,
+            )
         publish_model(bus, "remediation.outcomes", outcome)
 ```
 
@@ -1238,8 +1439,16 @@ async def lifespan(app: FastAPI):
     )
     thread = threading.Thread(
         target=run_consumer,
-        args=(app.state.bus, store, gate, DryRunRemediator(), AlwaysHealthyChecker(),
-              settings.hitl_poll_timeout_seconds, settings.hitl_poll_interval_seconds, stop_event),
+        args=(
+            app.state.bus,
+            store,
+            gate,
+            DryRunRemediator(),
+            AlwaysHealthyChecker(),
+            settings.hitl_poll_timeout_seconds,
+            settings.hitl_poll_interval_seconds,
+            stop_event,
+        ),
         daemon=True,
     )
     thread.start()
@@ -1330,26 +1539,49 @@ class InMemoryBus:
 
 def _diagnosed():
     sit = Situation(
-        id="sit-web-1", status=SituationStatus.DIAGNOSED,
-        member_events=[TelemetryEvent(source="prom", kind=TelemetryKind.METRIC, name="cpu_usage",
-                                      value=99.0, labels={"service": "web"}, ts=NOW, fingerprint="fp")],
-        severity="high", first_seen=NOW, last_seen=NOW, signature="sig-web",
+        id="sit-web-1",
+        status=SituationStatus.DIAGNOSED,
+        member_events=[
+            TelemetryEvent(
+                source="prom",
+                kind=TelemetryKind.METRIC,
+                name="cpu_usage",
+                value=99.0,
+                labels={"service": "web"},
+                ts=NOW,
+                fingerprint="fp",
+            )
+        ],
+        severity="high",
+        first_seen=NOW,
+        last_seen=NOW,
+        signature="sig-web",
     )
     return DiagnosedSituation(situation=sit, hypotheses=[], suggested_runbook_id="restart-pod")
 
 
 def _store():
     s = InMemoryPlaybookStore()
-    s.register(Playbook(id="restart-pod", name="Restart Pod", match_rule="x",
-                        steps=["kubectl rollout restart deploy/web"], hitl_mode=HitlMode.HITL,
-                        reversible=True, rollback_steps=["kubectl rollout undo deploy/web"]))
+    s.register(
+        Playbook(
+            id="restart-pod",
+            name="Restart Pod",
+            match_rule="x",
+            steps=["kubectl rollout restart deploy/web"],
+            hitl_mode=HitlMode.HITL,
+            reversible=True,
+            rollback_steps=["kubectl rollout undo deploy/web"],
+        )
+    )
     return s
 
 
 def _rbac():
     return RbacPolicy(
-        roles={"operator": [{"action": "execute", "resource": "playbook:*"}],
-               "approver": [{"action": "approve", "resource": "playbook:*"}]},
+        roles={
+            "operator": [{"action": "execute", "resource": "playbook:*"}],
+            "approver": [{"action": "approve", "resource": "playbook:*"}],
+        },
         actors={"action-service": ["operator"], "oncall-alice": ["approver"]},
     )
 
@@ -1359,8 +1591,9 @@ def _approve_when_pending(approvals, appr_id, audit, done):
     for _ in range(500):
         req = approvals.get(appr_id)
         if req is not None and req.status == "pending":
-            approvals[appr_id] = req.model_copy(update={"status": "approved",
-                                                        "decided_by": "oncall-alice"})
+            approvals[appr_id] = req.model_copy(
+                update={"status": "approved", "decided_by": "oncall-alice"}
+            )
             done.set()
             return
         threading.Event().wait(0.005)
@@ -1376,12 +1609,21 @@ def test_hitl_approved_healthy_success_end_to_end():
 
     appr_id = "appr-sit-web-1"
     done = threading.Event()
-    approver = threading.Thread(target=_approve_when_pending,
-                                args=(approvals, appr_id, audit, done), daemon=True)
+    approver = threading.Thread(
+        target=_approve_when_pending, args=(approvals, appr_id, audit, done), daemon=True
+    )
     approver.start()
 
-    run_consumer(bus, _store(), gate, remediator, FixedHealthChecker(True),
-                 timeout_seconds=3.0, poll_interval_seconds=0.01, stop_event=threading.Event())
+    run_consumer(
+        bus,
+        _store(),
+        gate,
+        remediator,
+        FixedHealthChecker(True),
+        timeout_seconds=3.0,
+        poll_interval_seconds=0.01,
+        stop_event=threading.Event(),
+    )
     approver.join(timeout=1.0)
 
     outcomes = bus.topics.get("remediation.outcomes", [])
@@ -1391,8 +1633,7 @@ def test_hitl_approved_healthy_success_end_to_end():
     assert o.health_after == "healthy"
     assert remediator.executed_steps == ["kubectl rollout restart deploy/web"]
     assert remediator.rolled_back_steps == []  # healthy → no rollback
-    assert any(a.action == "execute" and a.correlation_id == "sit-web-1"
-               for a in audit.records())
+    assert any(a.action == "execute" and a.correlation_id == "sit-web-1" for a in audit.records())
 
 
 def test_hitl_approved_unhealthy_rolls_back_end_to_end():
@@ -1404,12 +1645,21 @@ def test_hitl_approved_unhealthy_rolls_back_end_to_end():
     publish_model(bus, "situations.diagnosed", _diagnosed())
 
     done = threading.Event()
-    approver = threading.Thread(target=_approve_when_pending,
-                                args=(approvals, "appr-sit-web-1", audit, done), daemon=True)
+    approver = threading.Thread(
+        target=_approve_when_pending, args=(approvals, "appr-sit-web-1", audit, done), daemon=True
+    )
     approver.start()
 
-    run_consumer(bus, _store(), gate, remediator, FixedHealthChecker(False),
-                 timeout_seconds=3.0, poll_interval_seconds=0.01, stop_event=threading.Event())
+    run_consumer(
+        bus,
+        _store(),
+        gate,
+        remediator,
+        FixedHealthChecker(False),
+        timeout_seconds=3.0,
+        poll_interval_seconds=0.01,
+        stop_event=threading.Event(),
+    )
     approver.join(timeout=1.0)
 
     o = decode_model(bus.topics["remediation.outcomes"][0], RemediationOutcome)

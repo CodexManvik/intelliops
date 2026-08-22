@@ -23,8 +23,12 @@ def test_fingerprint_differs_on_different_identity():
 
 def test_normalize_builds_telemetry_event():
     raw = {
-        "source": "prometheus", "kind": "metric", "name": "cpu_usage",
-        "value": 0.97, "labels": {"pod": "web-1"}, "ts": TS,
+        "source": "prometheus",
+        "kind": "metric",
+        "name": "cpu_usage",
+        "value": 0.97,
+        "labels": {"pod": "web-1"},
+        "ts": TS,
     }
     ev = normalize(raw)
     assert isinstance(ev, TelemetryEvent)

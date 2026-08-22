@@ -32,8 +32,9 @@ def _epoch_ms(dt) -> int:
 
 
 class ReadModel:
-    def __init__(self, max_outcomes: int = 200, ttl_seconds: float = 600.0,
-                 max_situations: int = 50) -> None:
+    def __init__(
+        self, max_outcomes: int = 200, ttl_seconds: float = 600.0, max_situations: int = 50
+    ) -> None:
         self._sits: dict[str, dict] = {}
         self._outcomes: list[dict] = []
         self._max = max_outcomes
@@ -67,15 +68,20 @@ class ReadModel:
 
     def apply_diagnosed(self, d: DiagnosedSituation) -> None:
         self.apply_detected(d.situation)
-        self._sits[d.situation.id].update({
-            "status": "diagnosed",
-            "hypotheses": [
-                {"description": h.description, "confidence": h.confidence,
-                 "suggested_runbook_id": h.suggested_runbook_id}
-                for h in d.hypotheses
-            ],
-            "suggested_runbook_id": d.suggested_runbook_id,
-        })
+        self._sits[d.situation.id].update(
+            {
+                "status": "diagnosed",
+                "hypotheses": [
+                    {
+                        "description": h.description,
+                        "confidence": h.confidence,
+                        "suggested_runbook_id": h.suggested_runbook_id,
+                    }
+                    for h in d.hypotheses
+                ],
+                "suggested_runbook_id": d.suggested_runbook_id,
+            }
+        )
 
     def apply_outcome(self, o: RemediationOutcome) -> None:
         if o.situation_id in self._sits:
@@ -86,17 +92,22 @@ class ReadModel:
         mttr_ms = None
         if sit and o.result == RemediationResult.SUCCESS:
             mttr_ms = _epoch_ms(o.ts) - sit["first_seen"]
-        self._outcomes.insert(0, {
-            "situation_id": o.situation_id,
-            "playbook_id": o.playbook_id,
-            "result": result,
-            "reason": o.health_after,
-            "ts": _epoch_ms(o.ts),
-            "service": sit.get("service", "unknown"),
-            "hitl_mode": o.hitl_mode.value if hasattr(o.hitl_mode, "value") else str(o.hitl_mode),
-            "mttr_ms": mttr_ms,
-        })
-        del self._outcomes[self._max:]
+        self._outcomes.insert(
+            0,
+            {
+                "situation_id": o.situation_id,
+                "playbook_id": o.playbook_id,
+                "result": result,
+                "reason": o.health_after,
+                "ts": _epoch_ms(o.ts),
+                "service": sit.get("service", "unknown"),
+                "hitl_mode": o.hitl_mode.value
+                if hasattr(o.hitl_mode, "value")
+                else str(o.hitl_mode),
+                "mttr_ms": mttr_ms,
+            },
+        )
+        del self._outcomes[self._max :]
 
     _TERMINAL: ClassVar[set[str]] = {"resolved", "failed"}
 
@@ -150,8 +161,11 @@ class ReadModel:
         alerts = sum(s["memberCount"] for s in sits)
         n_sits = len(sits)
         open_sits = [s for s in sits if s["status"] in self._OPEN]
-        pending = [s for s in open_sits
-                   if s.get("hitl_mode") == "hitl" and s["status"] in ("diagnosed", "acting")]
+        pending = [
+            s
+            for s in open_sits
+            if s.get("hitl_mode") == "hitl" and s["status"] in ("diagnosed", "acting")
+        ]
         noise = ((1 - n_sits / alerts) * 100) if alerts else 0.0
         return {
             "alertsIngested": alerts,

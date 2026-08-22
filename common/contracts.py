@@ -74,8 +74,8 @@ class RootCauseHypothesis(BaseModel):
 
 class RemediationStep(BaseModel):
     action: Literal["restart", "scale", "rollback_deploy", "wait"]
-    replicas: int | None = None   # for scale: a delta, e.g. +2 / -2
-    note: str | None = None       # human-readable / wait annotation
+    replicas: int | None = None  # for scale: a delta, e.g. +2 / -2
+    note: str | None = None  # human-readable / wait annotation
 
 
 class RemediationTarget(BaseModel):

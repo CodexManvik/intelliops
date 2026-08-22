@@ -20,8 +20,10 @@ class FakeAppsV1:
     def read_namespaced_deployment(self, name, namespace):
         self._maybe_fail("read")
         self.calls.append(("read", name, namespace))
+
         class _Scale:
             spec = type("S", (), {"replicas": self._replicas})()
+
         return _Scale()
 
     def patch_namespaced_deployment(self, name, namespace, body):
@@ -36,7 +38,9 @@ class FakeAppsV1:
 def _plan(*steps, rollback=()):
     return RemediationPlan(
         target=RemediationTarget(namespace="ns", deployment="demo-app"),
-        steps=list(steps), rollback_steps=list(rollback))
+        steps=list(steps),
+        rollback_steps=list(rollback),
+    )
 
 
 def test_restart_patches_restartedat_annotation():
@@ -55,14 +59,14 @@ def test_scale_adds_replicas_to_current():
     r = KubernetesRemediator("ns", apps_v1=api, exc_type=FakeApiException)
     assert r.execute(_plan(RemediationStep(action="scale", replicas=2))) is True
     scale = next(c for c in api.calls if c[0] == "scale")
-    assert scale[3]["spec"]["replicas"] == 3   # 1 + 2
+    assert scale[3]["spec"]["replicas"] == 3  # 1 + 2
 
 
 def test_wait_is_a_noop():
     api = FakeAppsV1()
     r = KubernetesRemediator("ns", apps_v1=api, exc_type=FakeApiException)
     assert r.execute(_plan(RemediationStep(action="wait", note="x"))) is True
-    assert api.calls == []   # nothing hit the API
+    assert api.calls == []  # nothing hit the API
 
 
 def test_api_error_returns_false_never_raises():
@@ -76,7 +80,7 @@ def test_rollback_runs_rollback_steps():
     r = KubernetesRemediator("ns", apps_v1=api, exc_type=FakeApiException)
     assert r.rollback(_plan(rollback=[RemediationStep(action="scale", replicas=-2)])) is True
     scale = next(c for c in api.calls if c[0] == "scale")
-    assert scale[3]["spec"]["replicas"] == 1   # 3 + (-2)
+    assert scale[3]["spec"]["replicas"] == 1  # 3 + (-2)
 
 
 def test_client_acquisition_failure_returns_false_never_raises(monkeypatch):

@@ -19,6 +19,7 @@ def test_env_overrides(monkeypatch):
 
 # --- Requirements 3.1, 3.2: bus backend configuration ---
 
+
 def test_bus_backend_default(monkeypatch):
     monkeypatch.delenv("INTELLIOPS_BUS_BACKEND", raising=False)
     s = Settings()

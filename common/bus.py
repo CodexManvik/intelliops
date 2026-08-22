@@ -99,6 +99,5 @@ def make_bus(settings: Settings, consumer_name: str = "c1") -> RedisBus | KafkaB
         )
     else:
         raise ValueError(
-            f"Unknown bus backend: {settings.bus_backend!r}. "
-            "Expected 'redis' or 'kafka'."
+            f"Unknown bus backend: {settings.bus_backend!r}. Expected 'redis' or 'kafka'."
         )

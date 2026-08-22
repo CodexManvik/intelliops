@@ -96,17 +96,15 @@ Expected: FAIL — `AttributeError: 'Settings' object has no attribute 'telemetr
 In `common/config.py`, inside `class Settings`, after `graduation_min_successes`:
 
 ```python
-    # --- live-stack settings (test-safe defaults) ---
-    telemetry_mode: str = "file"  # "file" | "prometheus"
-    prometheus_url: str = "http://localhost:9090"
-    prometheus_query: str = (
-        "rate(http_request_errors_total[1m]) or on() vector(0)"
-    )
-    telemetry_poll_seconds: float = 5.0
-    governance_mode: str = "in_process"  # "in_process" | "http"
-    governance_url: str = "http://localhost:8005"
-    read_outcomes_max: int = 200
-    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+# --- live-stack settings (test-safe defaults) ---
+telemetry_mode: str = "file"  # "file" | "prometheus"
+prometheus_url: str = "http://localhost:9090"
+prometheus_query: str = "rate(http_request_errors_total[1m]) or on() vector(0)"
+telemetry_poll_seconds: float = 5.0
+governance_mode: str = "in_process"  # "in_process" | "http"
+governance_url: str = "http://localhost:8005"
+read_outcomes_max: int = 200
+cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -383,6 +381,7 @@ def test_poll_maps_vector_to_events():
 def test_poll_returns_empty_on_connection_error():
     def boom(req):
         raise httpx.ConnectError("refused", request=req)
+
     src = _source(boom)
     assert src.poll() == []
 
@@ -445,15 +444,19 @@ class PrometheusSource:
             metric = entry.get("metric", {})
             name = metric.get("__name__", "unknown")
             ts_epoch, raw_value = entry.get("value", [0.0, "0"])
-            events.append(normalize({
-                "source": "prometheus",
-                "kind": "metric",
-                "name": name,
-                "value": float(raw_value),
-                "labels": {k: v for k, v in metric.items() if k != "__name__"},
-                # normalize() requires a 'ts'; Prometheus returns epoch seconds.
-                "ts": datetime.fromtimestamp(float(ts_epoch), tz=UTC).isoformat(),
-            }))
+            events.append(
+                normalize(
+                    {
+                        "source": "prometheus",
+                        "kind": "metric",
+                        "name": name,
+                        "value": float(raw_value),
+                        "labels": {k: v for k, v in metric.items() if k != "__name__"},
+                        # normalize() requires a 'ts'; Prometheus returns epoch seconds.
+                        "ts": datetime.fromtimestamp(float(ts_epoch), tz=UTC).isoformat(),
+                    }
+                )
+            )
         return events
 
     def subscribe(self) -> Iterator[TelemetryEvent]:
@@ -516,8 +519,16 @@ class RecordingBus:
 def _event(name="http_request_errors_total", value=7.0):
     from datetime import UTC, datetime
     from common.contracts import TelemetryEvent, TelemetryKind
-    return TelemetryEvent(source="prometheus", kind=TelemetryKind.METRIC, name=name,
-                          value=value, labels={}, ts=datetime.now(UTC), fingerprint="fp1")
+
+    return TelemetryEvent(
+        source="prometheus",
+        kind=TelemetryKind.METRIC,
+        name=name,
+        value=value,
+        labels={},
+        ts=datetime.now(UTC),
+        fingerprint="fp1",
+    )
 
 
 def test_poll_loop_publishes_events_then_stops():
@@ -586,6 +597,7 @@ def run_poll_loop(bus, source, interval: float, stop_event: threading.Event) -> 
 def _make_source(settings):
     if settings.telemetry_mode == "prometheus":
         from services.ingestion.adapters.prometheus_source import PrometheusSource
+
         return PrometheusSource(settings.prometheus_url, settings.prometheus_query)
     return None
 
@@ -668,6 +680,7 @@ from services.governance.rbac import RbacPolicy
 
 def _client():
     from services.governance.app import app
+
     app.state.audit_sink = InMemoryAuditSink()
     app.state.playbook_store = InMemoryPlaybookStore()
     app.state.rbac = RbacPolicy(roles={}, actors={})
@@ -676,10 +689,15 @@ def _client():
 
 
 def _appr(c, appr_id="appr-sit-1"):
-    return c.post("/approvals", json={
-        "id": appr_id, "situation_id": "sit-1", "playbook_id": "restart-pod",
-        "requested_by": "action-service",
-    })
+    return c.post(
+        "/approvals",
+        json={
+            "id": appr_id,
+            "situation_id": "sit-1",
+            "playbook_id": "restart-pod",
+            "requested_by": "action-service",
+        },
+    )
 
 
 def test_get_single_approval():
@@ -777,6 +795,7 @@ def test_check_rbac_true():
     def h(req):
         assert req.url.path == "/rbac/check"
         return httpx.Response(200, json={"allowed": True})
+
     assert _gate(h).check_rbac("action-service", "execute", "playbook:x") is True
 
 
@@ -787,10 +806,17 @@ def test_await_decision_returns_when_approved():
         if req.url.path == "/approvals/appr-1" and req.method == "GET":
             calls["n"] += 1
             status = "approved" if calls["n"] >= 2 else "pending"
-            return httpx.Response(200, json={
-                "id": "appr-1", "situation_id": "sit-1", "playbook_id": "p",
-                "requested_by": "action-service", "status": status, "decided_by": None,
-            })
+            return httpx.Response(
+                200,
+                json={
+                    "id": "appr-1",
+                    "situation_id": "sit-1",
+                    "playbook_id": "p",
+                    "requested_by": "action-service",
+                    "status": status,
+                    "decided_by": None,
+                },
+            )
         return httpx.Response(404)
 
     decided = _gate(h).await_decision("appr-1", timeout_seconds=5.0)
@@ -800,10 +826,18 @@ def test_await_decision_returns_when_approved():
 
 def test_await_decision_times_out_still_pending():
     def h(req):
-        return httpx.Response(200, json={
-            "id": "appr-1", "situation_id": "sit-1", "playbook_id": "p",
-            "requested_by": "action-service", "status": "pending", "decided_by": None,
-        })
+        return httpx.Response(
+            200,
+            json={
+                "id": "appr-1",
+                "situation_id": "sit-1",
+                "playbook_id": "p",
+                "requested_by": "action-service",
+                "status": "pending",
+                "decided_by": None,
+            },
+        )
+
     decided = _gate(h).await_decision("appr-1", timeout_seconds=0.05)
     assert decided.status == "pending"
 ```
@@ -832,15 +866,21 @@ class HttpGovernanceGate:
     containers. Same interface remediate.py already calls on the in-process gate.
     """
 
-    def __init__(self, base_url: str, poll_interval_seconds: float = 0.5,
-                 http_client: httpx.Client | None = None) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        poll_interval_seconds: float = 0.5,
+        http_client: httpx.Client | None = None,
+    ) -> None:
         self._base = base_url.rstrip("/")
         self._poll = poll_interval_seconds
         self._client = http_client or httpx.Client(timeout=5.0)
 
     def check_rbac(self, actor: str, action: str, resource: str) -> bool:
-        resp = self._client.post(f"{self._base}/rbac/check",
-                                 json={"actor": actor, "action": action, "resource": resource})
+        resp = self._client.post(
+            f"{self._base}/rbac/check",
+            json={"actor": actor, "action": action, "resource": resource},
+        )
         if resp.status_code != 200:
             return False
         return bool(resp.json().get("allowed", False))
@@ -909,7 +949,8 @@ def test_in_process_default():
 
 
 def test_http_when_mode_http():
-    s = _S(); s.governance_mode = "http"
+    s = _S()
+    s.governance_mode = "http"
     assert isinstance(_make_gate(s), HttpGovernanceGate)
 ```
 
@@ -977,8 +1018,12 @@ git commit -m "feat(action): select governance gate by GOVERNANCE_MODE env"
 from datetime import UTC, datetime
 
 from common.contracts import (
-    DiagnosedSituation, RemediationOutcome, RemediationResult,
-    RootCauseHypothesis, Situation, SituationStatus,
+    DiagnosedSituation,
+    RemediationOutcome,
+    RemediationResult,
+    RootCauseHypothesis,
+    Situation,
+    SituationStatus,
 )
 from services.read.projection import ReadModel
 
@@ -986,8 +1031,15 @@ TS = datetime(2026, 8, 15, tzinfo=UTC)
 
 
 def _sit(sid="sit-1", status=SituationStatus.DETECTED):
-    return Situation(id=sid, status=status, member_events=[], severity="high",
-                     first_seen=TS, last_seen=TS, signature=sid.replace("sit-", ""))
+    return Situation(
+        id=sid,
+        status=status,
+        member_events=[],
+        severity="high",
+        first_seen=TS,
+        last_seen=TS,
+        signature=sid.replace("sit-", ""),
+    )
 
 
 def test_detected_then_diagnosed_then_resolved():
@@ -995,19 +1047,34 @@ def test_detected_then_diagnosed_then_resolved():
     rm.apply_detected(_sit())
     assert rm.situations()[0]["status"] == "detected"
 
-    rm.apply_diagnosed(DiagnosedSituation(
-        situation=_sit(status=SituationStatus.DIAGNOSED),
-        hypotheses=[RootCauseHypothesis(situation_id="sit-1", description="deploy",
-                                        confidence=0.8, suggested_runbook_id="rollback-deploy")],
-        suggested_runbook_id="rollback-deploy",
-    ))
+    rm.apply_diagnosed(
+        DiagnosedSituation(
+            situation=_sit(status=SituationStatus.DIAGNOSED),
+            hypotheses=[
+                RootCauseHypothesis(
+                    situation_id="sit-1",
+                    description="deploy",
+                    confidence=0.8,
+                    suggested_runbook_id="rollback-deploy",
+                )
+            ],
+            suggested_runbook_id="rollback-deploy",
+        )
+    )
     s = rm.situations()[0]
     assert s["status"] == "diagnosed"
     assert s["hypotheses"][0]["confidence"] == 0.8
     assert s["suggested_runbook_id"] == "rollback-deploy"
 
-    rm.apply_outcome(RemediationOutcome(situation_id="sit-1", playbook_id="rollback-deploy",
-                                        result=RemediationResult.SUCCESS, health_after="healthy", ts=TS))
+    rm.apply_outcome(
+        RemediationOutcome(
+            situation_id="sit-1",
+            playbook_id="rollback-deploy",
+            result=RemediationResult.SUCCESS,
+            health_after="healthy",
+            ts=TS,
+        )
+    )
     assert rm.situations()[0]["status"] == "resolved"
     assert rm.outcomes()[0]["reason"] == "healthy"
 
@@ -1015,18 +1082,30 @@ def test_detected_then_diagnosed_then_resolved():
 def test_failure_outcome_marks_situation_failed():
     rm = ReadModel(max_outcomes=10)
     rm.apply_detected(_sit())
-    rm.apply_outcome(RemediationOutcome(situation_id="sit-1", playbook_id="p",
-                                        result=RemediationResult.FAILURE,
-                                        health_after="aborted:timeout", ts=TS))
+    rm.apply_outcome(
+        RemediationOutcome(
+            situation_id="sit-1",
+            playbook_id="p",
+            result=RemediationResult.FAILURE,
+            health_after="aborted:timeout",
+            ts=TS,
+        )
+    )
     assert rm.situations()[0]["status"] == "failed"
 
 
 def test_outcomes_capped_most_recent_first():
     rm = ReadModel(max_outcomes=2)
     for i in range(3):
-        rm.apply_outcome(RemediationOutcome(situation_id=f"sit-{i}", playbook_id="p",
-                                            result=RemediationResult.SUCCESS,
-                                            health_after="healthy", ts=TS))
+        rm.apply_outcome(
+            RemediationOutcome(
+                situation_id=f"sit-{i}",
+                playbook_id="p",
+                result=RemediationResult.SUCCESS,
+                health_after="healthy",
+                ts=TS,
+            )
+        )
     outs = rm.outcomes()
     assert len(outs) == 2
     assert outs[0]["situation_id"] == "sit-2"
@@ -1100,29 +1179,37 @@ class ReadModel:
 
     def apply_diagnosed(self, d: DiagnosedSituation) -> None:
         self.apply_detected(d.situation)
-        self._sits[d.situation.id].update({
-            "status": "diagnosed",
-            "hypotheses": [
-                {"description": h.description, "confidence": h.confidence,
-                 "suggested_runbook_id": h.suggested_runbook_id}
-                for h in d.hypotheses
-            ],
-            "suggested_runbook_id": d.suggested_runbook_id,
-        })
+        self._sits[d.situation.id].update(
+            {
+                "status": "diagnosed",
+                "hypotheses": [
+                    {
+                        "description": h.description,
+                        "confidence": h.confidence,
+                        "suggested_runbook_id": h.suggested_runbook_id,
+                    }
+                    for h in d.hypotheses
+                ],
+                "suggested_runbook_id": d.suggested_runbook_id,
+            }
+        )
 
     def apply_outcome(self, o: RemediationOutcome) -> None:
         if o.situation_id in self._sits:
             self._sits[o.situation_id]["status"] = _RESULT_STATUS.get(o.result, "failed")
         result = o.result.value if isinstance(o.result, RemediationResult) else str(o.result)
-        self._outcomes.insert(0, {
-            "situation_id": o.situation_id,
-            "playbook_id": o.playbook_id,
-            "result": result,
-            "reason": o.health_after,
-            "ts": _epoch_ms(o.ts),
-            "service": self._sits.get(o.situation_id, {}).get("service", "unknown"),
-        })
-        del self._outcomes[self._max:]
+        self._outcomes.insert(
+            0,
+            {
+                "situation_id": o.situation_id,
+                "playbook_id": o.playbook_id,
+                "result": result,
+                "reason": o.health_after,
+                "ts": _epoch_ms(o.ts),
+                "service": self._sits.get(o.situation_id, {}).get("service", "unknown"),
+            },
+        )
+        del self._outcomes[self._max :]
 
     def situations(self) -> list[dict]:
         return list(self._sits.values())
@@ -1178,15 +1265,24 @@ TS = datetime(2026, 8, 15, tzinfo=UTC)
 
 def _client(model):
     from services.read import app as appmod
+
     appmod.app.state.model = model
     return TestClient(appmod.app)
 
 
 def test_situations_and_outcomes_endpoints():
     model = ReadModel()
-    model.apply_detected(Situation(id="sit-1", status=SituationStatus.DETECTED,
-                                   member_events=[], severity="high",
-                                   first_seen=TS, last_seen=TS, signature="1"))
+    model.apply_detected(
+        Situation(
+            id="sit-1",
+            status=SituationStatus.DETECTED,
+            member_events=[],
+            severity="high",
+            first_seen=TS,
+            last_seen=TS,
+            signature="1",
+        )
+    )
     c = _client(model)
     sits = c.get("/situations").json()
     assert sits[0]["id"] == "sit-1"
@@ -1224,8 +1320,9 @@ _TOPICS = [
 ]
 
 
-def _run_topic(bus, model: ReadModel, topic: str, model_type, method: str,
-               stop_event: threading.Event) -> None:
+def _run_topic(
+    bus, model: ReadModel, topic: str, model_type, method: str, stop_event: threading.Event
+) -> None:
     apply = getattr(model, method)
     for fields in bus.consume(topic, "read-model"):
         if stop_event.is_set():
@@ -1236,9 +1333,9 @@ def _run_topic(bus, model: ReadModel, topic: str, model_type, method: str,
 def run_consumer(bus, model: ReadModel, stop_event: threading.Event) -> list[threading.Thread]:
     threads = []
     for topic, model_type, method in _TOPICS:
-        t = threading.Thread(target=_run_topic,
-                             args=(bus, model, topic, model_type, method, stop_event),
-                             daemon=True)
+        t = threading.Thread(
+            target=_run_topic, args=(bus, model, topic, model_type, method, stop_event), daemon=True
+        )
         t.start()
         threads.append(t)
     return threads

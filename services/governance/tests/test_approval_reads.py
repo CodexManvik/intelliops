@@ -7,6 +7,7 @@ from services.governance.rbac import RbacPolicy
 
 def _client():
     from services.governance.app import app
+
     app.state.audit_sink = InMemoryAuditSink()
     app.state.playbook_store = InMemoryPlaybookStore()
     app.state.rbac = RbacPolicy(roles={}, actors={})
@@ -15,10 +16,15 @@ def _client():
 
 
 def _appr(c, appr_id="appr-sit-1"):
-    return c.post("/approvals", json={
-        "id": appr_id, "situation_id": "sit-1", "playbook_id": "restart-pod",
-        "requested_by": "action-service",
-    })
+    return c.post(
+        "/approvals",
+        json={
+            "id": appr_id,
+            "situation_id": "sit-1",
+            "playbook_id": "restart-pod",
+            "requested_by": "action-service",
+        },
+    )
 
 
 def test_get_single_approval():

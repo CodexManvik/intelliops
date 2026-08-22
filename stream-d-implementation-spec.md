@@ -47,6 +47,7 @@ Kafka cases require a real broker (testcontainers) and are marked `kafka`,
 excluded from the default fast test run the same way `postgres` is (see
 pyproject.toml). Run with `pytest -m kafka` when Docker is available.
 """
+
 from __future__ import annotations
 
 import pytest

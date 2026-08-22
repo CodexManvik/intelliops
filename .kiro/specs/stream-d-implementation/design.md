@@ -145,8 +145,8 @@ sequenceDiagram
 Two new fields are appended to `Settings`:
 
 ```python
-bus_backend: str = "redis"          # INTELLIOPS_BUS_BACKEND; "redis" | "kafka"
-kafka_bootstrap_servers: str = "localhost:9092"   # INTELLIOPS_KAFKA_BOOTSTRAP_SERVERS
+bus_backend: str = "redis"  # INTELLIOPS_BUS_BACKEND; "redis" | "kafka"
+kafka_bootstrap_servers: str = "localhost:9092"  # INTELLIOPS_KAFKA_BOOTSTRAP_SERVERS
 ```
 
 No validation constraint is placed on `bus_backend` in the model itself — the
@@ -174,6 +174,7 @@ Lazy import pattern used inside each method:
 def publish(self, topic: str, message: dict) -> None:
     from kafka import KafkaProducer  # noqa: PLC0415
     import json
+
     producer = KafkaProducer(
         bootstrap_servers=self._bootstrap_servers,
         value_serializer=lambda v: json.dumps(v).encode(),
@@ -186,6 +187,7 @@ def publish(self, topic: str, message: dict) -> None:
 def consume(self, topic: str, group: str) -> Iterator[dict]:
     from kafka import KafkaConsumer  # noqa: PLC0415
     import json
+
     consumer = KafkaConsumer(
         topic,
         bootstrap_servers=self._bootstrap_servers,
@@ -221,8 +223,7 @@ def make_bus(settings: Settings, consumer_name: str = "c1") -> RedisBus | KafkaB
         )
     else:
         raise ValueError(
-            f"Unknown bus backend: {settings.bus_backend!r}. "
-            "Expected 'redis' or 'kafka'."
+            f"Unknown bus backend: {settings.bus_backend!r}. Expected 'redis' or 'kafka'."
         )
 ```
 
@@ -236,10 +237,12 @@ from common.interfaces import BusClient
 
 # ── fixtures ──────────────────────────────────────────────────────────────────
 
+
 @pytest.fixture(scope="session")
 def kafka_bootstrap(request):
     """Session-scoped KafkaContainer; skipped if docker unavailable."""
     ...
+
 
 @pytest.fixture(params=["redis", "kafka"])
 def bus(request, kafka_bootstrap):
@@ -247,28 +250,36 @@ def bus(request, kafka_bootstrap):
     if request.param == "redis":
         fakeredis = pytest.importorskip("fakeredis")
         from common.bus import RedisBus
+
         return RedisBus(client=fakeredis.FakeRedis(decode_responses=True))
     else:
         pytest.importorskip("testcontainers")
         from common.bus import KafkaBus
+
         return KafkaBus(bootstrap_servers=kafka_bootstrap)
+
 
 # ── contract tests (run against both backends) ────────────────────────────────
 
+
 def test_satisfies_protocol(bus):
     assert isinstance(bus, BusClient)
+
 
 def test_publish_consume_roundtrip(bus):
     """1.4 — publish then consume returns same field values."""
     ...
 
+
 def test_consumer_group_load_balancing(bus):
     """1.5 — two consumers in same group receive distinct messages."""
     ...
 
+
 def test_independent_groups_fanout(bus):
     """1.6 — two consumers in different groups both receive the same message."""
     ...
+
 
 def test_idempotent_group_creation(bus):
     """1.7 — calling consume with existing group does not raise."""
@@ -283,6 +294,7 @@ approach uses a session-scoped autouse fixture that inspects the backend paramet
 # In test_bus_contract.py, wrap kafka parametrize cases:
 def pytest_configure(config):
     config.addinivalue_line("markers", "kafka: tests requiring a live Kafka broker")
+
 
 # Mark kafka test cases by inspecting request.param inside the bus fixture
 # and applying pytest.mark.kafka via request.applymarker.
@@ -670,8 +682,8 @@ at the end of the run, since POSIX `sort` doesn't do numeric inline percentiles.
 ```python
 @dataclass  # for documentation; actual impl uses __init__
 class KafkaBus:
-    _bootstrap_servers: str   # stored from constructor arg
-    _consumer: str            # consumer_name, used as client_id
+    _bootstrap_servers: str  # stored from constructor arg
+    _consumer: str  # consumer_name, used as client_id
     # No persistent producer/consumer state — both are created lazily per call
 ```
 
@@ -680,7 +692,7 @@ class KafkaBus:
 ```python
 # pytest parametrize axis
 backends = [
-    "redis",                                   # no marker
+    "redis",  # no marker
     pytest.param("kafka", marks=pytest.mark.kafka),  # gated by kafka marker
 ]
 ```
@@ -829,7 +841,9 @@ Hypothesis strategies:
 ```python
 # Message dict strategy: str keys, str values, 1–8 pairs
 message_strategy = st.dictionaries(
-    st.text(alphabet=st.characters(whitelist_categories=("Lu", "Ll", "Nd")), min_size=1, max_size=20),
+    st.text(
+        alphabet=st.characters(whitelist_categories=("Lu", "Ll", "Nd")), min_size=1, max_size=20
+    ),
     st.text(min_size=0, max_size=100),
     min_size=1,
     max_size=8,

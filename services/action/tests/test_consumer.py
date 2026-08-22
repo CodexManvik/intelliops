@@ -23,9 +23,15 @@ NOW = datetime(2026, 8, 13, tzinfo=UTC)
 
 
 class FakeGate:
-    def check_rbac(self, actor, action, resource): return True
-    def request_approval(self, request): return request
-    def await_decision(self, approval_id, timeout_seconds): return None
+    def check_rbac(self, actor, action, resource):
+        return True
+
+    def request_approval(self, request):
+        return request
+
+    def await_decision(self, approval_id, timeout_seconds):
+        return None
+
     def write_audit(self, record): ...
 
 
@@ -43,10 +49,23 @@ class ScriptedBus:
 
 def _diagnosed(runbook_id):
     sit = Situation(
-        id="s1", status=SituationStatus.DIAGNOSED,
-        member_events=[TelemetryEvent(source="p", kind=TelemetryKind.METRIC, name="cpu",
-                                      value=1.0, labels={}, ts=NOW, fingerprint="f")],
-        severity="high", first_seen=NOW, last_seen=NOW, signature="sig",
+        id="s1",
+        status=SituationStatus.DIAGNOSED,
+        member_events=[
+            TelemetryEvent(
+                source="p",
+                kind=TelemetryKind.METRIC,
+                name="cpu",
+                value=1.0,
+                labels={},
+                ts=NOW,
+                fingerprint="f",
+            )
+        ],
+        severity="high",
+        first_seen=NOW,
+        last_seen=NOW,
+        signature="sig",
     )
     d = DiagnosedSituation(situation=sit, hypotheses=[], suggested_runbook_id=runbook_id)
     return {"data": d.model_dump_json()}
@@ -54,16 +73,31 @@ def _diagnosed(runbook_id):
 
 def _store():
     s = InMemoryPlaybookStore()
-    s.register(Playbook(id="restart-pod", name="Restart", match_rule="x",
-                        steps=[RemediationStep(action="restart")],
-                        hitl_mode=HitlMode.AUTO, reversible=True,
-                        rollback_steps=[RemediationStep(action="restart")]))
+    s.register(
+        Playbook(
+            id="restart-pod",
+            name="Restart",
+            match_rule="x",
+            steps=[RemediationStep(action="restart")],
+            hitl_mode=HitlMode.AUTO,
+            reversible=True,
+            rollback_steps=[RemediationStep(action="restart")],
+        )
+    )
     return s
 
 
 def _run(bus):
-    run_consumer(bus, _store(), FakeGate(), RecordingRemediator(), AlwaysHealthyChecker(),
-                 timeout_seconds=1.0, poll_interval_seconds=0.01, stop_event=threading.Event())
+    run_consumer(
+        bus,
+        _store(),
+        FakeGate(),
+        RecordingRemediator(),
+        AlwaysHealthyChecker(),
+        timeout_seconds=1.0,
+        poll_interval_seconds=0.01,
+        stop_event=threading.Event(),
+    )
 
 
 def test_consumer_emits_success_outcome():
@@ -79,8 +113,9 @@ def test_consumer_emits_success_outcome():
 def test_consumer_emits_skipped_when_no_playbook():
     bus = ScriptedBus([_diagnosed("unknown-runbook")])
     _run(bus)
-    o = decode_model(next(m for (t, m) in bus.published if t == "remediation.outcomes"),
-                     RemediationOutcome)
+    o = decode_model(
+        next(m for (t, m) in bus.published if t == "remediation.outcomes"), RemediationOutcome
+    )
     assert o.result == RemediationResult.FAILURE
     assert o.health_after == "skipped:no-playbook"
 
@@ -97,6 +132,14 @@ def test_consumer_stops_on_stop_event():
     bus = InfBus([])
     stop = threading.Event()
     stop.set()
-    run_consumer(bus, _store(), FakeGate(), RecordingRemediator(), AlwaysHealthyChecker(),
-                 timeout_seconds=1.0, poll_interval_seconds=0.01, stop_event=stop)
+    run_consumer(
+        bus,
+        _store(),
+        FakeGate(),
+        RecordingRemediator(),
+        AlwaysHealthyChecker(),
+        timeout_seconds=1.0,
+        poll_interval_seconds=0.01,
+        stop_event=stop,
+    )
     assert bus.published == []

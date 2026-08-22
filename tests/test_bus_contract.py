@@ -19,6 +19,7 @@ from common.interfaces import BusClient
 
 # ── marker registration ───────────────────────────────────────────────────────
 
+
 def pytest_configure(config: pytest.Config) -> None:
     """Register the ``kafka`` marker so pytest doesn't warn about unknown marks."""
     config.addinivalue_line(
@@ -28,6 +29,7 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 # ── session-scoped Kafka container fixture ────────────────────────────────────
+
 
 @pytest.fixture(scope="session")
 def kafka_bootstrap(request: pytest.FixtureRequest) -> str:  # type: ignore[return]
@@ -58,6 +60,7 @@ def kafka_bootstrap(request: pytest.FixtureRequest) -> str:  # type: ignore[retu
 
 
 # ── parametrized bus fixture ──────────────────────────────────────────────────
+
 
 @pytest.fixture(
     params=[

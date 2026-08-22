@@ -30,7 +30,8 @@ METADATA = MetaData()
 _JSON = JSONB().with_variant(JSON(), "sqlite")
 
 audit_records = Table(
-    "audit_records", METADATA,
+    "audit_records",
+    METADATA,
     Column("id", BigInteger, primary_key=True, autoincrement=True),
     Column("correlation_id", String, nullable=False),
     Column("actor", String, nullable=False),
@@ -44,7 +45,8 @@ audit_records = Table(
 )
 
 training_records = Table(
-    "training_records", METADATA,
+    "training_records",
+    METADATA,
     Column("id", BigInteger, primary_key=True, autoincrement=True),
     Column("situation_id", String, nullable=False),
     Column("signature", String, nullable=False),
@@ -57,7 +59,8 @@ training_records = Table(
 )
 
 playbooks = Table(
-    "playbooks", METADATA,
+    "playbooks",
+    METADATA,
     Column("id", String, primary_key=True),
     Column("name", String, nullable=False),
     Column("hitl_mode", String, nullable=False),

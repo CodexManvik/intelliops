@@ -34,6 +34,7 @@ def run_poll_loop(bus, source, interval: float, stop_event: threading.Event) -> 
 def _make_source(settings):
     if settings.telemetry_mode == "prometheus":
         from services.ingestion.adapters.prometheus_source import PrometheusSource
+
         return PrometheusSource(settings.prometheus_url, settings.prometheus_query)
     return None
 
