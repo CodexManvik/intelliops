@@ -1,0 +1,18 @@
+{{/*
+ConfigMap: intelliops-env
+Populates environment variables consumed by all platform services and the migrate Job
+via envFrom. Non-sensitive values only — secrets (passwords) should be moved to a
+Secret resource before running in production.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: intelliops-env
+  labels:
+    {{- include "intelliops.labels" . | nindent 4 }}
+data:
+  INTELLIOPS_AUTH_MODE: {{ .Values.env.AUTH_MODE | quote }}
+  INTELLIOPS_STORE_BACKEND: {{ .Values.env.STORE_BACKEND | quote }}
+  INTELLIOPS_BUS_BACKEND: {{ .Values.env.BUS_BACKEND | quote }}
+  INTELLIOPS_REDIS_URL: {{ printf "redis://%s-redis:6379/0" .Release.Name | quote }}
+  INTELLIOPS_DATABASE_URL: {{ printf "postgresql://%s:%s@%s-postgres:5432/%s" .Values.postgres.user .Values.postgres.password .Release.Name .Values.postgres.db | quote }}

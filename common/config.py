@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     auth_mode: str = "off"  # "off" | "token"
     auth_token: str = ""
 
+    # --- Bus backend selection ---
+    bus_backend: str = "redis"  # "redis" | "kafka"
+    kafka_bootstrap_servers: str = "localhost:9092"
+
 
 @lru_cache
 def get_settings() -> Settings:

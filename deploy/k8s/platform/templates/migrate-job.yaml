@@ -1,0 +1,32 @@
+{{/*
+migrate-job.yaml
+Pre-install / pre-upgrade Helm hook that runs "alembic upgrade head" before
+any application pods start. The job is deleted before each hook execution so
+a fresh Job object is created on every install/upgrade.
+
+Requirements: 9.1, 9.2, 9.3, 9.4
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "intelliops.fullname" . }}-migrate
+  labels:
+    {{- include "intelliops.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  template:
+    metadata:
+      labels:
+        {{- include "intelliops.labels" . | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migrate
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["alembic", "upgrade", "head"]
+          envFrom:
+            - configMapRef:
+                name: intelliops-env

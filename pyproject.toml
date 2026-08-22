@@ -16,6 +16,7 @@ dependencies = [
     "sqlalchemy>=2.0",
     "alembic>=1.13",
     "psycopg[binary]>=3.1",
+    "kafka-python>=2.0.2",
 ]
 
 [dependency-groups]
@@ -24,11 +25,16 @@ dev = [
     "ruff>=0.7",
     "fakeredis>=2.37.0",
     "testcontainers[postgres]>=4.0",
+    "testcontainers[kafka]>=4.0",
+    "hypothesis>=6.0",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "common", "services"]
-markers = ["postgres: tests that require a real Postgres (testcontainers + Docker)"]
+markers = [
+    "postgres: tests that require a real Postgres (testcontainers + Docker)",
+    "kafka: tests that require a real Kafka broker (testcontainers + Docker)",
+]
 filterwarnings = [
     "ignore::starlette.exceptions.StarletteDeprecationWarning",
 ]

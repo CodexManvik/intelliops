@@ -83,12 +83,12 @@ def create_app(
         failed = []
         try:
             app.state.bus.ping()
-        except Exception:  # noqa: BLE001 — probe reports the failure, never raises
+        except Exception:  # noqa: BLE001
             failed.append("redis")
         if readiness is not None:
             try:
                 readiness()
-            except Exception:  # noqa: BLE001 — probe reports the failure, never raises
+            except Exception:  # noqa: BLE001
                 failed.append("postgres")
         if failed:
             return JSONResponse({"ready": False, "failed": failed}, status_code=503)

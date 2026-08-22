@@ -1,0 +1,63 @@
+{{/*
+service-deployment.yaml
+Ranges over .Values.services and renders one Deployment + one Service per entry.
+
+Each Deployment:
+  - sets SERVICE_MODULE from service.module and PORT from service.port as env vars
+  - mounts intelliops-env ConfigMap as envFrom
+  - includes liveness probe at /health (initialDelaySeconds: 10, periodSeconds: 10)
+*/}}
+{{- range .Values.services }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .name }}
+  labels:
+    {{- include "intelliops.labels" $ | nindent 4 }}
+    {{- include "intelliops.selectorLabels" (dict "root" $ "name" .name) | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "intelliops.selectorLabels" (dict "root" $ "name" .name) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "intelliops.selectorLabels" (dict "root" $ "name" .name) | nindent 8 }}
+    spec:
+      containers:
+        - name: {{ .name }}
+          image: "{{ $.Values.image.repository }}:{{ $.Values.image.tag }}"
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          envFrom:
+            - configMapRef:
+                name: intelliops-env
+          env:
+            - name: SERVICE_MODULE
+              value: {{ .module | quote }}
+            - name: PORT
+              value: {{ .port | quote }}
+          ports:
+            - containerPort: {{ .port }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .name }}
+  labels:
+    {{- include "intelliops.labels" $ | nindent 4 }}
+    {{- include "intelliops.selectorLabels" (dict "root" $ "name" .name) | nindent 4 }}
+spec:
+  selector:
+    {{- include "intelliops.selectorLabels" (dict "root" $ "name" .name) | nindent 4 }}
+  ports:
+    - port: {{ .port }}
+      targetPort: {{ .port }}
+{{- end }}
