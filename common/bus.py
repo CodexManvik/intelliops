@@ -73,12 +73,22 @@ class KafkaBus:
 
     def publish(self, topic: str, message: dict) -> None:
         """JSON-serialize *message* and send it to *topic*, flushing before return."""
-        producer = self._get_producer()
+        import json
+
+        from kafka import KafkaProducer
+
+        producer = KafkaProducer(
+            bootstrap_servers=self._bootstrap_servers,
+            value_serializer=lambda v: json.dumps(v).encode(),
+        )
         producer.send(topic, value=message)
         producer.flush()
 
     def consume(self, topic: str, group: str) -> Iterator[dict]:
         """Subscribe to *topic* under *group* and yield deserialized message dicts."""
+        import json
+
+        from kafka import KafkaConsumer
         import json
 
         from kafka import KafkaConsumer
