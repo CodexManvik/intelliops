@@ -619,6 +619,61 @@ startup — goes stale the moment a dependency drops mid-run; an active per-requ
 live state. *`curl`-based healthchecks* — the slim shared image ships no `curl`; a Python one-liner
 uses what's already there.
 
+### ADR-017 — Edge authentication
+
+**Context.** Every service ran wide open: the whole HTTP surface — read/console feeds, the
+governance approval endpoints, and the simulation controls — answered any caller with no
+credential. That was fine for local dev and the demo, but it left the system with no auth story at
+all, which is not a credible production posture. RBAC already gates *who can approve what* inside
+governance ([ADR-003](#adr-003--governance-is-an-active-gate-not-passive-logging)), but that is
+authorization *after* a request is in; it does nothing to stop an unauthenticated request from
+reaching the surface in the first place. The need was a network-access gate in front of the
+services — and it had to be able to stay **off** so dev, the test suite, and CI keep running with
+no token.
+
+**Decision.** Add a **config-switched bearer gate at the edge**: `AUTH_MODE=off|token` (default
+`off`). In `off` mode every endpoint is open — current dev/test/CI behavior, unchanged. In `token`
+mode a request must carry `Authorization: Bearer <INTELLIOPS_AUTH_TOKEN>` or the service returns
+`401`. The check is a **timing-safe** comparison (`hmac.compare_digest`) in `common/auth.py`,
+wired **once** as HTTP middleware in the shared `create_app` factory (`services/base.py`), so it
+covers every route on all seven app services without per-service opt-in. `/health` and `/ready`
+are **always exempt** — the middleware short-circuits them before the gate, in every mode — so
+compose and k8s liveness/readiness probes never need a token. Internal service-to-service calls
+**authenticate rather than being bypassed**: when `AUTH_MODE=token`, callers like action's
+`HttpGovernanceGate` attach the same `Bearer` token to their governance requests, so there is no
+trusted-network hole to exempt. The React operator console authenticates with that **same shared
+token** (`VITE_AUTH_TOKEN`, sent on both its read fetches and its approve/reject write) — so the
+read endpoints stay gated and `token` mode leaves **no public read surface**.
+
+**Why.** One seam, off by default, keeps every existing workflow intact while giving a real gate
+when it's switched on: because it lives in `create_app`, a new service is protected for free with
+nothing to forget, exactly like the observability wiring
+([ADR-016](#adr-016--observability--readiness)). A timing-safe compare avoids leaking the token
+through response-time differences on a byte-by-byte mismatch. Making probes exempt at the
+middleware — not via the per-service exempt predicate — means even a service that passes a custom
+exemption list can never accidentally gate its own healthchecks. And having internal callers send
+the token, rather than carving out an internal-network exemption, keeps the gate honest end to
+end: there is no path that is trusted merely because of where it originates.
+
+**Consequences.** (+) `AUTH_MODE=token` genuinely protects the whole surface — verified: the read
+endpoints return `401` without a token and `200` with the right one, and internal governance calls
+keep working because the callers authenticate. (+) The default build is byte-for-byte the old
+behavior, so tests and CI need no token and no code branch changes. (−) It's a **shared token**,
+not per-user — every authorized caller presents the same secret, so it authenticates the *stack*,
+not an individual, and can't distinguish or revoke one operator. (−) Because Vite inlines `VITE_*`
+at build time, the console token is **baked into the client bundle** — anyone who can load the
+bundle has it. Both costs are accepted as the honest shape of a shared-token demo gate, not the
+production identity model.
+
+**Alternatives rejected.** *Exempt the read endpoints* (gate only writes and controls) — leaves
+the audit log and the situations/outcomes feed publicly readable, which is exactly the surface
+that most needs protecting; rejected. *A separate read-only token* — a second secret to
+distribute and rotate, over-engineered for a single shared-token demo; rejected. *A full IdP /
+JWT with per-user identity and revocation* — the real production path, and the right end state,
+but far more than a demo needs now; deferred and noted, not built. *Trust the internal network and
+exempt service-to-service calls* — reintroduces an unauthenticated path and couples security to
+network topology; rejected in favor of internal callers carrying the token.
+
 ---
 
 ## 4. Cross-cutting concerns
@@ -691,17 +746,27 @@ in-region/on-prem for sovereign-cloud requirements.
   ([ADR-016](#adr-016--observability--readiness)). Compose runs `/ready` as a per-service
   healthcheck; a real cluster maps `livenessProbe: /health` + `readinessProbe: /ready`. See
   [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md).
+- **Edge authentication.** A config-switched bearer gate now fronts the whole HTTP surface
+  ([ADR-017](#adr-017--edge-authentication)): `AUTH_MODE=off|token` (default `off`), a timing-safe
+  check (`hmac.compare_digest`) wired once in `create_app`, with `/health` + `/ready` always
+  exempt. Internal service-to-service calls authenticate (they send the token), and the React
+  console authenticates with the same shared token — so under `token` mode the read endpoints are
+  gated and there's no public read surface. The honest limits: a **shared** token (not per-user)
+  and the frontend token is baked into the client bundle; per-user tokens / an IdP are the deferred
+  production path. See [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
 **What remains deliberately deferred / simulated — the honest gap and the next milestones:**
-- **Authentication / authorization at the edge.** RBAC gates *actions* internally, but the
-  read/console/simulation endpoints have no auth. Deferred; planned in the workplan.
+- **Per-user identity / an IdP.** Edge auth exists ([ADR-017](#adr-017--edge-authentication)) but
+  is a single **shared** token, not per-user; a real deployment would issue per-user tokens or
+  front the stack with an identity provider (JWT/OIDC). Deferred as the production auth path.
 - **Automated model retraining.** The loop's *plumbing* exists; the retrain *trigger* is
   manual/scheduled, automated as a later maturity milestone.
 - **Kafka in production.** Redis Streams runs dev and demo; the Kafka `BusClient` binding is
   deferred behind the same interface.
-- **Simulation controls in production.** The `/break`, `/fix`, `/reset`, `/reset-baseline`
-  endpoints ([ADR-011](#adr-011--a-live-breakable-demo-harness-with-explicit-simulation-controls))
-  must be gated or removed when pointed at a real system.
+- **Simulation controls in production.** The `/break`, `/fix`, `/reset`, `/reset-baseline`, and
+  `/reset-approvals` endpoints ([ADR-011](#adr-011--a-live-breakable-demo-harness-with-explicit-simulation-controls))
+  must be gated or removed when pointed at a real system. (Under `AUTH_MODE=token` they are gated
+  like the rest of the surface, but they remain demo controls, not production endpoints.)
 
 These are maturity milestones, not gaps — calling them out is part of the design's rigor, and
 the ones scoped in [WORKPLAN.md](WORKPLAN.md) are actively being built next.

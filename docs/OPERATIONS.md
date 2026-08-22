@@ -10,21 +10,22 @@ Controlled by `INTELLIOPS_AUTH_MODE`:
 | Value | Behavior |
 | --- | --- |
 | `off` (default) | Every endpoint open. Current dev/test/CI behavior, unchanged. |
-| `token` | Every request except `/health` must carry `Authorization: Bearer <INTELLIOPS_AUTH_TOKEN>`, or the service returns `401`. |
+| `token` | Every request except `/health` and `/ready` must carry `Authorization: Bearer <INTELLIOPS_AUTH_TOKEN>`, or the service returns `401`. |
 
 Set `INTELLIOPS_AUTH_TOKEN` to the shared token when `AUTH_MODE=token`. A
 service started in `token` mode with no `AUTH_TOKEN` set rejects every
 protected request — there's no accidental-open fallback.
 
-`/health` is exempt in every mode, on every service, so docker-compose
-healthchecks, k8s liveness/readiness probes, and CI's compose-smoke job
-never need a token.
+`/health` (liveness) and `/ready` (readiness) are exempt in every mode, on
+every service, so docker-compose healthchecks, k8s liveness/readiness probes,
+and CI's compose-smoke job never need a token.
 
 ### What's gated
 
 Applied via the shared app factory (`services/base.py`), so it covers every
 route on ingestion, correlation, rca, action, feedback, governance, and
-read — except `/health`.
+read — except `/health` and `/ready`, which are always exempt (probes never
+need a token).
 
 In `token` mode **all** endpoints are gated — including the internal
 service-to-service paths on governance (`POST /audit`, `POST /rbac/check`,
@@ -37,6 +38,21 @@ IntelliOps service), so it's gated per-route instead: `/break` and `/fix`
 (simulation controls) require the token in `token` mode; `/health`,
 `/metrics` (scraped by Prometheus, unauthenticated), and `/work`
 (simulated app traffic) stay open.
+
+### The React console
+
+The operator console authenticates the same way. Under `AUTH_MODE=token`,
+set `VITE_AUTH_TOKEN` to the same value as `INTELLIOPS_AUTH_TOKEN`; the
+frontend attaches `Authorization: Bearer <VITE_AUTH_TOKEN>` on every call —
+the read/governance-read fetches (`/situations`, `/outcomes`, `/audit`,
+`/playbooks`, `/metrics`) as well as the approve/reject write. Because those
+reads are gated, `token` mode leaves **no public read surface**.
+
+Vite inlines `VITE_*` vars at build time, so the console token is baked into
+the client bundle. That makes it a **shared demo token, not a per-user
+secret** — anyone who can load the bundle has it. A real deployment would
+issue per-user tokens or front the console with an IdP; the shared token is a
+demo convenience, not the production auth model.
 
 ### Compose: shared secret for token mode
 
