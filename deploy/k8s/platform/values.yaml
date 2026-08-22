@@ -1,0 +1,48 @@
+image:
+  repository: intelliops
+  tag: latest
+  pullPolicy: IfNotPresent
+
+services:
+  - name: ingestion
+    module: "services.ingestion.app:app"
+    port: 8000
+    externalPort: 8001
+  - name: correlation
+    module: "services.correlation.app:app"
+    port: 8000
+    externalPort: 8002
+  - name: rca
+    module: "services.rca.app:app"
+    port: 8000
+    externalPort: 8003
+  - name: action
+    module: "services.action.app:app"
+    port: 8000
+    externalPort: 8004
+  - name: governance
+    module: "services.governance.app:app"
+    port: 8000
+    externalPort: 8005
+  - name: feedback
+    module: "services.feedback.app:app"
+    port: 8000
+    externalPort: 8006
+  - name: read
+    module: "services.read.app:app"
+    port: 8000
+    externalPort: 8007
+
+env:
+  AUTH_MODE: "off"
+  STORE_BACKEND: postgres
+  BUS_BACKEND: redis
+
+redis:
+  image: redis:7
+
+postgres:
+  image: postgres:16
+  user: intelliops
+  password: intelliops
+  db: intelliops

@@ -70,3 +70,66 @@ INTELLIOPS_AUTH_TOKEN=my-secret docker compose -f deploy/docker-compose.yml up -
 
 RBAC inside governance-service (who can approve what) is unrelated to this
 and already existed — this only gates network access to the HTTP surface.
+
+---
+
+## Delivery guarantees
+
+Both `RedisBus` (Redis Streams) and `KafkaBus` (Kafka with `enable_auto_commit=True`)
+use **at-most-once** delivery semantics. The offset/acknowledgment is advanced as
+soon as the message is read, before the caller finishes processing it.
+
+Consequence: a process crash between reading a message and completing its processing
+loses the in-flight message on both backends — it will not be redelivered.
+
+Upgrading to **at-least-once** delivery requires changing the ack/commit point on
+**both** bindings together:
+- `RedisBus`: move `XACK` to after the caller has processed the message.
+- `KafkaBus`: switch to `enable_auto_commit=False` and call `consumer.commit()` after
+  processing.
+
+This is a deliberate future decision; the current at-most-once semantics match the
+project's scale requirements.
+
+---
+
+## Kubernetes deploy
+
+### Prerequisites
+
+- A running [kind](https://kind.sigs.k8s.io/) cluster.
+- The `intelliops` Docker image built and loaded into the cluster:
+  ```bash
+  docker build -t intelliops .
+  kind load docker-image intelliops
+  ```
+
+### Install command
+
+```bash
+helm install intelliops deploy/k8s/platform/
+```
+
+This deploys all platform services, Redis, Postgres, and runs the Alembic migration
+job (`alembic upgrade head`) as a pre-install hook before any application pod starts.
+
+To upgrade an existing release:
+
+```bash
+helm upgrade intelliops deploy/k8s/platform/
+```
+
+---
+
+## Environment-switch reference
+
+The table below covers every runtime toggle. For full `AUTH_MODE` / `AUTH_TOKEN`
+usage (service-to-service token propagation, compose setup, what endpoints are
+gated) see the [Auth at the edge](#auth-at-the-edge) section above.
+
+| Variable | Accepted values | Default | Description |
+| --- | --- | --- | --- |
+| `INTELLIOPS_AUTH_MODE` | `off`, `token` | `off` | Network-access gate. `off` = open. `token` = every non-`/health` endpoint requires `Authorization: Bearer <INTELLIOPS_AUTH_TOKEN>`. See [Auth at the edge](#auth-at-the-edge). |
+| `INTELLIOPS_STORE_BACKEND` | `file`, `postgres` | `file` | Persistence layer. `file` = JSONL files on disk (test-safe, no DB needed). `postgres` = PostgreSQL via SQLAlchemy (requires `INTELLIOPS_DATABASE_URL`). |
+| `INTELLIOPS_BUS_BACKEND` | `redis`, `kafka` | `redis` | Event-bus binding. `redis` = Redis Streams (`RedisBus`). `kafka` = Kafka (`KafkaBus`, requires `INTELLIOPS_KAFKA_BOOTSTRAP_SERVERS`). Both bindings use at-most-once delivery — see [Delivery guarantees](#delivery-guarantees). |
+| `INTELLIOPS_REMEDIATOR_MODE` | `dry_run`, `k8s` | `dry_run` | Remediation execution mode. `dry_run` = log steps only, no real infrastructure changes (CI/test default). `k8s` = execute playbook steps against a real Kubernetes cluster via the official `kubernetes` Python client (requires a valid kubeconfig and `INTELLIOPS_K8S_NAMESPACE`). |

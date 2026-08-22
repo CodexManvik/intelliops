@@ -1,0 +1,43 @@
+{{/*
+redis.yaml
+Renders a Deployment and a Service for the Redis instance used as the event bus.
+Image is configured via values.redis.image (default redis:7).
+*/}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  labels:
+    {{- include "intelliops.labels" . | nindent 4 }}
+    {{- include "intelliops.selectorLabels" (dict "root" . "name" "redis") | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "intelliops.selectorLabels" (dict "root" . "name" "redis") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "intelliops.selectorLabels" (dict "root" . "name" "redis") | nindent 8 }}
+    spec:
+      containers:
+        - name: redis
+          image: {{ .Values.redis.image | quote }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 6379
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  labels:
+    {{- include "intelliops.labels" . | nindent 4 }}
+    {{- include "intelliops.selectorLabels" (dict "root" . "name" "redis") | nindent 4 }}
+spec:
+  selector:
+    {{- include "intelliops.selectorLabels" (dict "root" . "name" "redis") | nindent 4 }}
+  ports:
+    - port: 6379
+      targetPort: 6379
