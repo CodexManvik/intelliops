@@ -26,12 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 def run_flusher(
-    bus,
-    engine: CorrelationEngine,
-    period_seconds: float,
-    stop_event: threading.Event,
-    baseline_store=None,
-    snapshot_period: float = 30.0,
+    bus, engine: CorrelationEngine, period_seconds: float, stop_event: threading.Event
 ) -> None:
     """Periodically collapse the buffered window into a Situation.
 

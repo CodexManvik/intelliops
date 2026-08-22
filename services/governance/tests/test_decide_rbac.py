@@ -12,18 +12,19 @@ def _client():
         roles={"approver": [{"action": "approve", "resource": "playbook:*"}]},
         actors={"oncall-alice": ["approver"], "random-bob": []},
     )
-    store = InMemoryApprovalStore()
-    store.create(
-        ApprovalRequest(
+    app.state.approvals = {
+        "a1": ApprovalRequest(
             id="a1", situation_id="s1", playbook_id="restart-pod", requested_by="action-service"
-        )
-    )
-    app.state.approval_store = store
+        ),
+    }
     return TestClient(app)
 
 
 def test_authorized_decider_approves():
     c = _client()
+    resp = c.post(
+        "/approvals/a1/decide", json={"decision": "approved", "decided_by": "oncall-alice"}
+    )
     resp = c.post(
         "/approvals/a1/decide", json={"decision": "approved", "decided_by": "oncall-alice"}
     )
@@ -35,8 +36,15 @@ def test_authorized_decider_approves():
 def test_unauthorized_decider_forbidden():
     c = _client()
     resp = c.post("/approvals/a1/decide", json={"decision": "approved", "decided_by": "random-bob"})
+    resp = c.post("/approvals/a1/decide", json={"decision": "approved", "decided_by": "random-bob"})
     assert resp.status_code == 403
     # the approval must remain pending — no state change on a forbidden decide
+    assert (
+        c.post(
+            "/approvals/a1/decide", json={"decision": "approved", "decided_by": "oncall-alice"}
+        ).json()["status"]
+        == "approved"
+    )
     assert (
         c.post(
             "/approvals/a1/decide", json={"decision": "approved", "decided_by": "oncall-alice"}
@@ -47,6 +55,9 @@ def test_unauthorized_decider_forbidden():
 
 def test_decide_missing_approval_still_404():
     c = _client()
+    resp = c.post(
+        "/approvals/missing/decide", json={"decision": "approved", "decided_by": "oncall-alice"}
+    )
     resp = c.post(
         "/approvals/missing/decide", json={"decision": "approved", "decided_by": "oncall-alice"}
     )

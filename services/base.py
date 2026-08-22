@@ -71,6 +71,9 @@ def create_app(
         if not _is_exempt(request.method, request.url.path) and not is_authorized(
             request, current_settings
         ):
+        if not _is_exempt(request.method, request.url.path) and not is_authorized(
+            request, current_settings
+        ):
             return JSONResponse({"detail": "Unauthorized"}, status_code=401)
         return await call_next(request)
 
