@@ -78,4 +78,20 @@ def create_app(
     def health() -> dict[str, str]:
         return {"service": service_name, "status": "ok"}
 
+    @app.get("/ready")
+    def ready():
+        failed = []
+        try:
+            app.state.bus.ping()
+        except Exception:  # noqa: BLE001
+            failed.append("redis")
+        if readiness is not None:
+            try:
+                readiness()
+            except Exception:  # noqa: BLE001
+                failed.append("postgres")
+        if failed:
+            return JSONResponse({"ready": False, "failed": failed}, status_code=503)
+        return {"ready": True}
+
     return app

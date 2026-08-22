@@ -104,7 +104,10 @@ def test_loop_closes_reliable_signature_suppressed():
 
 
 def test_playbook_graduates_through_governance():
+    from common.config import get_settings
     from services.governance.app import app
+
+    get_settings.cache_clear()  # ensure AUTH_MODE=off so inter-service calls aren't blocked
 
     store = InMemoryPlaybookStore()
     store.register(

@@ -89,6 +89,17 @@ class KafkaBus:
         for record in consumer:
             yield record.value
 
+    def ping(self) -> None:
+        """Check Kafka connectivity by creating a temporary admin client."""
+        from kafka import KafkaAdminClient
+        from kafka.errors import NoBrokersAvailable
+
+        try:
+            admin = KafkaAdminClient(bootstrap_servers=self._bootstrap_servers)
+            admin.close()
+        except NoBrokersAvailable as exc:
+            raise ConnectionError(f"Kafka unavailable: {self._bootstrap_servers}") from exc
+
 
 def make_bus(settings: Settings, consumer_name: str = "c1") -> RedisBus | KafkaBus:
     if settings.bus_backend == "redis":
