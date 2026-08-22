@@ -10,12 +10,19 @@ outcome feeds back into the model, so the system gets more accurate the longer i
 It is built to **augment** your existing observability, CI/CD, and ticketing stack, not replace
 it, and it is **open-source-first** to avoid vendor lock-in.
 
-> **Project status: the closed loop runs live, end-to-end.**
-> All six services plus a **read-model service** and a **React operator console** are built and
-> running on docker-compose — real Prometheus, a breakable demo target, the HITL approval gate
-> working across containers, live KPIs, and a one-command scenario reset for repeatable demos.
-> Remediation is **dry-run** today (nothing real is touched); real Kubernetes remediation is the
-> next milestone (see [WORKPLAN.md](WORKPLAN.md)).
+> **Project status: the closed loop runs live, end-to-end, with real remediation and durable
+> state.**
+> All six services plus a **read-model service** and a **React operator console** run on
+> docker-compose — real Prometheus, a breakable demo target, the HITL approval gate working
+> across containers, live KPIs, and a one-command scenario reset for repeatable demos.
+> **Remediation is real** on an opt-in path: against a local **kind** cluster, approving a fix
+> restarts/scales a real pod and a real health check verifies it (`REMEDIATOR_MODE=k8s`;
+> `dry_run` stays the safe default). The compliance audit trail, the learning loop's training
+> records, the playbook registry, and live runtime state (pending approvals + the detector's
+> baseline) are **persisted to Postgres** and survive restarts (`STORE_BACKEND=postgres`).
+> Edge auth (`AUTH_MODE=token`), a CI pipeline, and structured logging + `/ready` readiness
+> probes are in place. Next up: the Kafka bus binding and a whole-stack Helm deploy (in review).
+> See [WORKPLAN.md](WORKPLAN.md).
 
 ## 📖 Understanding this project — start here
 
@@ -25,7 +32,7 @@ IntelliOps is and how it works:
 | Read this | To understand |
 |-----------|---------------|
 | **[flow.md](flow.md)** | **How a signal flows through the system** — the one-incident journey, every bus topic and data contract, a function-by-function reference for each of the seven services, and the current status (what's real vs. simulated). |
-| **[architectural.md](architectural.md)** | **Why the system is shaped this way** — the layer model and twelve ADRs (Architecture Decision Records), each with the context, the decision, the trade-offs, and the alternatives rejected. |
+| **[architectural.md](architectural.md)** | **Why the system is shaped this way** — the layer model and sixteen ADRs (Architecture Decision Records), each with the context, the decision, the trade-offs, and the alternatives rejected. |
 
 Then, for the team: **[WORKPLAN.md](WORKPLAN.md)** divides the remaining work into four
 owned streams with acceptance criteria. The full original design spec is at
@@ -106,7 +113,8 @@ intelliops/
 ├── services/              ← the six services (ingestion, correlation, rca, action,
 │                            governance, feedback) — added slice by slice
 ├── playbooks/             ← YAML playbook definitions (the CoE registry seed)
-├── deploy/                ← docker-compose (dev) and k8s manifests (later)
+├── alembic/               ← Postgres schema migrations (versioned, run as a one-shot step)
+├── deploy/                ← docker-compose (dev), deploy/k8s (kind remediation demo)
 └── pyproject.toml
 ```
 
@@ -120,8 +128,9 @@ intelliops/
 | ML / correlation | River (online) · scikit-learn | Moogsoft · BigPanda · Dynatrace (via `Correlator`) |
 | Remediation | Kubernetes API · Ansible | any, via `Remediator` |
 | Audit + training store | Postgres | — |
+| Persistence | Postgres (SQLAlchemy Core + Alembic) | any, via `STORE_BACKEND` |
 | On-call / ticketing | (REST approval endpoint) | PagerDuty / Slack (post-Phase-3) |
-| Local dev | Docker Compose | Kubernetes (later) |
+| Local dev | Docker Compose | Kubernetes (kind demo; whole-stack Helm in review) |
 
 Every named tool sits behind an interface, so it is swappable — see
 [ADR-005](architectural.md#adr-005--pluggable-adapters-behind-interfaces).
@@ -138,17 +147,17 @@ Every named tool sits behind an interface, so it is swappable — see
 # 1. Bring up the dev stack (Redis bus + the six service stubs)
 docker compose -f deploy/docker-compose.yml up
 
-# 2. Check every service is healthy
-curl localhost:8001/health   # ingestion
-curl localhost:8002/health   # correlation
-# ... rca 8003, action 8004, governance 8005, feedback 8006
+# 2. Check every service is alive (/health) and ready (/ready — checks bus + DB)
+curl localhost:8001/health   # ingestion — liveness
+curl localhost:8001/ready    # ingestion — readiness (200 when deps reachable, else 503)
+# ... correlation 8002, rca 8003, action 8004, governance 8005, feedback 8006
 ```
 
 ## Run it live (real data, local, free)
 
 Beyond the mock-data quickstart above, the full stack can run against **real** telemetry —
-Prometheus actually scraping a demo app, a real anomaly detector, and a real (dry-run)
-remediation — entirely on your machine, at no cost.
+Prometheus actually scraping a demo app, a real anomaly detector, and remediation (dry-run here;
+real pod remediation via the kind demo below) — entirely on your machine, at no cost.
 
 1. **Start the stack** (adds `demo-app`, `prometheus`, and `read` to the six core services):
 
@@ -187,9 +196,11 @@ remediation — entirely on your machine, at no cost.
 slate without `docker compose down` — recovers the demo app, clears the detector's learned
 baseline, and empties the read model.
 
-> **Dry-run safety note:** Remediation runs in dry-run mode (ADR-007): the action service logs
-> the remediation steps and a simulated health check reports healthy. "Resolved" means the fix
-> was logged and simulated — no real infrastructure is ever touched.
+> **Remediation modes:** By default remediation runs in **dry-run** mode (ADR-007): the action
+> service logs the steps and a simulated health check reports healthy — no real infrastructure is
+> touched, which is what the quickstart above uses. To see **real** remediation, run the kind-cluster
+> demo (`REMEDIATOR_MODE=k8s`) — approving a fix restarts/scales a real pod and a real health check
+> verifies recovery. See [deploy/k8s/README.md](deploy/k8s/README.md).
 
 > **Simulation controls note:** The `/reset`, `/reset-baseline`, `/break`, and `/fix` endpoints
 > are simulation controls, not production endpoints. When this stack is pointed at a real system,
@@ -200,6 +211,9 @@ baseline, and empties the read model.
 Delivered in vertical slices mapped to the proposal's phased rollout. Each slice is a working
 increment and is approved before it is built.
 
+The five vertical slices (the closed loop) are done; a second wave of **production-credibility**
+work builds on top of them.
+
 | Slice | Phase | Outcome | Status |
 |-------|-------|---------|--------|
 | 0 | — | Skeleton: contracts, bus, `docker compose up`, health endpoints | ✅ done |
@@ -207,6 +221,18 @@ increment and is approved before it is built.
 | 2 | Phase 2 | RCA suggestions + governance audit/RBAC | ✅ done |
 | 3 | Phase 3 | HITL-gated reversible remediation, end to end | ✅ done |
 | 4 | Phase 4 | Closed feedback loop + metrics + first `auto` playbook | ✅ done |
+
+**Production-credibility work (since the slices):**
+
+| Area | Outcome | Status |
+|------|---------|--------|
+| Real remediation | `KubernetesRemediator` + real health checks on a kind cluster (`REMEDIATOR_MODE=k8s`) | ✅ done |
+| Persistence | Audit / training / playbook stores + durable approvals & baseline on Postgres (`STORE_BACKEND=postgres`), Alembic migrations | ✅ done |
+| Security & CI | Edge auth (`AUTH_MODE=token`, internal calls authenticate) + a CI pipeline on every PR | ✅ done |
+| Observability | Structured JSON logging + a `/ready` readiness probe per service | ✅ done |
+| Platform | Kafka bus binding, whole-stack Helm deploy, load/chaos testing | 🚧 in review |
+| Intelligence | Smarter detection + a measured benchmark vs. the baseline | ⬜ open |
+| Frontend | Real-time updates + a live pipeline/topology view | ⬜ open |
 
 ## Security, compliance & safety
 
@@ -222,9 +248,15 @@ increment and is approved before it is built.
 
 ## Documentation map
 
-- **[architectural.md](architectural.md)** — design principles, the 5→6 layer mapping, eight
+- **[architectural.md](architectural.md)** — design principles, the 5→6 layer mapping, sixteen
   ADRs, cross-cutting concerns, compliance mapping.
 - **[flow.md](flow.md)** — the one-incident journey, bus topics, data contracts, and a
-  per-function reference for all six services.
+  per-function reference for all seven services.
+- **[docs/PERSISTENCE.md](docs/PERSISTENCE.md)** — the Postgres backend: the schema, the
+  `STORE_BACKEND` switch, migrations, and the durable runtime state (approvals + baseline).
+- **[docs/OBSERVABILITY.md](docs/OBSERVABILITY.md)** — structured JSON logging and the
+  `/health` (liveness) vs `/ready` (readiness) probes.
+- **[docs/OPERATIONS.md](docs/OPERATIONS.md)** — deploy, the env-switch table, and the auth model.
+- **[deploy/k8s/README.md](deploy/k8s/README.md)** — the real-remediation demo on a kind cluster.
 - **[docs/superpowers/specs/2026-08-13-intelliops-coe-design.md](docs/superpowers/specs/2026-08-13-intelliops-coe-design.md)**
-  — the complete design spec the two documents above draw from.
+  — the original design spec; later decisions have their own specs under `docs/superpowers/specs/`.
