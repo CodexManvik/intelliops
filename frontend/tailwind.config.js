@@ -1,36 +1,14 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
-  darkmode: "class",
+  darkMode: "class",
   theme: {
     extend: {
       colors: {
-        // ground: deep instrument-panel graphite, blue-biased (not pure black)
-        ground: {
-          DEFAULT: "#080B10",
-          raised: "#0C111A",
-          sunken: "#05070B",
-        },
-        // hairlines & surfaces expressed as tokens (used with /opacity too)
-        ink: {
-          DEFAULT: "#EAF0F7",
-          2: "#A6B4C6",
-          3: "#66748A",
-          4: "#3C4757",
-        },
-        // accent: signal cyan — reserved for live / resolved / focus
-        signal: {
-          DEFAULT: "#3DD6D0",
-          dim: "#2AA9A4",
-          glow: "rgba(61,214,208,0.24)",
-        },
-        // semantic severity — distinct from accent
-        sev: {
-          ok: "#43D18A",
-          warn: "#F5A623",
-          crit: "#F26D6D",
-          info: "#6E8BFF",
-        },
+        ground: { DEFAULT: "#FFFFFF", raised: "#FFFFFF", sunken: "#F5F5F7" },
+        ink: { DEFAULT: "#1D1D1F", 2: "#6E6E73", 3: "#86868B", 4: "#C7C7CC" },
+        signal: { DEFAULT: "#0071E3", dim: "#0058B0", glow: "rgba(0,113,227,0.14)" },
+        sev: { ok: "#34C759", warn: "#FF9500", crit: "#FF3B30", info: "#5E5CE6" },
       },
       fontFamily: {
         sans: ["Geist", "ui-sans-serif", "system-ui", "sans-serif"],
@@ -52,10 +30,9 @@ export default {
         spring: "cubic-bezier(0.16, 1, 0.3, 1)",
       },
       boxShadow: {
-        // soft, diffused — never harsh
-        lift: "0 1px 2px rgba(0,0,0,0.35), 0 18px 50px -12px rgba(0,0,0,0.5)",
-        glow: "0 0 0 1px rgba(61,214,208,0.35), 0 8px 30px rgba(61,214,208,0.18)",
-        inset: "inset 0 1px 1px rgba(255,255,255,0.06)",
+        lift: "0 1px 2px rgba(0,0,0,0.04), 0 12px 32px -12px rgba(0,0,0,0.12)",
+        glow: "0 0 0 1px rgba(0,113,227,0.35), 0 8px 24px -8px rgba(0,113,227,0.20)",
+        inset: "inset 0 1px 0 rgba(255,255,255,0.6), inset 0 0 0 1px rgba(0,0,0,0.04)",
       },
       keyframes: {
         beat: {

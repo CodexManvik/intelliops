@@ -69,7 +69,7 @@ export function Overview() {
         {/* hero metric — noise reduction */}
         <Section className="md:col-span-7 md:row-span-2">
           <Bezel glow coreClassName="relative overflow-hidden p-7 h-full">
-            <div className="pointer-events-none absolute -right-16 -top-20 h-64 w-64 rounded-full bg-signal/[0.10] blur-3xl" />
+            <div className="pointer-events-none absolute -right-16 -top-20 h-64 w-64 rounded-full bg-signal/[0.06] blur-3xl" />
             <div className="relative flex h-full flex-col">
               <div className="flex items-center justify-between">
                 <span className="text-2xs font-medium uppercase tracking-[0.16em] text-ink-3">Alert noise reduction · today</span>
@@ -82,7 +82,7 @@ export function Overview() {
                 <span className="text-ink">8,420 raw alerts</span> collapsed into a handful of Situations. <span className="text-signal">{metrics.suppressedToday} storms</span> were suppressed entirely — the system had already proven their fix.
               </p>
               <div className="mt-auto pt-6">
-                <Sparkline data={series(40, 62, 0.7, 11)} color="#3DD6D0" width={520} height={92} />
+                <Sparkline data={series(40, 62, 0.7, 11)} color="#0071E3" width={520} height={92} />
                 <div className="mt-1 flex justify-between font-mono text-2xs text-ink-3"><span>00:00</span><span>target band 80–95%</span><span>now</span></div>
               </div>
             </div>
@@ -91,10 +91,10 @@ export function Overview() {
 
         {/* two mini stats top-right */}
         <Section className="md:col-span-5">
-          <MiniStat label="MTTR" value={metrics.mttrMinutes.toFixed(1)} unit="min" delta="−41%" up spark={series(24, 14, -0.32, 3)} color="#43D18A" />
+          <MiniStat label="MTTR" value={metrics.mttrMinutes.toFixed(1)} unit="min" delta="−41%" up spark={series(24, 14, -0.32, 3)} color="#34C759" />
         </Section>
         <Section className="md:col-span-5">
-          <MiniStat label="Auto-remediated" value={`${metrics.autoRemediatedPct}`} unit="%" delta="+6" up spark={series(24, 22, 0.6, 9)} color="#6E8BFF" />
+          <MiniStat label="Auto-remediated" value={`${metrics.autoRemediatedPct}`} unit="%" delta="+6" up spark={series(24, 22, 0.6, 9)} color="#5E5CE6" />
         </Section>
 
         {/* service health strip */}
@@ -127,7 +127,7 @@ export function Overview() {
             </div>
             <div className="space-y-1.5">
               {outcomes.slice(0, 6).map((o, i) => (
-                <div key={i} className="flex items-center gap-3 rounded-lg px-2 py-1.5 font-mono text-2xs transition-colors hover:bg-white/[0.03]">
+                <div key={i} className="flex items-center gap-3 rounded-lg px-2 py-1.5 font-mono text-2xs transition-colors hover:bg-black/[0.03]">
                   <span className="text-ink-3">{timeAgo(o.ts)}</span>
                   <span className="w-28 truncate text-ink-2">{o.service}</span>
                   <span className="w-32 truncate text-ink-3">{o.playbook_id}</span>
@@ -150,16 +150,16 @@ export function Overview() {
                 const clean = p.rollbacks === 0 && p.failures === 0;
                 const pct = Math.min(100, (p.successes / 3) * 100);
                 return (
-                  <div key={p.id} className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
+                  <div key={p.id} className="rounded-2xl border border-black/[0.06] bg-black/[0.02] p-4">
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium">{p.name}</span>
                       {p.graduated ? (
                         <span className="flex items-center gap-1 rounded-full bg-signal/10 px-2 py-0.5 font-mono text-2xs text-signal"><CheckCircle size={12} weight="fill" /> auto</span>
                       ) : (
-                        <span className="rounded-full bg-white/[0.05] px-2 py-0.5 font-mono text-2xs text-ink-2">hitl</span>
+                        <span className="rounded-full bg-black/[0.05] px-2 py-0.5 font-mono text-2xs text-ink-2">hitl</span>
                       )}
                     </div>
-                    <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
+                    <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-black/[0.08]">
                       <div
                         className={`bar-fill h-full rounded-full ${p.graduated ? "bg-signal" : clean ? "bg-sev-ok" : "bg-sev-warn"}`}
                         style={{ width: `${pct}%` }}

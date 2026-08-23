@@ -24,17 +24,17 @@ export function Shell({
   const [open, setOpen] = useState(false);
 
   return (
-    <div className="grain relative min-h-[100dvh]">
+    <div className="relative min-h-[100dvh]">
       {/* ambient field */}
       <div className="mesh pointer-events-none fixed inset-0 z-0" aria-hidden />
 
       {/* Fluid-island nav — floating glass pill, detached from the top */}
       <div className="sticky top-0 z-40 flex justify-center px-4 pt-5">
-        <nav className="flex w-full max-w-5xl items-center gap-3 rounded-full border border-white/[0.08] bg-ground/70 px-3 py-2 backdrop-blur-2xl">
+        <nav className="flex w-full max-w-5xl items-center gap-3 rounded-full border border-black/[0.08] bg-white/70 px-3 py-2 backdrop-blur-2xl">
           <div className="flex items-center gap-2 pl-1.5 pr-1">
             <span className="relative flex h-2.5 w-2.5">
               <span className="absolute inline-flex h-full w-full animate-beat rounded-full bg-signal" />
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-signal shadow-[0_0_10px_#3DD6D0]" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-signal shadow-[0_0_8px_rgba(0,113,227,0.5)]" />
             </span>
             <span className="text-sm font-semibold tracking-tight">IntelliOps</span>
             <span className="hidden text-2xs font-medium uppercase tracking-[0.18em] text-ink-3 sm:inline">Control Plane</span>
@@ -51,7 +51,7 @@ export function Shell({
                 {view === t.id && (
                   <motion.span
                     layoutId="tabpill"
-                    className="absolute inset-0 rounded-full bg-white/[0.08] ring-1 ring-white/[0.06]"
+                    className="absolute inset-0 rounded-full bg-black/[0.06] ring-1 ring-black/[0.06]"
                     transition={{ type: "spring", stiffness: 380, damping: 32 }}
                   />
                 )}
@@ -64,7 +64,7 @@ export function Shell({
           </div>
 
           {/* live status pill */}
-          <div className="ml-auto hidden items-center gap-2 rounded-full border border-white/[0.07] bg-white/[0.03] px-3 py-1.5 md:flex">
+          <div className="ml-auto hidden items-center gap-2 rounded-full border border-black/[0.08] bg-black/[0.03] px-3 py-1.5 md:flex">
             <Pulse size={15} weight="light" className="text-signal" />
             <span className="font-mono text-2xs text-ink-2">6/6 healthy</span>
           </div>
@@ -72,7 +72,7 @@ export function Shell({
           {/* mobile hamburger → fluid X */}
           <button
             onClick={() => setOpen((o) => !o)}
-            className="ml-auto flex h-9 w-9 items-center justify-center rounded-full bg-white/[0.05] md:hidden"
+            className="ml-auto flex h-9 w-9 items-center justify-center rounded-full bg-black/[0.05] md:hidden"
             aria-label="Menu"
           >
             <div className="relative h-3.5 w-4">
@@ -100,7 +100,7 @@ export function Shell({
       <AnimatePresence>
         {open && (
           <motion.div
-            className="fixed inset-0 z-30 flex flex-col items-center justify-center gap-2 bg-ground/85 backdrop-blur-3xl md:hidden"
+            className="fixed inset-0 z-30 flex flex-col items-center justify-center gap-2 bg-white/85 backdrop-blur-3xl md:hidden"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
