@@ -37,9 +37,13 @@
 
 `services/read/tests/test_stream.py`:
 
+> **NOTE (verified before dispatch):** the repo has NO `pytest-asyncio` / `anyio` async-test
+> marker. Do NOT write `async def test_...` / `@pytest.mark.asyncio` — they won't run. Test the
+> async pub/sub from **sync** test functions by driving a real loop with `asyncio.run(...)`. This
+> avoids adding a dev dependency and matches the repo's marker-free test style.
+
 ```python
 import asyncio
-import pytest
 from services.read.projection import ReadModel
 
 
@@ -49,36 +53,41 @@ def test_publish_is_noop_when_no_loop_bound():
     m.publish({"type": "changed"})  # no loop bound → silent no-op
 
 
-@pytest.mark.asyncio
-async def test_subscribe_receives_published_event():
-    m = ReadModel()
-    m.bind_loop(asyncio.get_running_loop())
-    q = m.subscribe()
-    m.publish({"type": "changed"})
-    # publish marshals via call_soon_threadsafe; let the loop run the callback
-    await asyncio.sleep(0)
-    event = await asyncio.wait_for(q.get(), timeout=1.0)
+def test_subscribe_receives_published_event():
+    async def scenario():
+        m = ReadModel()
+        m.bind_loop(asyncio.get_running_loop())
+        q = m.subscribe()
+        m.publish({"type": "changed"})       # marshals via call_soon_threadsafe
+        await asyncio.sleep(0)                # let the loop run the scheduled callback
+        event = await asyncio.wait_for(q.get(), timeout=1.0)
+        m.unsubscribe(q)
+        return event, (q in m._subscribers)
+    event, still_subscribed = asyncio.run(scenario())
     assert event == {"type": "changed"}
-    m.unsubscribe(q)
-    assert q not in m._subscribers
+    assert still_subscribed is False
 
 
-@pytest.mark.asyncio
-async def test_full_queue_drops_oldest():
-    m = ReadModel()
-    m.bind_loop(asyncio.get_running_loop())
-    q = m.subscribe(maxsize=1)
-    m.publish({"n": 1})
-    m.publish({"n": 2})
-    await asyncio.sleep(0)
-    got = await asyncio.wait_for(q.get(), timeout=1.0)
-    assert got == {"n": 2}  # oldest dropped, newest kept
+def test_full_queue_drops_oldest():
+    async def scenario():
+        m = ReadModel()
+        m.bind_loop(asyncio.get_running_loop())
+        q = m.subscribe(maxsize=1)
+        m.publish({"n": 1})
+        m.publish({"n": 2})
+        await asyncio.sleep(0)
+        return await asyncio.wait_for(q.get(), timeout=1.0)
+    assert asyncio.run(scenario()) == {"n": 2}  # oldest dropped, newest kept
 ```
+
+> To exercise `publish` from a real *thread* (closer to the consumer-thread reality), a stronger
+> variant spawns `threading.Thread(target=lambda: m.publish(...))` inside `scenario()` and awaits
+> the queue — optional but recommended; the loop must already be bound and running.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest services/read/tests/test_stream.py -v`
-Expected: FAIL (`ReadModel` has no `bind_loop`/`subscribe`/`publish`). Note: `pytest-asyncio` — if not configured, add `asyncio_mode = "auto"` under `[tool.pytest.ini_options]` in `pyproject.toml`, or mark with the project's existing async pattern. Verify the marker works before proceeding.
+Expected: FAIL (`ReadModel` has no `bind_loop`/`subscribe`/`publish`). The tests are plain **sync** functions using `asyncio.run(...)` — no `pytest-asyncio` marker needed (the repo has none; do not add one).
 
 - [ ] **Step 3: Add the pub/sub to `ReadModel`**
 
