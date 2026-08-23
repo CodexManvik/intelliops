@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, CheckCircle, GraduationCap, WarningCircle } from "@phosphor-icons/react";
 import { Bezel, Eyebrow, Sparkline } from "../components/primitives";
 import { metrics as mockMetrics, series, services } from "../data/mock";
@@ -5,7 +6,32 @@ import { loadMetrics, loadOutcomes, loadPlaybooks } from "../data/source";
 import { useLiveData } from "../hooks/useLiveData";
 import { timeAgo } from "../components/primitives";
 import { Reveal as Section } from "../hooks/useReveal";
-import type { OutcomeReason, OutcomeRow, Playbook } from "../data/types";
+import type { Metrics, OutcomeReason, OutcomeRow, Playbook, ServiceHealth } from "../data/types";
+
+const LIVE = import.meta.env.VITE_DATA_MODE === "live";
+
+const READ_URL = import.meta.env.VITE_READ_URL ?? "http://localhost:8007";
+const GOV_URL = import.meta.env.VITE_GOV_URL ?? "http://localhost:8005";
+
+/** Services whose base URL the browser actually knows (only these two are
+ * configured via VITE_*_URL). The remaining four run behind ports the
+ * frontend has no env var for, so their live health can't be pinged
+ * directly from the browser — they render as "degraded/unknown" below
+ * rather than faked as healthy. */
+const PINGABLE_SERVICES: { name: string; url: string }[] = [
+  { name: "read", url: READ_URL },
+  { name: "governance", url: GOV_URL },
+];
+
+const MAX_BUFFER = 40;
+
+/** Sparkline needs >=2 points (it divides by data.length - 1). Pad a short
+ * live buffer into a flat line instead of crashing on NaN coordinates. */
+function sparkSeries(buffer: number[], fallback: number): number[] {
+  if (buffer.length >= 2) return buffer;
+  const v = buffer.length === 1 ? buffer[0] : fallback;
+  return [v, v];
+}
 
 const reasonTone: Record<OutcomeReason, string> = {
   healthy: "text-sev-ok",
@@ -49,6 +75,65 @@ export function Overview() {
   const { data: playbooks } = useLiveData(loadPlaybooks, [] as Playbook[]);
   const { data: metrics } = useLiveData(loadMetrics, mockMetrics);
 
+  // Rolling client-side buffer of real metric samples, fed by every
+  // useLiveData(loadMetrics) update. Live-mode-only; mock mode keeps using
+  // data/mock's series() generator untouched.
+  const bufferRef = useRef<Metrics[]>([]);
+  const [history, setHistory] = useState<Metrics[]>([]);
+  useEffect(() => {
+    if (!LIVE) return;
+    bufferRef.current = [...bufferRef.current, metrics].slice(-MAX_BUFFER);
+    setHistory(bufferRef.current);
+  }, [metrics]);
+
+  const noiseHistory = history.map((m) => m.noiseReductionPct);
+  const mttrHistory = history.map((m) => m.mttrMinutes);
+  const autoRemHistory = history.map((m) => m.autoRemediatedPct);
+
+  // Fleet health, live mode: ping the two services whose base URL the
+  // browser knows (read, governance — both expose an always-auth-exempt
+  // /health). The other four services run on ports the frontend has no
+  // VITE_*_URL for, so they're reported "unknown" rather than invented as
+  // healthy — pinging them would require guessing ports/CORS.
+  const [liveHealth, setLiveHealth] = useState<Record<string, "ok" | "down">>({});
+  useEffect(() => {
+    if (!LIVE) return;
+    let alive = true;
+    const check = async () => {
+      const results = await Promise.all(
+        PINGABLE_SERVICES.map(async ({ name, url }) => {
+          try {
+            const r = await fetch(`${url}/health`);
+            return [name, r.ok ? "ok" : "down"] as const;
+          } catch {
+            return [name, "down"] as const;
+          }
+        }),
+      );
+      if (!alive) return;
+      setLiveHealth(Object.fromEntries(results));
+    };
+    check();
+    const id = window.setInterval(check, 5000);
+    return () => {
+      alive = false;
+      window.clearInterval(id);
+    };
+  }, []);
+
+  // Services with no known base URL render as "degraded" (⚠ unknown), never
+  // as a fabricated "ok" — that's the mock-leak bug this fixes.
+  const liveFleet: ServiceHealth[] = services.map((s) => {
+    const known = liveHealth[s.name];
+    return {
+      ...s,
+      status: known ?? "degraded",
+      throughput: known === "ok" ? s.throughput : 0,
+    };
+  });
+  const fleet = LIVE ? liveFleet : services;
+  const fleetHealthyCount = fleet.filter((s) => s.status === "ok").length;
+
   return (
     <div className="space-y-5">
       <Section>
@@ -79,10 +164,15 @@ export function Overview() {
                 <div className="text-[5.5rem] font-semibold leading-[0.9] tracking-tightest tnum">{metrics.noiseReductionPct}<span className="text-4xl text-ink-3">%</span></div>
               </div>
               <p className="mt-2 max-w-[38ch] text-sm text-ink-2">
-                <span className="text-ink">8,420 raw alerts</span> collapsed into a handful of Situations. <span className="text-signal">{metrics.suppressedToday} storms</span> were suppressed entirely — the system had already proven their fix.
+                <span className="text-ink">{metrics.alertsIngested.toLocaleString()} raw alerts</span> collapsed into a handful of Situations. <span className="text-signal">{metrics.suppressedToday} storms</span> were suppressed entirely — the system had already proven their fix.
               </p>
               <div className="mt-auto pt-6">
-                <Sparkline data={series(40, 62, 0.7, 11)} color="#0071E3" width={520} height={92} />
+                <Sparkline
+                  data={LIVE ? sparkSeries(noiseHistory, metrics.noiseReductionPct) : series(40, 62, 0.7, 11)}
+                  color="#0071E3"
+                  width={520}
+                  height={92}
+                />
                 <div className="mt-1 flex justify-between font-mono text-2xs text-ink-3"><span>00:00</span><span>target band 80–95%</span><span>now</span></div>
               </div>
             </div>
@@ -91,10 +181,26 @@ export function Overview() {
 
         {/* two mini stats top-right */}
         <Section className="md:col-span-5">
-          <MiniStat label="MTTR" value={metrics.mttrMinutes.toFixed(1)} unit="min" delta="−41%" up spark={series(24, 14, -0.32, 3)} color="#34C759" />
+          <MiniStat
+            label="MTTR"
+            value={metrics.mttrMinutes.toFixed(1)}
+            unit="min"
+            delta="−41%"
+            up
+            spark={LIVE ? sparkSeries(mttrHistory, metrics.mttrMinutes) : series(24, 14, -0.32, 3)}
+            color="#34C759"
+          />
         </Section>
         <Section className="md:col-span-5">
-          <MiniStat label="Auto-remediated" value={`${metrics.autoRemediatedPct}`} unit="%" delta="+6" up spark={series(24, 22, 0.6, 9)} color="#5E5CE6" />
+          <MiniStat
+            label="Auto-remediated"
+            value={`${metrics.autoRemediatedPct}`}
+            unit="%"
+            delta="+6"
+            up
+            spark={LIVE ? sparkSeries(autoRemHistory, metrics.autoRemediatedPct) : series(24, 22, 0.6, 9)}
+            color="#5E5CE6"
+          />
         </Section>
 
         {/* service health strip */}
@@ -102,10 +208,12 @@ export function Overview() {
           <Bezel coreClassName="p-5">
             <div className="flex items-center justify-between">
               <span className="text-2xs font-medium uppercase tracking-[0.14em] text-ink-3">Fleet health</span>
-              <span className="font-mono text-2xs text-sev-ok">6/6 healthy</span>
+              <span className={`font-mono text-2xs ${fleetHealthyCount === fleet.length ? "text-sev-ok" : "text-sev-warn"}`}>
+                {fleetHealthyCount}/{fleet.length} healthy
+              </span>
             </div>
             <div className="mt-4 space-y-2.5">
-              {services.map((s) => (
+              {fleet.map((s) => (
                 <div key={s.name} className="flex items-center gap-3">
                   <span className={`h-1.5 w-1.5 flex-none rounded-full ${s.status === "ok" ? "bg-sev-ok" : s.status === "degraded" ? "bg-sev-warn" : "bg-sev-crit"}`} />
                   <span className="w-24 text-sm text-ink">{s.name}</span>
