@@ -1,14 +1,15 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Pulse, ShieldCheck, SquaresFour, Waveform } from "@phosphor-icons/react";
+import { FlowArrow, Pulse, ShieldCheck, SquaresFour, Waveform } from "@phosphor-icons/react";
 import { fluid } from "./primitives";
 import { ToastHost } from "../hooks/useToast";
 
-export type View = "overview" | "incidents" | "governance";
+export type View = "overview" | "incidents" | "pipeline" | "governance";
 
 const tabs: { id: View; label: string; icon: JSX.Element }[] = [
   { id: "overview", label: "Overview", icon: <SquaresFour size={17} weight="light" /> },
   { id: "incidents", label: "Incidents", icon: <Waveform size={17} weight="light" /> },
+  { id: "pipeline", label: "Pipeline", icon: <FlowArrow size={17} weight="light" /> },
   { id: "governance", label: "Governance", icon: <ShieldCheck size={17} weight="light" /> },
 ];
 

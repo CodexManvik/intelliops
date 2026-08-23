@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Shell, type View } from "./components/Shell";
 import { Overview } from "./views/Overview";
 import { Incidents } from "./views/Incidents";
+import { Pipeline } from "./views/Pipeline";
 import { Governance } from "./views/Governance";
 import "./styles/view.css";
 
@@ -17,6 +18,7 @@ export default function App() {
       <div key={view} className="view-enter">
         {view === "overview" && <Overview />}
         {view === "incidents" && <Incidents />}
+        {view === "pipeline" && <Pipeline />}
         {view === "governance" && <Governance />}
       </div>
     </Shell>
