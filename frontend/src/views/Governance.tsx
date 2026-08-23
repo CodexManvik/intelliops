@@ -1,7 +1,7 @@
 import { LockKey, Prohibit, Scroll, ShieldCheck, UserCheck } from "@phosphor-icons/react";
 import { Bezel, Eyebrow, timeAgo } from "../components/primitives";
 import { loadAudit, loadPlaybooks } from "../data/source";
-import { useData } from "../hooks/useData";
+import { useLiveData } from "../hooks/useLiveData";
 import { Reveal as Section } from "../hooks/useReveal";
 import type { AuditRow, Playbook } from "../data/types";
 
@@ -33,8 +33,8 @@ const actorTone: Record<string, string> = {
 };
 
 export function Governance() {
-  const { data: audit } = useData(loadAudit, [] as AuditRow[]);
-  const { data: playbooks } = useData(loadPlaybooks, [] as Playbook[]);
+  const { data: audit } = useLiveData(loadAudit, [] as AuditRow[]);
+  const { data: playbooks } = useLiveData(loadPlaybooks, [] as Playbook[]);
 
   return (
     <div className="space-y-6">

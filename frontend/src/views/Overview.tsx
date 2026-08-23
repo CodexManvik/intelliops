@@ -2,7 +2,7 @@ import { ArrowDown, ArrowUp, CheckCircle, GraduationCap, WarningCircle } from "@
 import { Bezel, Eyebrow, Sparkline } from "../components/primitives";
 import { metrics as mockMetrics, series, services } from "../data/mock";
 import { loadMetrics, loadOutcomes, loadPlaybooks } from "../data/source";
-import { useData } from "../hooks/useData";
+import { useLiveData } from "../hooks/useLiveData";
 import { timeAgo } from "../components/primitives";
 import { Reveal as Section } from "../hooks/useReveal";
 import type { OutcomeReason, OutcomeRow, Playbook } from "../data/types";
@@ -45,9 +45,9 @@ function MiniStat({ label, value, unit, delta, up, spark, color }: {
 }
 
 export function Overview() {
-  const { data: outcomes } = useData(loadOutcomes, [] as OutcomeRow[]);
-  const { data: playbooks } = useData(loadPlaybooks, [] as Playbook[]);
-  const { data: metrics } = useData(loadMetrics, mockMetrics);
+  const { data: outcomes } = useLiveData(loadOutcomes, [] as OutcomeRow[]);
+  const { data: playbooks } = useLiveData(loadPlaybooks, [] as Playbook[]);
+  const { data: metrics } = useLiveData(loadMetrics, mockMetrics);
 
   return (
     <div className="space-y-5">

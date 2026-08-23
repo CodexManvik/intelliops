@@ -14,7 +14,7 @@ import {
 } from "@phosphor-icons/react";
 import { Bezel, Eyebrow, SevChip, StatusChip, timeAgo, motion as m } from "../components/primitives";
 import { loadSituations, decideApproval } from "../data/source";
-import { useData } from "../hooks/useData";
+import { useLiveData } from "../hooks/useLiveData";
 import { pushToast } from "../hooks/useToast";
 import type { Situation, SituationStatus } from "../data/types";
 
@@ -30,7 +30,7 @@ const stageDefs = [
 const order: SituationStatus[] = ["detected", "diagnosed", "acting", "resolved"];
 
 export function Incidents() {
-  const { data: seed } = useData(loadSituations, [] as Situation[]);
+  const { data: seed } = useLiveData(loadSituations, [] as Situation[]);
   const [overrides, setOverrides] = useState<Record<string, Partial<Situation>>>({});
   const [selId, setSelId] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
