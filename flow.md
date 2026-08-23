@@ -60,12 +60,12 @@ A single production incident, from raw telemetry to a closed feedback loop:
    │ read-service       │   projects situations.detected/diagnosed + remediation.outcomes
    │  (CQRS read model) │   + situations.suppressed into the exact shapes the UI needs
    └────────────────────┘   ── serves ▶ GET /situations · /outcomes · /metrics
-            │
+            │                ── pushes ▶ GET /stream (SSE: a "changed" nudge on every mutation)
             ▼
    ┌────────────────────┐
    │ React console      │   Overview (live KPIs) · Incidents (HITL approve/reject)
-   │  (operator UI)     │   · Governance (gates, audit, playbook registry)
-   └────────────────────┘
+   │  (operator UI)     │   · Pipeline (live incident-journey lanes) · Governance (gates,
+   └────────────────────┘   audit, playbook registry) · Audit (filterable audit explorer)
 ```
 
 **The single synchronous step** is `action-service → governance-service` (step 6). Everything
@@ -76,7 +76,10 @@ action. See [ADR-003](architectural.md#adr-003--governance-is-an-active-gate-not
 and emit events. The **read-service** ([ADR-009](architectural.md#adr-009--a-read-model-service-cqrs-for-the-dashboard))
 is a separate consumer that projects those events into an in-memory read model and serves the
 dashboard over plain `GET` endpoints. It holds no source-of-truth state — the Redis event
-streams are the record, and the projection rebuilds from them on restart.
+streams are the record, and the projection rebuilds from them on restart. The read-model also
+**pushes**: `GET /stream` (Server-Sent Events) emits a generic `{"type": "changed"}` nudge on
+every projection mutation, so the console re-fetches within about a second of a real change
+instead of waiting out a poll interval ([ADR-018](architectural.md#adr-018--real-time-console-read-path-sse)).
 
 ## 2. Bus topics (the wiring)
 
@@ -202,9 +205,10 @@ projection of the event streams ([ADR-009](architectural.md#adr-009--a-read-mode
 
 | Function | What it does | Why | Depends on |
 |----------|--------------|-----|-----------|
-| `apply_detected/diagnosed/outcome/suppressed(...)` | Folds each event into an in-memory projection keyed by situation id, mapping backend contracts to the exact shapes the React types expect. | One place owns the read shape, so the UI needs no translation layer. | the four situation/outcome topics |
+| `apply_detected/diagnosed/outcome/suppressed(...)` | Folds each event into an in-memory projection keyed by situation id, mapping backend contracts to the exact shapes the React types expect; each call ends by `publish()`-ing a `{"type": "changed"}` nudge to any subscribed SSE clients. | One place owns the read shape, so the UI needs no translation layer. | the four situation/outcome topics |
 | `situations(now_ms)` / `outcomes()` | Serve the live incident queue and outcome ticker (`GET /situations`, `GET /outcomes`). Ages out resolved/failed situations past a TTL and caps the total; **active situations are never pruned.** | Keeps the queue legible over long runs without touching the durable event log. | the projection |
 | `metrics()` | Computes the 8 dashboard KPIs — noise-reduction, **real MTTR** (mean of `outcome.ts − first_seen` over resolved situations), auto-remediated %, success rate, open/pending counts, suppressed count (`GET /metrics`). | The Overview tiles read this — every number is derived, nothing fabricated. | the projection |
+| `subscribe()` / `unsubscribe()` / `publish()` | Backs `GET /stream` (SSE): each connection gets its own bounded `asyncio.Queue`; consumer threads hand off delivery via `loop.call_soon_threadsafe(...)` (the thread-safe bridge onto the uvicorn event loop); a full queue drops the oldest event rather than blocking. | Pushes changes to the console in near-real-time without the projection needing per-event serialization or a new dependency ([ADR-018](architectural.md#adr-018--real-time-console-read-path-sse)). | the projection, the uvicorn event loop |
 | `reset()` | Clears the projection (`POST /reset`). Paired with correlation's `POST /reset-baseline` and demo-app's `/fix` (see [`scripts/reset.sh`](../scripts/reset.sh)). | A one-command clean slate for repeatable simulation runs — **a simulation control, not a production endpoint.** | the projection |
 
 ## 6. Two worked scenarios
@@ -287,6 +291,15 @@ stack sets `json` — one JSON object per line for aggregation) and exposes two 
 the `/ready` probe as a per-service healthcheck; a real cluster should map `livenessProbe: /health`
 + `readinessProbe: /ready` ([ADR-016](architectural.md#adr-016--observability--readiness),
 [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md)).
+
+**The console is real-time, with a live pipeline view.** The read-service pushes over SSE
+(`GET /stream`, a stdlib thread→async pub/sub inside `ReadModel`) so the console re-fetches within
+about a second of a backend change, falling back to the previous 5-second poll if the stream can't
+be used ([ADR-018](architectural.md#adr-018--real-time-console-read-path-sse)). The console gained
+two tabs: **Pipeline**, which animates every open incident through five stage lanes as its status
+changes, and **Audit**, a filterable explorer over the audit trail. Overview's fleet health and
+sparklines are now derived from real live data rather than falling back to mock values, and the
+whole console was repainted to Apple's light website palette. See [docs/UI.md](docs/UI.md).
 
 **What is still deliberately simulated / deferred:**
 - **Auth is a config-switched edge gate** ([ADR-017](architectural.md#adr-017--edge-authentication)).
