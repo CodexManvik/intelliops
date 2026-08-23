@@ -14,7 +14,7 @@ import {
 } from "@phosphor-icons/react";
 import { Bezel, Eyebrow, SevChip, StatusChip, timeAgo, motion as m } from "../components/primitives";
 import { loadSituations, decideApproval } from "../data/source";
-import { useData } from "../hooks/useData";
+import { useLiveData } from "../hooks/useLiveData";
 import { pushToast } from "../hooks/useToast";
 import type { Situation, SituationStatus } from "../data/types";
 
@@ -30,7 +30,7 @@ const stageDefs = [
 const order: SituationStatus[] = ["detected", "diagnosed", "acting", "resolved"];
 
 export function Incidents() {
-  const { data: seed } = useData(loadSituations, [] as Situation[]);
+  const { data: seed } = useLiveData(loadSituations, [] as Situation[]);
   const [overrides, setOverrides] = useState<Record<string, Partial<Situation>>>({});
   const [selId, setSelId] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
@@ -110,10 +110,10 @@ export function Incidents() {
                 <button key={s.id} onClick={() => setSelId(s.id)} className="block w-full text-left">
                   <div
                     className={`rounded-4xl p-1.5 transition-all duration-500 ease-fluid ${
-                      active ? "border border-signal/40 bg-signal/[0.06] shadow-glow" : "border border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04]"
+                      active ? "border border-signal/40 bg-signal/[0.06] shadow-glow" : "border border-black/[0.06] bg-black/[0.02] hover:bg-black/[0.04]"
                     }`}
                   >
-                    <div className="rounded-[calc(2rem-6px)] bg-ground-raised/60 p-4">
+                    <div className="rounded-[calc(2rem-6px)] bg-ground-sunken p-4">
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex items-center gap-2">
                           <SevChip sev={s.severity} />
@@ -159,13 +159,13 @@ export function Incidents() {
                       <span>· {sel.memberCount} alerts collapsed</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5 rounded-full border border-white/[0.07] bg-white/[0.03] px-3 py-1.5 font-mono text-2xs text-ink-2">
+                  <div className="flex items-center gap-1.5 rounded-full border border-black/[0.08] bg-black/[0.03] px-3 py-1.5 font-mono text-2xs text-ink-2">
                     <Cpu size={14} weight="light" /> {sel.service}
                   </div>
                 </div>
 
                 {/* pipeline rail */}
-                <div className="mt-6 rounded-2xl border border-white/[0.05] bg-white/[0.015] p-4">
+                <div className="mt-6 rounded-2xl border border-black/[0.06] bg-black/[0.02] p-4">
                   <div className="space-y-1.5">
                     {stageDefs.map((st, i) => {
                       const done = i < stageIndex;
@@ -174,14 +174,14 @@ export function Incidents() {
                       const isDone = done || doneAll;
                       return (
                         <div key={st.key} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors duration-500 ${now ? "bg-signal/[0.07]" : ""}`}>
-                          <span className={`flex h-7 w-7 flex-none items-center justify-center rounded-lg ${isDone ? "bg-sev-ok/15 text-sev-ok" : now ? "bg-signal/15 text-signal" : "bg-white/[0.04] text-ink-3"}`}>
+                          <span className={`flex h-7 w-7 flex-none items-center justify-center rounded-lg ${isDone ? "bg-sev-ok/15 text-sev-ok" : now ? "bg-signal/15 text-signal" : "bg-black/[0.05] text-ink-3"}`}>
                             {isDone ? <Check size={14} weight="bold" /> : now && working ? <CircleNotch size={14} weight="bold" className="animate-spin" /> : st.icon}
                           </span>
                           <div className="min-w-0">
                             <div className={`text-sm ${isDone || now ? "text-ink" : "text-ink-3"}`}>{st.label}</div>
                             <div className="font-mono text-2xs text-ink-3">{st.note}</div>
                           </div>
-                          {now && <span className="ml-auto font-mono text-2xs text-signal">in progress</span>}
+                          {now && <span className="ml-auto font-mono text-2xs text-signal-dim">in progress</span>}
                           {isDone && <span className="ml-auto font-mono text-2xs text-sev-ok">done</span>}
                         </div>
                       );
@@ -197,16 +197,16 @@ export function Incidents() {
                   </div>
                   <div className="space-y-2">
                     {sel.hypotheses.map((h, i) => (
-                      <div key={i} className={`rounded-xl border p-3 ${i === 0 ? "border-signal/25 bg-signal/[0.05]" : "border-white/[0.05] bg-white/[0.015]"}`}>
+                      <div key={i} className={`rounded-xl border p-3 ${i === 0 ? "border-signal/25 bg-signal/[0.05]" : "border-black/[0.06] bg-black/[0.02]"}`}>
                         <div className="flex items-center justify-between gap-3">
                           <span className="text-sm text-ink-2">{h.description}</span>
                           <span className="flex-none font-mono text-2xs text-ink-3">conf {h.confidence.toFixed(2)}</span>
                         </div>
                         <div className="mt-2 flex items-center gap-2">
-                          <div className="h-1 flex-1 overflow-hidden rounded-full bg-white/[0.06]">
+                          <div className="h-1 flex-1 overflow-hidden rounded-full bg-black/[0.08]">
                             <div className={`h-full rounded-full ${i === 0 ? "bg-signal" : "bg-ink-4"}`} style={{ width: `${h.confidence * 100}%` }} />
                           </div>
-                          {h.suggested_runbook_id && <span className="rounded-md bg-white/[0.05] px-2 py-0.5 font-mono text-2xs text-ink-2">{h.suggested_runbook_id}</span>}
+                          {h.suggested_runbook_id && <span className="rounded-md bg-black/[0.05] px-2 py-0.5 font-mono text-2xs text-ink-2">{h.suggested_runbook_id}</span>}
                         </div>
                       </div>
                     ))}
@@ -214,7 +214,7 @@ export function Incidents() {
                 </div>
 
                 {/* the gate / result */}
-                <div className="mt-5 rounded-2xl border border-white/[0.06] bg-ground-sunken/60 p-4">
+                <div className="mt-5 rounded-2xl border border-black/[0.06] bg-black/[0.03] p-4">
                   {sel.status === "resolved" ? (
                     <div className="flex items-center gap-3">
                       <span className="flex h-9 w-9 items-center justify-center rounded-full bg-sev-ok/15 text-sev-ok"><Check size={17} weight="bold" /></span>
@@ -244,15 +244,15 @@ export function Incidents() {
                       <div className="flex items-center gap-2">
                         <span className="flex h-2 w-2 animate-beat rounded-full bg-sev-warn" />
                         <span className="text-sm font-medium text-ink">Human approval required</span>
-                        <span className="ml-auto rounded-md bg-white/[0.05] px-2 py-0.5 font-mono text-2xs text-ink-2">{sel.suggested_runbook_id} · hitl</span>
+                        <span className="ml-auto rounded-md bg-black/[0.05] px-2 py-0.5 font-mono text-2xs text-ink-2">{sel.suggested_runbook_id} · hitl</span>
                       </div>
                       <p className="mt-1.5 font-mono text-2xs text-ink-3">action-service is authorized to <span className="text-ink-2">execute</span> this reversible playbook. Approve to run it, or reject to hold.</p>
                       <div className="mt-3 flex gap-2">
-                        <button onClick={approve} disabled={working} className="group flex items-center gap-2 rounded-full bg-signal px-5 py-2.5 text-sm font-medium text-ground-sunken transition-all duration-300 ease-fluid active:scale-[0.97] disabled:opacity-50">
+                        <button onClick={approve} disabled={working} className="group flex items-center gap-2 rounded-full bg-signal px-5 py-2.5 text-sm font-medium text-white transition-all duration-300 ease-fluid active:scale-[0.97] disabled:opacity-50">
                           {working ? <CircleNotch size={15} weight="bold" className="animate-spin" /> : <Check size={15} weight="bold" />}
                           {working ? "Executing…" : "Approve & remediate"}
                         </button>
-                        <button onClick={reject} disabled={working} className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-5 py-2.5 text-sm text-ink-2 transition-all duration-300 ease-fluid hover:bg-white/[0.07] active:scale-[0.97]">
+                        <button onClick={reject} disabled={working} className="flex items-center gap-2 rounded-full border border-black/[0.10] bg-black/[0.04] px-5 py-2.5 text-sm text-ink-2 transition-all duration-300 ease-fluid hover:bg-black/[0.06] active:scale-[0.97]">
                           <X size={15} weight="bold" /> Reject
                         </button>
                         <button onClick={() => update(sel.id, { status: "detected" })} className="ml-auto flex items-center gap-1.5 rounded-full px-3 py-2.5 font-mono text-2xs text-ink-3 hover:text-ink-2">
@@ -267,7 +267,7 @@ export function Incidents() {
           </AnimatePresence>
         </div>
         ) : (
-          <div className="lg:col-span-7 flex items-center justify-center rounded-4xl border border-white/[0.06] p-12 text-ink-3">
+          <div className="lg:col-span-7 flex items-center justify-center rounded-4xl border border-black/[0.06] p-12 text-ink-3">
             Waiting for situations…
           </div>
         )}

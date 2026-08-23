@@ -1,7 +1,7 @@
 import { LockKey, Prohibit, Scroll, ShieldCheck, UserCheck } from "@phosphor-icons/react";
 import { Bezel, Eyebrow, timeAgo } from "../components/primitives";
 import { loadAudit, loadPlaybooks } from "../data/source";
-import { useData } from "../hooks/useData";
+import { useLiveData } from "../hooks/useLiveData";
 import { Reveal as Section } from "../hooks/useReveal";
 import type { AuditRow, Playbook } from "../data/types";
 
@@ -33,8 +33,8 @@ const actorTone: Record<string, string> = {
 };
 
 export function Governance() {
-  const { data: audit } = useData(loadAudit, [] as AuditRow[]);
-  const { data: playbooks } = useData(loadPlaybooks, [] as Playbook[]);
+  const { data: audit } = useLiveData(loadAudit, [] as AuditRow[]);
+  const { data: playbooks } = useLiveData(loadPlaybooks, [] as Playbook[]);
 
   return (
     <div className="space-y-6">
@@ -55,10 +55,10 @@ export function Governance() {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         {gates.map((g, i) => (
           <Section key={i}>
-            <div className="group relative h-full overflow-hidden rounded-4xl border border-white/[0.06] bg-white/[0.02] p-1.5 transition-transform duration-500 ease-fluid hover:-translate-y-1">
+            <div className="group relative h-full overflow-hidden rounded-4xl border border-black/[0.06] bg-black/[0.02] p-1.5 transition-transform duration-500 ease-fluid hover:-translate-y-1">
               <span className={`absolute left-1.5 top-6 h-14 w-[3px] rounded-full ${g.bg}`} />
               <div className="rounded-[calc(2rem-6px)] p-6 pl-7">
-                <span className={`flex h-11 w-11 items-center justify-center rounded-2xl bg-white/[0.04] ${g.tone}`}>{g.icon}</span>
+                <span className={`flex h-11 w-11 items-center justify-center rounded-2xl bg-black/[0.05] ${g.tone}`}>{g.icon}</span>
                 <div className="mt-4 flex items-center gap-2">
                   <h3 className="text-lg font-semibold tracking-tight">{g.title}</h3>
                   <span className="font-mono text-2xs text-ink-3">{g.adr}</span>
@@ -81,7 +81,7 @@ export function Governance() {
             </div>
             <div className="space-y-1">
               {audit.map((a, i) => (
-                <div key={i} className="grid grid-cols-[auto_1fr_auto] items-center gap-3 rounded-lg px-2 py-2 font-mono text-2xs transition-colors hover:bg-white/[0.025]">
+                <div key={i} className="grid grid-cols-[auto_1fr_auto] items-center gap-3 rounded-lg px-2 py-2 font-mono text-2xs transition-colors hover:bg-black/[0.03]">
                   <span className="text-ink-3">{timeAgo(a.ts)}</span>
                   <span className="truncate">
                     <span className="text-ink-2">{a.actor}</span>
@@ -95,7 +95,7 @@ export function Governance() {
                 </div>
               ))}
             </div>
-            <div className="mt-3 border-t border-white/[0.06] pt-3 font-mono text-2xs text-ink-3">
+            <div className="mt-3 border-t border-black/[0.06] pt-3 font-mono text-2xs text-ink-3">
               NIST AI RMF · EU AI Act · DORA — every entry is append-only.
             </div>
           </Bezel>
@@ -116,7 +116,7 @@ export function Governance() {
                   { role: "approver", grant: "approve · reject", who: "oncall-alice" },
                   { role: "coe-admin", grant: "graduate playbook:*", who: "feedback-service" },
                 ].map((r, i) => (
-                  <div key={i} className="flex items-center gap-2 rounded-lg bg-white/[0.02] px-3 py-2">
+                  <div key={i} className="flex items-center gap-2 rounded-lg bg-black/[0.03] px-3 py-2">
                     <span className="w-20 text-signal-dim">{r.role}</span>
                     <span className="flex-1 text-ink-2">{r.grant}</span>
                     <span className="text-ink-3">{r.who}</span>
@@ -133,10 +133,10 @@ export function Governance() {
               </div>
               <div className="space-y-2">
                 {playbooks.map((p) => (
-                  <div key={p.id} className="flex items-center gap-2 rounded-lg bg-white/[0.02] px-3 py-2.5">
+                  <div key={p.id} className="flex items-center gap-2 rounded-lg bg-black/[0.03] px-3 py-2.5">
                     <span className={`h-1.5 w-1.5 rounded-full ${p.reversible ? "bg-sev-ok" : "bg-sev-crit"}`} />
                     <span className="flex-1 text-sm text-ink">{p.name}</span>
-                    <span className={`rounded-md px-2 py-0.5 font-mono text-2xs ${p.graduated ? "bg-signal/10 text-signal" : "bg-white/[0.05] text-ink-2"}`}>{p.hitl_mode}</span>
+                    <span className={`rounded-md px-2 py-0.5 font-mono text-2xs ${p.graduated ? "bg-signal/10 text-signal-dim" : "bg-black/[0.05] text-ink-2"}`}>{p.hitl_mode}</span>
                   </div>
                 ))}
               </div>

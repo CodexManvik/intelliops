@@ -33,3 +33,9 @@ export async function decideApproval(
   });
   if (!r.ok) throw new Error(`decide → ${r.status}`);
 }
+
+export function openStream(): EventSource {
+  const url = new URL(`${READ}/stream`);
+  if (AUTH_TOKEN) url.searchParams.set("token", AUTH_TOKEN);
+  return new EventSource(url.toString()); // no withCredentials — conflicts with wildcard CORS
+}

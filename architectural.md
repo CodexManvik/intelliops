@@ -674,6 +674,116 @@ but far more than a demo needs now; deferred and noted, not built. *Trust the in
 exempt service-to-service calls* — reintroduces an unauthenticated path and couples security to
 network topology; rejected in favor of internal callers carrying the token.
 
+### ADR-018 — Real-time console read path (SSE)
+
+**Context.** The React console polled every backend endpoint on a flat 5-second `setInterval`,
+in every view, since the first version of the read-model work. That is livable for a dashboard but
+undercuts the demo's central moment — an operator watching an incident move through detection,
+diagnosis, gate, and remediation — where a 5-second lag between "the backend resolved it" and "the
+screen shows it resolved" reads as sluggish rather than live. The read-service's projection
+(`ReadModel`, `services/read/projection.py`) already sees every mutation the moment a consumer
+thread applies it; the gap was purely in how that moment reached the browser. Two more things had
+to be true of whatever filled that gap: it had to run through the existing auth/CORS/middleware
+path unchanged (no new gate to keep honest), and it had to degrade to the existing poll rather than
+silently going dark if it broke.
+
+**Decision.** Add one new **Server-Sent Events** endpoint, `GET /stream`, fed by a **stdlib
+thread→async pub/sub** inside `ReadModel`, authenticated under `AUTH_MODE=token` by a **query-param
+token** scoped to that one route. Three parts:
+
+- **SSE, not WebSocket.** The data need is one-way, server→client only — the console never sends
+  anything over this channel; approve/reject stays the existing `POST /approvals/{id}/decide`.
+  `EventSource` (the browser API for SSE) has auto-reconnect built in, and — verified against the
+  installed stack, FastAPI 0.133.1 / Starlette 1.0.1 — `BaseHTTPMiddleware` (the `_auth_gate` in
+  `services/base.py`) streams responses through an anyio task group in this version rather than
+  buffering the body, so a `StreamingResponse(media_type="text/event-stream")` passes through the
+  auth middleware unbroken with no special-casing. A WebSocket would add a connection-lifecycle
+  state machine and a separate auth-upgrade path for a capability (client→server realtime) nothing
+  here needs.
+- **Thread→async fan-out, stdlib only.** `ReadModel`'s `apply_detected/apply_diagnosed/apply_outcome/apply_suppressed`
+  run on daemon consumer threads (`services/read/consumer.py`, one per Redis Streams topic), while
+  `/stream`'s generators drain on the uvicorn event loop. `asyncio.Queue` cannot be written to
+  safely from another thread, so `ReadModel` gains a subscriber registry (`set[asyncio.Queue]`
+  behind a `threading.Lock`) and a captured loop reference (`bind_loop`, called once from the async
+  lifespan); consumer threads call `publish()`, which hands delivery to each subscriber via
+  `loop.call_soon_threadsafe(...)` — the one asyncio primitive built for exactly this cross-thread
+  handoff. No `janus`, no `run_in_executor`, no new dependency: `asyncio` + `threading` from the
+  standard library. The event on the wire is a single generic nudge, `{"type": "changed"}`, not a
+  typed diff — on receipt the client just re-runs its existing `/situations` / `/outcomes` /
+  `/metrics` fetch, so the client contract stays trivial and the projection needs no per-event
+  serialization.
+- **Query-param token, scoped to `/stream` only.** `EventSource`'s constructor takes a URL and a
+  `withCredentials` flag — it cannot set an `Authorization` header, so the standard Bearer-header
+  gate ([ADR-017](#adr-017--edge-authentication)) is structurally unreachable here. `/stream`
+  instead accepts `?token=`, checked in-route with the same `hmac.compare_digest` timing-safe
+  comparison (and the same `bool(auth_token)` no-accidental-open guard) as the header path. A
+  custom `auth_exempt` predicate passed into `create_app` exempts exactly `GET /stream` from the
+  header gate — every other route on every service keeps the unmodified gate.
+
+**Why.** Each piece answers a constraint that would otherwise have forced a heavier design: SSE
+because the data need really is one-way and the existing middleware already streams correctly, so
+adding WebSocket machinery would buy nothing; the thread→async handoff because the projection's
+mutation point is fundamentally on a different thread than the delivery point, and
+`call_soon_threadsafe` is the correct, dependency-free bridge for that; the generic nudge because a
+typed per-event payload would require the projection to serialize on every mutation and the client
+to track incremental state, for a UI that already re-fetches full snapshots cheaply; and the
+query-param token because it is the only way to authenticate a browser `EventSource` at all without
+changing what "the read endpoints are gated" means.
+
+**Backpressure: lossy-but-live, not blocking.** Each subscriber's queue is bounded (maxsize 1000).
+A client that falls behind has its oldest queued event dropped to make room, rather than blocking
+the publishing consumer thread or buffering without limit. This is deliberate: the read-model's
+own docstring already states it is a rebuildable projection of the Redis event stream, not a
+durable log, so a client that misses a nudge loses nothing it cannot get by reconnecting and
+re-`GET`ting the current snapshot. Blocking the consumer thread on a slow SSE client would let one
+stalled browser tab stall the entire projection; dropping a stale nudge cannot.
+
+**Honest limit — the query-param token is scoped to the shared-demo-token model.** The token
+landing in a query string means it can land in access logs and in a `Referer` header if one is ever
+forwarded — a real cost, not a hidden one. It is accepted here specifically because
+`docs/OPERATIONS.md` already documents `VITE_AUTH_TOKEN` as **baked into the client bundle at
+build time**: anyone who can load the console already has the token, so a copy in a log leaks
+nothing new. **This reasoning is scoped to that shared-token model. If per-user tokens or a real
+IdP are ever introduced, `/stream` auth must be revisited** — the query-param approach does not
+extend to a world where the token identifies an individual. A cookie-based alternative was
+considered and rejected: the console is cross-origin (the `:5173` Vite bundle calling the `:8007`
+read-service), so a cookie would require credentialed CORS (`allow_credentials=True`, a
+non-wildcard origin, `SameSite=None; Secure`) — materially more surface than a public demo token
+justifies.
+
+**Also in this effort: the console repaint to Apple's light palette.** Alongside the transport
+work, the entire console was repainted from its original dark theme to Apple's actual light
+website palette — white/`#F5F5F7` backgrounds, `#1D1D1F` ink, `#0071E3` system-blue accent, and
+Apple's system status colors — centralized in `tailwind.config.js`'s token groups plus a
+mechanical re-tune of roughly 55 utility classes that had assumed a dark background and would not
+have picked up a token swap alone (white-on-white hairlines, dark-tuned glows, light-on-light
+button text). This is a visual decision without the transport's structural trade-offs, so it is
+noted here rather than given its own ADR; see [docs/UI.md](docs/UI.md) for the full before/after
+description.
+
+**Consequences.** (+) The console's three pre-existing views (Overview, Incidents, Governance) and
+the two new ones added alongside this work (Pipeline, Audit) all update within about a second of a
+backend mutation in live mode, with no per-view special-casing — they all go through one
+`useLiveData` hook. (+) Zero new runtime dependencies on either side. (+) `AUTH_MODE=off` and mock
+mode are byte-unchanged — the stream is opt-in live-mode behavior, and the existing synchronous
+`ReadModel` unit tests (which call `apply_*` with no loop bound) keep passing unmodified because
+`publish()` is a no-op until `bind_loop` has run. (−) One endpoint now authenticates differently
+from every other route in the system — a reader auditing "how does auth work here" has to know
+`/stream` is the one exception, and why. (−) The query-param token is a real, documented crack in
+an otherwise uniform header-based gate; it is scoped and justified above, not hidden. (−) Backpressure
+is lossy by design: a sufficiently slow or unlucky client can miss a nudge, though never the
+underlying state (a reconnect or the next nudge always re-syncs it).
+
+**Alternatives rejected.** *WebSocket* — bidirectional machinery for a channel that only ever
+needs to carry server→client nudges; rejected as unneeded complexity. *A cookie-based `/stream`
+auth* — forces credentialed cross-origin CORS for a single endpoint, more surface than a shared
+demo token warrants; rejected. *Typed per-event payloads* (e.g. `{"type": "situation.updated",
+"situation": {...}}`) — would need the projection to serialize a payload on every mutation and the
+client to merge incremental state, in exchange for saving a snapshot re-fetch the client already
+does cheaply; rejected in favor of the generic nudge. *Unbounded or blocking queues* — trades a
+dropped, recoverable UI hint for either unbounded memory growth or a stalled consumer thread;
+rejected in favor of the bounded drop-oldest queue.
+
 ---
 
 ## 4. Cross-cutting concerns
@@ -754,6 +864,16 @@ in-region/on-prem for sovereign-cloud requirements.
   gated and there's no public read surface. The honest limits: a **shared** token (not per-user)
   and the frontend token is baked into the client bundle; per-user tokens / an IdP are the deferred
   production path. See [docs/OPERATIONS.md](docs/OPERATIONS.md).
+- **Real-time console + live pipeline view.** The console no longer polls alone: the read-service
+  exposes a Server-Sent Events endpoint (`GET /stream`), fed by a stdlib thread→async pub/sub
+  inside `ReadModel`, that nudges the console to re-fetch within about a second of a backend change
+  ([ADR-018](#adr-018--real-time-console-read-path-sse)), with a poll fallback if the stream can't
+  be used. A new **Pipeline** tab animates every open incident through five stage lanes
+  (Detected → Diagnosed → Gate · HITL → Acting → Resolved) as its status changes, and a new
+  **Audit** tab adds a filterable explorer over the audit trail. Overview's fleet health and
+  sparklines are now derived from real data in live mode instead of the old mock fallback. The
+  whole console was also repainted to Apple's light website palette. See
+  [docs/UI.md](docs/UI.md).
 
 **What remains deliberately deferred / simulated — the honest gap and the next milestones:**
 - **Per-user identity / an IdP.** Edge auth exists ([ADR-017](#adr-017--edge-authentication)) but
