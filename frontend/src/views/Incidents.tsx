@@ -181,7 +181,7 @@ export function Incidents() {
                             <div className={`text-sm ${isDone || now ? "text-ink" : "text-ink-3"}`}>{st.label}</div>
                             <div className="font-mono text-2xs text-ink-3">{st.note}</div>
                           </div>
-                          {now && <span className="ml-auto font-mono text-2xs text-signal">in progress</span>}
+                          {now && <span className="ml-auto font-mono text-2xs text-signal-dim">in progress</span>}
                           {isDone && <span className="ml-auto font-mono text-2xs text-sev-ok">done</span>}
                         </div>
                       );

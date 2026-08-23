@@ -262,7 +262,7 @@ export function Overview() {
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium">{p.name}</span>
                       {p.graduated ? (
-                        <span className="flex items-center gap-1 rounded-full bg-signal/10 px-2 py-0.5 font-mono text-2xs text-signal"><CheckCircle size={12} weight="fill" /> auto</span>
+                        <span className="flex items-center gap-1 rounded-full bg-signal/10 px-2 py-0.5 font-mono text-2xs text-signal-dim"><CheckCircle size={12} weight="fill" /> auto</span>
                       ) : (
                         <span className="rounded-full bg-black/[0.05] px-2 py-0.5 font-mono text-2xs text-ink-2">hitl</span>
                       )}

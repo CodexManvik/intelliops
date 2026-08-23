@@ -136,7 +136,7 @@ export function Governance() {
                   <div key={p.id} className="flex items-center gap-2 rounded-lg bg-black/[0.03] px-3 py-2.5">
                     <span className={`h-1.5 w-1.5 rounded-full ${p.reversible ? "bg-sev-ok" : "bg-sev-crit"}`} />
                     <span className="flex-1 text-sm text-ink">{p.name}</span>
-                    <span className={`rounded-md px-2 py-0.5 font-mono text-2xs ${p.graduated ? "bg-signal/10 text-signal" : "bg-black/[0.05] text-ink-2"}`}>{p.hitl_mode}</span>
+                    <span className={`rounded-md px-2 py-0.5 font-mono text-2xs ${p.graduated ? "bg-signal/10 text-signal-dim" : "bg-black/[0.05] text-ink-2"}`}>{p.hitl_mode}</span>
                   </div>
                 ))}
               </div>
