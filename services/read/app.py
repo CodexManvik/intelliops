@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+import hmac
+import json
 import threading
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from common.config import get_settings
 from services.base import create_app
@@ -24,6 +28,7 @@ async def lifespan(app: FastAPI):
         max_situations=settings.read_situations_max,
     )
     app.state.model = model
+    model.bind_loop(asyncio.get_running_loop())
     app.state.consumer_stop = stop_event
     app.state.consumer_threads = run_consumer(app.state.bus, model, stop_event)
     try:
@@ -32,7 +37,13 @@ async def lifespan(app: FastAPI):
         stop_event.set()
 
 
-app = create_app("read-service")
+def _auth_exempt(method: str, path: str) -> bool:
+    # /stream is reached by the browser EventSource API, which cannot set the
+    # Authorization header; it authenticates via ?token= inside the route.
+    return method == "GET" and path == "/stream"
+
+
+app = create_app("read-service", auth_exempt=_auth_exempt)
 app.router.lifespan_context = lifespan
 
 
@@ -60,3 +71,44 @@ def reset() -> dict:
     if model is not None:
         model.reset()
     return {"reset": True}
+
+
+def _stream_authorized(request: Request) -> bool:
+    settings = get_settings()
+    if settings.auth_mode != "token":
+        return True
+    token = request.query_params.get("token", "")
+    return bool(settings.auth_token) and hmac.compare_digest(token, settings.auth_token)
+
+
+@app.get("/stream")
+async def stream(request: Request):
+    if not _stream_authorized(request):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    model = getattr(app.state, "model", None)
+    if model is None:
+        return JSONResponse({"detail": "not ready"}, status_code=503)
+
+    async def gen():
+        q = model.subscribe()
+        try:
+            yield ": connected\n\n"
+            while True:
+                try:
+                    event = await asyncio.wait_for(q.get(), timeout=15.0)
+                except TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
+                yield f"data: {json.dumps(event)}\n\n"
+        finally:
+            model.unsubscribe(q)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
