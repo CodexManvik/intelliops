@@ -16,7 +16,6 @@ from common.db import METADATA, make_engine
 def postgres_engine():
     from testcontainers.postgres import PostgresContainer
 
-
     with PostgresContainer("postgres:16-alpine") as pg:
         # testcontainers returns a psycopg2 URL by default; force psycopg (v3).
         url = pg.get_connection_url().replace("postgresql+psycopg2://", "postgresql+psycopg://")

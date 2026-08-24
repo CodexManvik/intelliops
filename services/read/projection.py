@@ -37,9 +37,6 @@ class ReadModel:
     def __init__(
         self, max_outcomes: int = 200, ttl_seconds: float = 600.0, max_situations: int = 50
     ) -> None:
-    def __init__(
-        self, max_outcomes: int = 200, ttl_seconds: float = 600.0, max_situations: int = 50
-    ) -> None:
         self._sits: dict[str, dict] = {}
         self._outcomes: list[dict] = []
         self._max = max_outcomes
@@ -131,6 +128,7 @@ class ReadModel:
                 "suggested_runbook_id": d.suggested_runbook_id,
             }
         )
+        self.publish({"type": "changed"})
 
     def apply_outcome(self, o: RemediationOutcome) -> None:
         if o.situation_id in self._sits:
@@ -157,6 +155,7 @@ class ReadModel:
             },
         )
         del self._outcomes[self._max :]
+        self.publish({"type": "changed"})
 
     _TERMINAL: ClassVar[set[str]] = {"resolved", "failed"}
 
@@ -210,11 +209,6 @@ class ReadModel:
         alerts = sum(s["memberCount"] for s in sits)
         n_sits = len(sits)
         open_sits = [s for s in sits if s["status"] in self._OPEN]
-        pending = [
-            s
-            for s in open_sits
-            if s.get("hitl_mode") == "hitl" and s["status"] in ("diagnosed", "acting")
-        ]
         pending = [
             s
             for s in open_sits

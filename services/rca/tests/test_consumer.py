@@ -37,23 +37,6 @@ def _situation(name="cpu_usage", labels=None):
         first_seen=NOW,
         last_seen=NOW,
         signature="sig",
-        id="sit-1",
-        status=SituationStatus.DETECTED,
-        member_events=[
-            TelemetryEvent(
-                source="prom",
-                kind=TelemetryKind.METRIC,
-                name=name,
-                value=99.0,
-                labels=labels or {"service": "web"},
-                ts=NOW,
-                fingerprint="fp",
-            )
-        ],
-        severity="high",
-        first_seen=NOW,
-        last_seen=NOW,
-        signature="sig",
     )
 
 
@@ -116,7 +99,14 @@ def test_consumer_stops_on_stop_event():
     bus = InfBus([])
     stop = threading.Event()
     stop.set()
-    run_consumer(bus, NullContextProvider(), InMemoryPlaybookStore(), InMemoryAuditSink(), stop)
+    run_consumer(
+        bus,
+        NullContextProvider(),
+        InMemoryPlaybookStore(),
+        InMemoryAuditSink(),
+        TemplateExplanationProvider(),
+        stop,
+    )
     assert bus.published == []
 
 

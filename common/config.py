@@ -70,6 +70,7 @@ class Settings(BaseSettings):
     llm_explanation_timeout_seconds: float = 10.0
     llm_explanation_api_key: str = ""
 
+
 @lru_cache
 def get_settings() -> Settings:
     return Settings()

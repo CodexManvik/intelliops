@@ -7,7 +7,6 @@ def test_tables_registered():
     assert {"audit_records", "training_records", "playbooks"} <= names
 
 
-
 def test_audit_columns():
     cols = {c.name for c in audit_records.columns}
     assert {

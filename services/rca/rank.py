@@ -39,24 +39,17 @@ def _service_labels(situation: Situation) -> set[str]:
     return services
 
 
-def rank_hypotheses(situation: Situation, context: EnrichmentContext) -> list[RootCauseHypothesis]:
+def rank_hypotheses(
+    situation: Situation,
+    context: EnrichmentContext,
+    reliability_provider: Callable[[str], float] | None = None,
+) -> list[RootCauseHypothesis]:
     hypotheses: list[RootCauseHypothesis] = []
     services = _service_labels(situation)
 
     # Rule: a recent deploy touching one of the situation's services.
     deploy_hit = next((d for d in context.recent_deploys if d.get("service") in services), None)
-    deploy_hit = next((d for d in context.recent_deploys if d.get("service") in services), None)
     if deploy_hit is not None:
-        hypotheses.append(
-            RootCauseHypothesis(
-                situation_id=situation.id,
-                description=f"recent deployment of {deploy_hit.get('service')} "
-                f"({deploy_hit.get('version')}) preceded the incident",
-                confidence=0.8,
-                evidence=[f"deploy {deploy_hit.get('service')}@{deploy_hit.get('version')}"],
-                suggested_runbook_id="rollback-deploy",
-            )
-        )
         hypotheses.append(
             RootCauseHypothesis(
                 situation_id=situation.id,
@@ -80,27 +73,8 @@ def rank_hypotheses(situation: Situation, context: EnrichmentContext) -> list[Ro
                 suggested_runbook_id="scale-service",
             )
         )
-        hypotheses.append(
-            RootCauseHypothesis(
-                situation_id=situation.id,
-                description="resource saturation across the affected service",
-                confidence=0.6,
-                evidence=[f"metrics: {names}"],
-                suggested_runbook_id="scale-service",
-            )
-        )
 
     # Rule: log/error events.
-    if any(e.kind.value in ("log",) or "error" in e.name.lower() for e in situation.member_events):
-        hypotheses.append(
-            RootCauseHypothesis(
-                situation_id=situation.id,
-                description="error spike in service logs",
-                confidence=0.5,
-                evidence=["log/error events present"],
-                suggested_runbook_id="restart-pod",
-            )
-        )
     if any(e.kind.value in ("log",) or "error" in e.name.lower() for e in situation.member_events):
         hypotheses.append(
             RootCauseHypothesis(
@@ -114,15 +88,6 @@ def rank_hypotheses(situation: Situation, context: EnrichmentContext) -> list[Ro
 
     # Fallback: always give downstream something.
     if not hypotheses:
-        hypotheses.append(
-            RootCauseHypothesis(
-                situation_id=situation.id,
-                description="root cause undetermined from available signals",
-                confidence=0.2,
-                evidence=[],
-                suggested_runbook_id=None,
-            )
-        )
         hypotheses.append(
             RootCauseHypothesis(
                 situation_id=situation.id,
@@ -154,7 +119,6 @@ def rank_hypotheses(situation: Situation, context: EnrichmentContext) -> list[Ro
     return hypotheses
 
 
-def surface_runbook(hypotheses: list[RootCauseHypothesis], store: PlaybookStore) -> Playbook | None:
 def surface_runbook(hypotheses: list[RootCauseHypothesis], store: PlaybookStore) -> Playbook | None:
     if not hypotheses:
         return None
