@@ -44,12 +44,24 @@ defensible version that earns a PPO. Since this plan was first written, the foll
 **The PR-contract now also requires `ruff format --check .` to pass** (the repo is format-clean;
 CI enforces it) — added to the "every PR must" list below.
 
+- ✅ **Meridian — a sample production system (DONE, NOT one of the original streams).** A
+  four-service Deloitte-style financial/audit platform (`services/meridian/`: gateway, validation,
+  aggregation, reporting) with its own client-portal + ops-panel UI now runs alongside IntelliOps
+  in `docker compose up`, wired to the pipeline through additive-only changes — per-service
+  Prometheus scrape jobs, an ingestion query broadened to a regex selector in the compose
+  environment only (`common/config.py`'s default is unchanged), and a shared `rca-context` volume
+  that makes `rollback-deploy` fire for the first time. Three fault scenarios were verified live
+  end-to-end against real Docker, each producing a genuinely different, correct diagnosis
+  (`scale-service` / `restart-pod` / `rollback-deploy`), and the sequential-injection requirement
+  (the correlator groups by time window, not by service) was confirmed live, not just designed.
+  See `docs/MERIDIAN.md`, ADR-020. PR open.
+
 **What's next (open streams):** Streams B (intelligence) and C (real-time console) are now **done** —
-C is merged, B is in an open PR awaiting merge. The only substantive stream item still open is a
-documented **chaos scenario** in Stream D (kill a service, show consumer-group recovery with numbers).
-The next big build after that is the **sample production system** to connect to the pipeline for a
-live demo (a separate effort, not one of the original streams). Details in each stream below; the
-✅/🟢 streams are kept for the record with their acceptance criteria marked met.
+C is merged, B is in an open PR awaiting merge. The Meridian sample-system effort — previously
+called out below as "the next big build" — has also **shipped** (PR open); see above. The only
+substantive stream item still open is a documented **chaos scenario** in Stream D (kill a service,
+show consumer-group recovery with numbers). Details in each stream below; the ✅/🟢 streams are kept
+for the record with their acceptance criteria marked met.
 
 ---
 
@@ -303,9 +315,9 @@ Nothing blocks anyone from *starting*, but this order de-risks integration.
 - 🟡 D: ✅ `docs/OPERATIONS.md` + CI + Kafka binding + K8s Helm deploy + load test; ⬜ chaos test.
 - ✅ P: durable runtime state (Tier 1b) — approvals + correlation baseline survive restarts.
 
-**Now in focus:** Streams B and C are done (C merged, B in an open PR). What remains is Stream D's
-documented **chaos scenario**, and then the biggest remaining build — a **sample production system**
-to wire into the pipeline for a live end-to-end demo (a new effort beyond the original streams).
+**Now in focus:** Streams B and C are done (C merged, B in an open PR). The **sample production
+system** (Meridian) has shipped (PR open) — see above. What remains is Stream D's documented
+**chaos scenario**.
 
 **Demo target (what we show for the PPO):** break a real workload on the cluster → IntelliOps
 detects it with the improved model → diagnoses it → the console shows it animate to the HITL gate
