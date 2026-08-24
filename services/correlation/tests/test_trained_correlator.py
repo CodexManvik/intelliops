@@ -72,35 +72,43 @@ def test_reset_factory_compat_extra_kwargs_default():
     assert c2._warmup_samples == 30
 
 
-def test_fit_produces_model_and_outlier_scores_above_cluster_point():
-    """(c) The sign-convention test. After enough events fit() must build a model,
-    and a planted outlier must score ABOVE a normal cluster point — proving we
-    negate score_samples (which returns HIGHER=more normal)."""
+def test_fitted_model_flags_outliers_not_normals():
+    """(c) The model-score convention test. After fit() on realistic-variance
+    training data, the ISOLATED model score (decision-boundary margin) must be
+    ~0 for a normal point (no false positive — the bug fixed by using
+    decision_function, not raw -score_samples which is negative for everything)
+    and strictly higher for a clear outlier. Assert on _model_score directly,
+    NOT on detect()'s max()-blend where the online score would mask a sign flip.
+    Trained on a gaussian(100, sd 8) stream so the forest's boundary doesn't sit
+    exactly at the extreme (a perfectly tight cluster saturates the margin)."""
+    import random
+
+    rng = random.Random(42)
     c = TrainedCorrelator(z_threshold=3.0, warmup_samples=30, min_fit_samples=200)
     ts0 = datetime(2026, 8, 13, 0, 0, 0, tzinfo=UTC)
-    # a tight cluster around 10 with mild jitter — 250 samples > min_fit_samples
-    cluster = [10.0, 10.1, 9.9, 10.2, 9.8] * 50
-    for i, v in enumerate(cluster):
-        c.detect(_event(value=v, ts=ts0 + timedelta(seconds=i)))
+    for i in range(300):
+        c.detect(_event(value=rng.gauss(100.0, 8.0), ts=ts0 + timedelta(seconds=i)))
 
     assert c.fit() is True  # enough samples -> a model exists
 
-    # Guard the sign convention on the ISOLATED model score, not the max()-blend.
-    # detect() returns max(online, model_score); for a gross outlier the online
-    # robust score dominates, so asserting on detect() alone would pass even with
-    # a flipped negation. Assert on the raw model instead: after negating
-    # score_samples (HIGHER=more normal), a planted outlier's negated score MUST
-    # exceed a cluster point's. A flipped sign fails this.
-    normal_row = c.featurize(_event(value=10.0, ts=ts0 + timedelta(seconds=1000)), 0.0)
-    outlier_row = c.featurize(_event(value=5000.0, ts=ts0 + timedelta(seconds=1001)), 0.0)
-    normal_model = -float(c._model.score_samples([normal_row])[0])
-    outlier_model = -float(c._model.score_samples([outlier_row])[0])
-    assert outlier_model > normal_model  # negation is correct: outlier reads MORE anomalous
+    # Normal points: the model contributes ~0 (well under the z-threshold), so the
+    # trained detector never false-positives via the model on normal traffic.
+    normal_scores = [
+        c._model_score(c.featurize(_event(value=rng.gauss(100.0, 8.0), ts=ts0), 0.0))
+        for _ in range(20)
+    ]
+    assert max(normal_scores) < 3.0  # no model-driven false positive on normal data
 
-    # And the blended detect() still ranks the outlier above a normal point.
-    normal_score = c.detect(_event(value=10.0, ts=ts0 + timedelta(seconds=1002)))
-    outlier_score = c.detect(_event(value=5000.0, ts=ts0 + timedelta(seconds=1003)))
-    assert outlier_score > normal_score
+    # A clear outlier scores strictly higher than any normal point AND crosses the
+    # z-threshold (the model adds genuine anomaly signal, correct sign).
+    outlier_score = c._model_score(c.featurize(_event(value=1000.0, ts=ts0), 0.0))
+    assert outlier_score > max(normal_scores)
+    assert outlier_score > 3.0
+
+    # And the blended detect() ranks a clear outlier above a normal point.
+    normal_detect = c.detect(_event(value=100.0, ts=ts0 + timedelta(seconds=1002)))
+    outlier_detect = c.detect(_event(value=1000.0, ts=ts0 + timedelta(seconds=1003)))
+    assert outlier_detect > normal_detect
 
 
 def test_serialize_load_model_round_trips_identical_scores():

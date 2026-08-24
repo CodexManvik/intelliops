@@ -51,13 +51,27 @@ FEATURE_NAMES: tuple[str, ...] = (
     "label_count",
 )
 
-# IsolationForest.score_samples returns HIGHER=more normal (~0) and lower (~-0.5)
-# for anomalies. We negate so HIGHER=more anomalous, then multiply by this factor
-# to bring the model score into the same rough magnitude as the online z-score
-# (threshold ~3), so max(online, model) is a meaningful blend rather than the
-# model always losing. The exact factor is not load-bearing for correctness — the
-# sign (negation) is; any positive constant preserves the outlier>normal ordering.
-_MODEL_SCALE = 10.0
+# Blending the IsolationForest into the z-score scale.
+#
+# IsolationForest.score_samples is negative for EVERY point (normal ~ -0.45,
+# anomaly ~ -0.65), so a naive `-score_samples * k` scores normal points as a
+# large positive anomaly and false-positives on everything. The model's OWN
+# decision boundary is `offset_`: decision_function(x) = score_samples(x) -
+# offset_ is >= 0 for points the model calls normal and < 0 only for anomalies.
+# So we take the anomaly MARGIN = max(0, -decision_function(x)) — exactly 0 for
+# a normal point (no false positive) and positive only for a genuine outlier —
+# then scale it onto the z-threshold range so a clear outlier lands above it.
+# The anomaly margin is tiny in raw units (normal points ~0, a clear outlier
+# ~0.03 on typical telemetry), so the scale is generous: with _MODEL_SCALE=120
+# a clear outlier's margin (~0.033) lands at ~3.9 (above the ~3 z-threshold)
+# while normal points (margin ~0.007) stay near ~0.8 (well under). What is
+# load-bearing is that normal points contribute ~0 via the decision boundary;
+# the exact factor only sets where a genuine outlier crosses. Honest limit:
+# on a near-constant feature vector the forest's margin saturates (a 5x and a
+# 500x spike score alike), so the trained model earns its keep on multivariate
+# / correlation-break anomalies — the robust online detector carries univariate
+# spikes. See docs/BENCHMARKS.md.
+_MODEL_SCALE = 120.0
 
 
 class TrainedCorrelator(BaseCorrelator):
@@ -106,10 +120,16 @@ class TrainedCorrelator(BaseCorrelator):
             float(len(event.labels)),
         ]
 
-    @staticmethod
-    def _rescale(neg_score: float) -> float:
-        """Bring the negated IsolationForest score into the online z-score range."""
-        return max(0.0, neg_score) * _MODEL_SCALE
+    def _model_score(self, row: list[float]) -> float:
+        """Anomaly magnitude from the fitted model, using its own decision boundary.
+
+        decision_function >= 0 for points the model calls normal, < 0 for anomalies.
+        The margin max(0, -decision_function) is 0 for a normal point (so it never
+        false-positives via the blend) and grows with how far into the anomaly
+        region the point falls. Scaled onto the z-threshold range.
+        """
+        margin = -float(self._model.decision_function([row])[0])
+        return max(0.0, margin) * _MODEL_SCALE
 
     # --- scoring (ALL logic lives here; the engine only calls detect) ---------
 
@@ -123,10 +143,7 @@ class TrainedCorrelator(BaseCorrelator):
         # freshly constructed TrainedCorrelator byte-identical to RobustCorrelator.
         if self._model is None:
             return online
-        # score_samples: HIGHER = more normal, so NEGATE for anomaly magnitude.
-        neg = -float(self._model.score_samples([row])[0])
-        model_score = self._rescale(neg)
-        return max(online, model_score)
+        return max(online, self._model_score(row))
 
     # --- model lifecycle (lazy sklearn/joblib) --------------------------------
 
