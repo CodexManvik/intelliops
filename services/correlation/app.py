@@ -14,6 +14,7 @@ from common.config import get_settings
 from common.envelope import publish_model
 from common.stores import make_stores
 from services.base import create_app, db_ready
+from services.correlation.adapters import make_correlator
 from services.correlation.adapters.river_correlator import RiverCorrelator
 from services.correlation.adapters.isolation_forest_correlator import IsolationForestCorrelator
 from services.correlation.consumer import (
@@ -81,6 +82,7 @@ def _reload_baseline(engine, baseline_store, training_records: list[dict]) -> No
 async def lifespan(app: FastAPI):
     settings = get_settings()
     stop_event = threading.Event()
+    
     if settings.correlation_kind == "isolation_forest":
         correlator = IsolationForestCorrelator(
             contamination=settings.correlation_isolation_contamination,

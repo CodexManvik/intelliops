@@ -3,9 +3,15 @@
 Each rule produces a scored RootCauseHypothesis when it fires; the list is
 sorted best-first. A low-confidence fallback guarantees a non-empty result so
 downstream always has something to act on (see flow.md 5.3).
-"""
+
+An optional `reliability_provider` (situation.signature -> float in [0, 1],
+e.g. the correlator's learned worked/total track record) can boost a
+hypothesis whose suggested runbook has proven reliable for this signature.
+Passing None preserves the original rule-only ranking exactly."""
 
 from __future__ import annotations
+
+from collections.abc import Callable
 
 from common.contracts import (
     EnrichmentContext,
@@ -17,6 +23,12 @@ from common.interfaces import PlaybookStore
 
 _SATURATION_TOKENS = ("cpu", "mem", "memory", "disk", "saturation")
 
+# How much weight the learned reliability signal carries against rule-based
+# confidence. Small enough that a proven-reliable low-confidence rule can
+# nudge ahead of a slightly-higher rule, but never enough to invert a large
+# confidence gap on its own.
+_RELIABILITY_WEIGHT = 0.15
+
 
 def _service_labels(situation: Situation) -> set[str]:
     services: set[str] = set()
@@ -27,7 +39,11 @@ def _service_labels(situation: Situation) -> set[str]:
     return services
 
 
-def rank_hypotheses(situation: Situation, context: EnrichmentContext) -> list[RootCauseHypothesis]:
+def rank_hypotheses(
+    situation: Situation,
+    context: EnrichmentContext,
+    reliability_provider: Callable[[str], float] | None = None,
+) -> list[RootCauseHypothesis]:
     hypotheses: list[RootCauseHypothesis] = []
     services = _service_labels(situation)
 
@@ -82,7 +98,24 @@ def rank_hypotheses(situation: Situation, context: EnrichmentContext) -> list[Ro
             )
         )
 
-    hypotheses.sort(key=lambda h: h.confidence, reverse=True)
+    if reliability_provider is None:
+        hypotheses.sort(key=lambda h: h.confidence, reverse=True)
+        return hypotheses
+
+    # Reliability-weighted ranking: a hypothesis whose suggested runbook has a
+    # proven track record for this situation's signature gets a bounded boost.
+    # This only ever re-orders hypotheses that already have a suggested
+    # runbook — the fallback (runbook_id=None) is never boosted, so the top
+    # suggestion after ranking still resolves to a real playbook id whenever
+    # any rule-based hypothesis fired.
+    reliability = reliability_provider(situation.signature) if situation.signature else 0.0
+    reliability = max(0.0, min(1.0, reliability))
+
+    def _score(h: RootCauseHypothesis) -> float:
+        boost = _RELIABILITY_WEIGHT * reliability if h.suggested_runbook_id is not None else 0.0
+        return min(1.0, h.confidence + boost)
+
+    hypotheses.sort(key=_score, reverse=True)
     return hypotheses
 
 

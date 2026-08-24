@@ -86,3 +86,74 @@ INTELLIOPS_AUTH_TOKEN=my-secret docker compose -f deploy/docker-compose.yml up -
 
 RBAC inside governance-service (who can approve what) is unrelated to this
 and already existed — this only gates network access to the HTTP surface.
+
+---
+
+## Delivery guarantees
+
+Both `RedisBus` (Redis Streams) and `KafkaBus` (Kafka with `enable_auto_commit=True`)
+use **at-most-once** delivery semantics. The offset/acknowledgment is advanced as
+soon as the message is read, before the caller finishes processing it.
+
+Consequence: a process crash between reading a message and completing its processing
+loses the in-flight message on both backends — it will not be redelivered.
+
+Upgrading to **at-least-once** delivery requires changing the ack/commit point on
+**both** bindings together:
+- `RedisBus`: move `XACK` to after the caller has processed the message.
+- `KafkaBus`: switch to `enable_auto_commit=False` and call `consumer.commit()` after
+  processing.
+
+This is a deliberate future decision; the current at-most-once semantics match the
+project's scale requirements.
+
+---
+
+## Kubernetes deploy
+
+### Prerequisites
+
+- A running [kind](https://kind.sigs.k8s.io/) cluster.
+- The `intelliops` Docker image built and loaded into the cluster:
+  ```bash
+  docker build -t intelliops .
+  kind load docker-image intelliops
+  ```
+
+### Install command
+
+```bash
+helm install intelliops deploy/k8s/platform/
+```
+
+This deploys all platform services, Redis, Postgres, and runs the Alembic migration
+job (`alembic upgrade head`) as a pre-install hook before any application pod starts.
+
+To upgrade an existing release:
+
+```bash
+helm upgrade intelliops deploy/k8s/platform/
+```
+
+---
+
+## Environment-switch reference
+
+The table below covers every runtime toggle. For full `AUTH_MODE` / `AUTH_TOKEN`
+usage (service-to-service token propagation, compose setup, what endpoints are
+gated) see the [Auth at the edge](#auth-at-the-edge) section above.
+
+| Variable | Accepted values | Default | Description |
+| --- | --- | --- | --- |
+| `INTELLIOPS_AUTH_MODE` | `off`, `token` | `off` | Network-access gate. `off` = open. `token` = every non-`/health` endpoint requires `Authorization: Bearer <INTELLIOPS_AUTH_TOKEN>`. See [Auth at the edge](#auth-at-the-edge). |
+| `INTELLIOPS_STORE_BACKEND` | `file`, `postgres` | `file` | Persistence layer. `file` = JSONL files on disk (test-safe, no DB needed). `postgres` = PostgreSQL via SQLAlchemy (requires `INTELLIOPS_DATABASE_URL`). |
+| `INTELLIOPS_BUS_BACKEND` | `redis`, `kafka` | `redis` | Event-bus binding. `redis` = Redis Streams (`RedisBus`). `kafka` = Kafka (`KafkaBus`, requires `INTELLIOPS_KAFKA_BOOTSTRAP_SERVERS`). Both bindings use at-most-once delivery — see [Delivery guarantees](#delivery-guarantees). |
+| `INTELLIOPS_REMEDIATOR_MODE` | `dry_run`, `k8s` | `dry_run` | Remediation execution mode. `dry_run` = log steps only, no real infrastructure changes (CI/test default). `k8s` = execute playbook steps against a real Kubernetes cluster via the official `kubernetes` Python client (requires a valid kubeconfig and `INTELLIOPS_K8S_NAMESPACE`). |
+| `INTELLIOPS_CORRELATOR_KIND` | `river`, `robust`, `trained` | `river` | Correlator implementation (`services/correlation`). `river` = online z-score, unchanged default. `robust` = median/MAD + per-hour seasonal baseline (fixes river's seasonal false-positive and single-spike-desensitizes weaknesses). `trained` = `robust`'s online score blended with a persisted scikit-learn `IsolationForest` (fit via `POST /retrain`, not automatic). See [docs/BENCHMARKS.md](BENCHMARKS.md) and [ADR-019](../architectural.md#adr-019--pluggable-detectors-the-finetuning-loop-and-llm-assisted-rca). |
+| `INTELLIOPS_CORRELATION_SEASONAL_BUCKETS` | integer | `24` | Number of hour-of-day buckets `robust`/`trained` keep independent baselines for. |
+| `INTELLIOPS_CORRELATION_ROBUST_WINDOW` | integer | `128` | Max samples kept per `(metric, hour-bucket)` window for `robust`/`trained`'s median/MAD calculation. |
+| `INTELLIOPS_CORRELATION_ROBUST_WARMUP` | integer | `30` | Samples required in a bucket before `robust`/`trained` scores it (below this, score is `0`, like `river`'s warm-up gate). |
+| `INTELLIOPS_LLM_EXPLANATION_ENDPOINT` | URL or empty | `""` (empty) | RCA explanation provider selector (`services/rca`). Empty = `TemplateExplanationProvider` (deterministic, no network — CI/test default). Set to an OpenAI-compatible base URL (OpenAI, local Ollama, vLLM, …) to use `OpenAICompatibleExplanationProvider`; any call failure (timeout, non-200, bad body) falls back to the template. The explanation is advisory-only — it never affects hypothesis confidence, ordering, or the suggested runbook. |
+| `INTELLIOPS_LLM_EXPLANATION_MODEL` | string | `gpt-4o-mini` | Model name sent in the chat-completions request when an LLM endpoint is configured. |
+| `INTELLIOPS_LLM_EXPLANATION_TIMEOUT_SECONDS` | float | `10.0` | Request timeout for the LLM explanation call before falling back to the template. |
+| `INTELLIOPS_LLM_EXPLANATION_API_KEY` | string | `""` (empty) | Bearer token sent as `Authorization: Bearer <key>` to the LLM endpoint, if set. |

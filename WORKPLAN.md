@@ -9,7 +9,7 @@ read-service + React console run live on docker-compose.
 
 ---
 
-## Current state (updated 2026-08-20)
+## Current state (updated 2026-08-24)
 
 We reframed the goal from "production-ready" to **production-credible** — the honest,
 defensible version that earns a PPO. Since this plan was first written, the following has
@@ -20,11 +20,16 @@ defensible version that earns a PPO. Since this plan was first written, the foll
   `HEALTH_CHECK_MODE=k8s` (default `dry_run`/`always`). Real pod remediation + rollback verified
   live end-to-end. See `deploy/k8s/README.md`, ADR-013. *(fake-client tested; CI never touches a
   cluster.)*
-- ✅ **Stream D — Auth at the edge + CI (DONE).** `AUTH_MODE=off|token` (default `off`) with
-  timing-safe bearer auth; internal service-to-service calls **authenticate** (not bypass) so the
-  pipeline works under `token` mode. CI pipeline (`lint` / `test` / `frontend-build` /
-  `compose-smoke`) runs on every PR. `common/auth.py`, `.github/workflows/ci.yml`, `docs/OPERATIONS.md`.
-  *(Remaining Stream-D items still open: Kafka binding, K8s platform deploy, load/chaos tests.)*
+- ✅ **Stream D — Auth + CI + Kafka + K8s platform + load test (nearly DONE).** `AUTH_MODE=off|token`
+  (default `off`) with timing-safe bearer auth; internal service-to-service calls **authenticate**
+  (not bypass) so the pipeline works under `token` mode. CI pipeline (`lint` / `test` /
+  `frontend-build` / `compose-smoke`) runs on every PR. **Kafka binding** — `KafkaBus` behind
+  `BUS_BACKEND=redis|kafka` (default `redis`), passing the same parametrized bus-contract test as
+  Redis (PR #16). **Whole-stack K8s deploy** — Helm chart under `deploy/k8s/platform/` (PR #16).
+  **Load test** — `scripts/load-test.sh` drives sustained incident throughput (PR #16).
+  `common/auth.py`, `common/bus.py`, `.github/workflows/ci.yml`, `docs/OPERATIONS.md`.
+  *(Only remaining Stream-D item: a documented **chaos** scenario — kill a service, show
+  bus/consumer-group recovery with numbers.)*
 - ✅ **Persistence — Tier 1a (DONE, NOT in the original plan).** The three append/read stores
   (audit / training / playbook) on real **Postgres** behind `STORE_BACKEND=file|postgres`
   (default `file`): SQLAlchemy Core + Alembic migrations, testcontainers, a shared `make_stores`
@@ -39,10 +44,12 @@ defensible version that earns a PPO. Since this plan was first written, the foll
 **The PR-contract now also requires `ruff format --check .` to pass** (the repo is format-clean;
 CI enforces it) — added to the "every PR must" list below.
 
-**What's next (open streams):** Stream B (intelligence — smarter detection + measured benchmarks),
-Stream C (frontend — real-time updates + live pipeline view), and the remaining Stream-D platform
-items (Kafka binding, whole-stack K8s deploy, load/chaos testing). Details in each stream below;
-the ✅ streams are kept for the record with their acceptance criteria marked met.
+**What's next (open streams):** Streams B (intelligence) and C (real-time console) are now **done** —
+C is merged, B is in an open PR awaiting merge. The only substantive stream item still open is a
+documented **chaos scenario** in Stream D (kill a service, show consumer-group recovery with numbers).
+The next big build after that is the **sample production system** to connect to the pipeline for a
+live demo (a separate effort, not one of the original streams). Details in each stream below; the
+✅/🟢 streams are kept for the record with their acceptance criteria marked met.
 
 ---
 
@@ -79,9 +86,9 @@ first.
 | Stream | Owner | Theme | Status |
 |--------|-------|-------|--------|
 | **A — Real remediation (K8s)** | **Manvik** | Make "resolved" real: a Kubernetes remediator + real health checks acting on a real local cluster. The centerpiece production feature. | ✅ **Done** (merged) |
-| **B — Intelligence** | **Member A** | Make the "AI" real: smarter anomaly detection + richer RCA, benchmarked against the current rule-based baseline. | ⬜ Open |
-| **C — Frontend & observability** | **Member B** | Demo-grade console: real-time updates, a live topology/flow view, dashboards worthy of a demo. | ⬜ Open |
-| **D — Platform, security & CI/CD** | **Member C** | Make it deployable and safe: auth on the edge, Kafka binding, CI pipeline, K8s manifests/Helm, load/chaos testing. | 🟡 Partial — auth + CI done; Kafka / K8s deploy / load+chaos open |
+| **B — Intelligence** | **Member A** | Make the "AI" real: smarter anomaly detection + richer RCA, benchmarked against the current rule-based baseline. | 🟢 **Done** (PR open) |
+| **C — Frontend & observability** | **Member B** | Demo-grade console: real-time updates, a live topology/flow view, dashboards worthy of a demo. | ✅ **Done** (merged) |
+| **D — Platform, security & CI/CD** | **Member C** | Make it deployable and safe: auth on the edge, Kafka binding, CI pipeline, K8s manifests/Helm, load/chaos testing. | 🟡 Nearly done — auth + CI + Kafka + K8s Helm + load test merged; only chaos test open |
 | **P — Persistence** *(added mid-project)* | **Manvik** | Postgres-backed durability: the append/read stores (Tier 1a) + durable runtime state (Tier 1b), behind `STORE_BACKEND`. The production-credibility backbone. | ✅ **Done** (merged) |
 
 Streams are **parallel** — none blocks another to *start*. The only true dependency is that
@@ -127,7 +134,17 @@ defensible "production engineering" story in the project.
 
 ---
 
-## Stream B — Intelligence: Detection & RCA  ·  **Member A**
+## Stream B — Intelligence: Detection & RCA  ·  **Member A**  ·  🟢 DONE (PR open)
+
+> **Shipped (PR open, awaiting merge).** All acceptance criteria met: a `CORRELATOR_KIND` switch
+> (default `river`, unchanged) selecting `RobustCorrelator` (robust-MAD + per-hour seasonal baseline)
+> and `TrainedCorrelator` (scikit-learn IsolationForest with a persisted `POST /retrain` fine-tune
+> loop); evidence-driven RCA that feeds learned per-signature reliability into ranking; an on-by-default
+> config-selected **LLM explanation** (deterministic template with no network unless an OpenAI-compatible
+> endpoint is set — advisory-only, never touches the runbook decision); and a reproducible, CI-enforced
+> benchmark (`docs/BENCHMARKS.md`) showing a **measured** ~7× seasonal false-positive reduction and a
+> correlation-break recall lift (0.38 → 0.64) over the baseline. See ADR-019. Everything behind
+> test-safe defaults; full `pytest` green with no new infra.
 
 **Why it matters for a PPO.** Right now detection is a z-score + fixed rules, and RCA is
 hand-written heuristics. This stream makes the "AIOps" genuinely intelligent — and, crucially,
@@ -186,12 +203,14 @@ glance.
 
 ---
 
-## Stream D — Platform, Security & CI/CD  ·  **Member C**  ·  🟡 PARTIAL
+## Stream D — Platform, Security & CI/CD  ·  **Member C**  ·  🟡 NEARLY DONE
 
 > **Shipped & merged:** ✅ **Auth at the edge** (`AUTH_MODE=off|token`, internal calls authenticate
-> — PR #6) and ✅ **CI pipeline** (`lint`/`test`/`frontend-build`/`compose-smoke` on every PR).
-> **Still open:** ⬜ Kafka binding, ⬜ whole-stack K8s deploy (Helm/manifests under
-> `deploy/k8s/platform/`), ⬜ load & chaos testing. See `docs/OPERATIONS.md`.
+> — PR #6), ✅ **CI pipeline** (`lint`/`test`/`frontend-build`/`compose-smoke` on every PR),
+> ✅ **Kafka binding** (`KafkaBus` behind `BUS_BACKEND=redis|kafka`, passes the shared bus-contract
+> test — PR #16), ✅ **whole-stack K8s deploy** (Helm chart under `deploy/k8s/platform/` — PR #16),
+> ✅ **load test** (`scripts/load-test.sh` — PR #16). **Still open:** ⬜ a documented **chaos**
+> scenario (kill a service, show bus/consumer-group recovery with numbers). See `docs/OPERATIONS.md`.
 
 **Why it matters for a PPO.** "It runs on my machine" isn't a production story. This stream makes
 IntelliOps *deployable, secure, and continuously verified* — the operational maturity that
@@ -279,14 +298,14 @@ Nothing blocks anyone from *starting*, but this order de-risks integration.
 
 **Sprint 2 — make it production-real and demo-ready:**
 - ✅ A: real health check + real rollback, wired into the end-to-end demo.
-- ⬜ B: close the retrain loop + publish benchmark numbers.
-- ⬜ C: dashboards + audit explorer + `docs/UI.md`.
-- 🟡 D: ✅ `docs/OPERATIONS.md` + CI; ⬜ Kafka binding + K8s deploy + load/chaos tests.
+- 🟢 B: retrain/fine-tune loop closed + benchmark numbers published (PR open).
+- ✅ C: dashboards + audit explorer + `docs/UI.md` (merged).
+- 🟡 D: ✅ `docs/OPERATIONS.md` + CI + Kafka binding + K8s Helm deploy + load test; ⬜ chaos test.
 - ✅ P: durable runtime state (Tier 1b) — approvals + correlation baseline survive restarts.
 
-**Now in focus:** Stream B (intelligence + measured benchmarks) and Stream C (real-time console)
-are the two biggest remaining "impressive demo" pieces; the remaining Stream-D platform items
-(Kafka, whole-stack deploy, load/chaos) round out the operational-maturity story.
+**Now in focus:** Streams B and C are done (C merged, B in an open PR). What remains is Stream D's
+documented **chaos scenario**, and then the biggest remaining build — a **sample production system**
+to wire into the pipeline for a live end-to-end demo (a new effort beyond the original streams).
 
 **Demo target (what we show for the PPO):** break a real workload on the cluster → IntelliOps
 detects it with the improved model → diagnoses it → the console shows it animate to the HITL gate

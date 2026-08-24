@@ -16,6 +16,7 @@ from common.contracts import (
 from common.envelope import decode_model, publish_model
 from services.governance.adapters.audit_sink import InMemoryAuditSink
 from services.governance.adapters.playbook_store import InMemoryPlaybookStore
+from services.rca.adapters.explanation_provider import TemplateExplanationProvider
 from services.rca.consumer import run_consumer
 
 NOW = datetime(2026, 8, 13, tzinfo=UTC)
@@ -84,7 +85,9 @@ def test_detected_situation_is_diagnosed_with_recent_deploy_hypothesis():
     publish_model(bus, "situations.detected", situation)
 
     # Run RCA against a provider that knows about the recent 'web' deploy.
-    run_consumer(bus, DeployProvider(), store, audit, threading.Event())
+    run_consumer(
+        bus, DeployProvider(), store, audit, TemplateExplanationProvider(), threading.Event()
+    )
 
     # Exactly one DiagnosedSituation, top hypothesis = recent deploy → rollback.
     diagnosed_msgs = bus.topics.get("situations.diagnosed", [])

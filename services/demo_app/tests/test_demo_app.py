@@ -6,6 +6,9 @@ from services.demo_app.app import _state, app
 
 
 def _client():
+    from common.config import get_settings
+
+    get_settings.cache_clear()
     _state["broken"] = False
     return TestClient(app)
 

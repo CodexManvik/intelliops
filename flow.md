@@ -60,12 +60,12 @@ A single production incident, from raw telemetry to a closed feedback loop:
    │ read-service       │   projects situations.detected/diagnosed + remediation.outcomes
    │  (CQRS read model) │   + situations.suppressed into the exact shapes the UI needs
    └────────────────────┘   ── serves ▶ GET /situations · /outcomes · /metrics
-            │
+            │                ── pushes ▶ GET /stream (SSE: a "changed" nudge on every mutation)
             ▼
    ┌────────────────────┐
    │ React console      │   Overview (live KPIs) · Incidents (HITL approve/reject)
-   │  (operator UI)     │   · Governance (gates, audit, playbook registry)
-   └────────────────────┘
+   │  (operator UI)     │   · Pipeline (live incident-journey lanes) · Governance (gates,
+   └────────────────────┘   audit, playbook registry) · Audit (filterable audit explorer)
 ```
 
 **The single synchronous step** is `action-service → governance-service` (step 6). Everything
@@ -76,7 +76,10 @@ action. See [ADR-003](architectural.md#adr-003--governance-is-an-active-gate-not
 and emit events. The **read-service** ([ADR-009](architectural.md#adr-009--a-read-model-service-cqrs-for-the-dashboard))
 is a separate consumer that projects those events into an in-memory read model and serves the
 dashboard over plain `GET` endpoints. It holds no source-of-truth state — the Redis event
-streams are the record, and the projection rebuilds from them on restart.
+streams are the record, and the projection rebuilds from them on restart. The read-model also
+**pushes**: `GET /stream` (Server-Sent Events) emits a generic `{"type": "changed"}` nudge on
+every projection mutation, so the console re-fetches within about a second of a real change
+instead of waiting out a poll interval ([ADR-018](architectural.md#adr-018--real-time-console-read-path-sse)).
 
 ## 2. Bus topics (the wiring)
 
@@ -118,7 +121,8 @@ The swap points that keep the system platform-agnostic and testable
 | Interface | Methods | Implementations that exist today | Deferred / planned |
 |-----------|---------|----------------------------------|--------------------|
 | `TelemetrySource` | `poll()`, `subscribe()` | `FileTelemetrySource` (JSONL, tests), **`PrometheusSource`** (real PromQL over the Prometheus HTTP API, defensive: never raises on a bad response) | Loki, OTel sources |
-| `Correlator` | `detect()`, `correlate()`, `retrain()` | `RiverCorrelator` (online z-score anomaly + windowed clustering) | scikit-learn / smarter models |
+| `Correlator` | `detect()`, `correlate()`, `retrain()` | `RiverCorrelator` (online z-score, default), **`RobustCorrelator`** (median/MAD + seasonal per-hour baseline), **`TrainedCorrelator`** (composes `RobustCorrelator` + a persisted scikit-learn `IsolationForest`, fitted via `POST /retrain`) — selected by `CORRELATOR_KIND` ([ADR-019](architectural.md#adr-019--pluggable-detectors-the-finetuning-loop-and-llm-assisted-rca)) | — |
+| `ExplanationProvider` | `explain()` | `TemplateExplanationProvider` (deterministic, no network — default), **`OpenAICompatibleExplanationProvider`** (real endpoint when `llm_explanation_endpoint` is set; falls back to the template on any error) | — |
 | `Remediator` | `execute()`, `rollback()` | `DryRunRemediator` (logs steps, touches nothing — the safe default), `RecordingRemediator` (tests), **`KubernetesRemediator`** (real `AppsV1Api` calls — restart via a `restartedAt` annotation patch, scale via `patch_namespaced_deployment_scale`, rollback via a rollout-restart annotation; no shell, no string parsing; never deletes; any API error → `False`, never raises. Behind `REMEDIATOR_MODE=k8s`, targeting a local kind cluster — see [deploy/k8s/README.md](deploy/k8s/README.md)) | — |
 | `HealthChecker` | `check()` | `AlwaysHealthyChecker` (pairs with dry-run), `FixedHealthChecker` (tests), **real `KubernetesHealthChecker`** (two signals — pod readiness from deployment status, and metric recovery re-queried from Prometheus — polled to a timeout; fails closed. Behind `HEALTH_CHECK_MODE=k8s`) | — |
 | `GovernanceGate` (action→governance) | `check_rbac()`, `request_approval()`, `await_decision()`, `write_audit()` | `InProcessGovernanceGate` (shared dict, single-process/tests), **`HttpGovernanceGate`** (REST — works across containers; fail-closed on any error) | — |
@@ -156,13 +160,37 @@ For each function: **what it does · why we use it · what it depends on.**
 | `load_model()` | Loads the current anomaly/correlation model at startup. | Lets the model evolve without code changes. | model store |
 | `retrain(training_data)` | Re-fits the model from labeled outcomes produced by `feedback-service`. | **This is where the closed loop lands** — accuracy compounds over time. | training store, `Correlator` |
 
+**The detector itself is pluggable, config-selected by `CORRELATOR_KIND`**
+([ADR-019](architectural.md#adr-019--pluggable-detectors-the-finetuning-loop-and-llm-assisted-rca)),
+all three subclassing a shared `BaseCorrelator`:
+
+- **`river` (default, unchanged)** — `RiverCorrelator`: per-metric online z-score
+  against a running mean/variance, warm-up gated.
+- **`robust`** — `RobustCorrelator`: median/MAD ("robust z-score") instead of
+  mean/variance, so one early spike no longer desensitizes the baseline, plus a
+  **seasonal baseline**: a separate window per `(metric, hour-of-day)` bucket so a
+  daily traffic pattern doesn't read as a global outlier. This is the detector
+  `docs/BENCHMARKS.md` shows cutting false positives ~7x on a seasonal scenario.
+- **`trained`** — `TrainedCorrelator`: composes `robust` for the live online score
+  and blends in a scikit-learn `IsolationForest`'s anomaly margin (`max()` of the
+  two, so the model can only add sensitivity). The model is **not** fitted
+  automatically — `POST /retrain` on correlation-service is the real trigger (boot's
+  `retrain()` call only re-aggregates reliability; the feature buffer is empty at
+  boot, so nothing would be fit *from*). A fit's result is persisted as a joblib blob
+  to a `model_artifacts` table via a `ModelStore` and reloaded on the next boot, so
+  each `POST /retrain` improves on the last one and a restart keeps the trained
+  model. A cold `trained` correlator (no fit yet) scores identically to `robust`.
+  sklearn/joblib are imported lazily — a `river`/`robust` deployment never pays the
+  import cost.
+
 ### 5.3 `rca-service` — explain the Situation and suggest a fix
 
 | Function | What it does | Why | Depends on |
 |----------|--------------|-----|-----------|
 | `enrich(situation) → context` | Attaches recent deploys, config/change data, and service topology to the situation. | Context is what makes a root-cause suggestion **credible** instead of a guess. | deploy/config/topology sources |
-| `rank_hypotheses(situation, context) → [RootCauseHypothesis]` | Scores and orders likely causes with their supporting evidence. | Gives responders a ranked starting point, not a wall of data. | `contracts.RootCauseHypothesis` |
-| `surface_runbook(hypothesis) → Playbook` | Maps the top hypothesis to a known playbook/runbook. | Hands the responder (or the action layer) a concrete next step. | governance playbook registry |
+| `rank_hypotheses(situation, context, reliability_provider=None) → [RootCauseHypothesis]` | Scores and orders likely causes with their supporting evidence; when a `reliability_provider` is passed, a hypothesis whose runbook has a proven track record for this signature gets a bounded confidence boost. | Gives responders a ranked starting point, not a wall of data — and lets learned outcomes feed ranking. | `contracts.RootCauseHypothesis`, `training_store` |
+| `surface_runbook(hypothesis) → Playbook` | Maps the top hypothesis to a known playbook/runbook. | Hands the responder (or the action layer) a concrete next step — always a real playbook id, whether or not reliability weighting fired. | governance playbook registry |
+| `explain(hypothesis, context, situation) → str` | Produces human-readable advisory text for the top hypothesis via an `ExplanationProvider` ([ADR-019](architectural.md#adr-019--pluggable-detectors-the-finetuning-loop-and-llm-assisted-rca)) — set on `RootCauseHypothesis.explanation`, **after** ranking, so it can never affect confidence/order/runbook. | Gives an on-call engineer plain-language context, on by default, with zero CI/test network dependency. | `ExplanationProvider`: `TemplateExplanationProvider` (deterministic, no network — used whenever `llm_explanation_endpoint` is unset) or `OpenAICompatibleExplanationProvider` (sync `httpx` POST to `{endpoint}/chat/completions`; any failure falls back to the template) |
 
 ### 5.4 `action-service` — do the fix, safely
 
@@ -202,9 +230,10 @@ projection of the event streams ([ADR-009](architectural.md#adr-009--a-read-mode
 
 | Function | What it does | Why | Depends on |
 |----------|--------------|-----|-----------|
-| `apply_detected/diagnosed/outcome/suppressed(...)` | Folds each event into an in-memory projection keyed by situation id, mapping backend contracts to the exact shapes the React types expect. | One place owns the read shape, so the UI needs no translation layer. | the four situation/outcome topics |
+| `apply_detected/diagnosed/outcome/suppressed(...)` | Folds each event into an in-memory projection keyed by situation id, mapping backend contracts to the exact shapes the React types expect; each call ends by `publish()`-ing a `{"type": "changed"}` nudge to any subscribed SSE clients. | One place owns the read shape, so the UI needs no translation layer. | the four situation/outcome topics |
 | `situations(now_ms)` / `outcomes()` | Serve the live incident queue and outcome ticker (`GET /situations`, `GET /outcomes`). Ages out resolved/failed situations past a TTL and caps the total; **active situations are never pruned.** | Keeps the queue legible over long runs without touching the durable event log. | the projection |
 | `metrics()` | Computes the 8 dashboard KPIs — noise-reduction, **real MTTR** (mean of `outcome.ts − first_seen` over resolved situations), auto-remediated %, success rate, open/pending counts, suppressed count (`GET /metrics`). | The Overview tiles read this — every number is derived, nothing fabricated. | the projection |
+| `subscribe()` / `unsubscribe()` / `publish()` | Backs `GET /stream` (SSE): each connection gets its own bounded `asyncio.Queue`; consumer threads hand off delivery via `loop.call_soon_threadsafe(...)` (the thread-safe bridge onto the uvicorn event loop); a full queue drops the oldest event rather than blocking. | Pushes changes to the console in near-real-time without the projection needing per-event serialization or a new dependency ([ADR-018](architectural.md#adr-018--real-time-console-read-path-sse)). | the projection, the uvicorn event loop |
 | `reset()` | Clears the projection (`POST /reset`). Paired with correlation's `POST /reset-baseline` and demo-app's `/fix` (see [`scripts/reset.sh`](../scripts/reset.sh)). | A one-command clean slate for repeatable simulation runs — **a simulation control, not a production endpoint.** | the projection |
 
 ## 6. Two worked scenarios
@@ -288,6 +317,30 @@ the `/ready` probe as a per-service healthcheck; a real cluster should map `live
 + `readinessProbe: /ready` ([ADR-016](architectural.md#adr-016--observability--readiness),
 [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md)).
 
+**The console is real-time, with a live pipeline view.** The read-service pushes over SSE
+(`GET /stream`, a stdlib thread→async pub/sub inside `ReadModel`) so the console re-fetches within
+about a second of a backend change, falling back to the previous 5-second poll if the stream can't
+be used ([ADR-018](architectural.md#adr-018--real-time-console-read-path-sse)). The console gained
+two tabs: **Pipeline**, which animates every open incident through five stage lanes as its status
+changes, and **Audit**, a filterable explorer over the audit trail. Overview's fleet health and
+sparklines are now derived from real live data rather than falling back to mock values, and the
+whole console was repainted to Apple's light website palette. See [docs/UI.md](docs/UI.md).
+
+**Detection and RCA got measurably smarter.** A `CORRELATOR_KIND=river|robust|trained`
+switch ([ADR-019](architectural.md#adr-019--pluggable-detectors-the-finetuning-loop-and-llm-assisted-rca))
+adds a seasonal robust-z-score detector (`robust`) and a persisted, re-fittable
+scikit-learn `IsolationForest` blended on top of it (`trained`) behind the unchanged
+`river` default; `POST /retrain` is the real fit trigger (not automatic — the
+feature buffer is empty at boot). RCA's `rank_hypotheses` gained an optional
+reliability-weighted boost from real remediation outcomes, and every diagnosed
+hypothesis now carries an on-by-default advisory explanation (template, or a
+configured OpenAI-compatible endpoint with a template fallback on any error) that
+never affects ranking or the suggested runbook. A reproducible, seeded benchmark
+(`scripts/benchmark.py` → [docs/BENCHMARKS.md](docs/BENCHMARKS.md)) measures the
+actual gains **and** the actual trade-offs (higher recall but also higher
+false-positive rate on `robust`/`trained`) against the `river` baseline, with one
+comparison CI-enforced.
+
 **What is still deliberately simulated / deferred:**
 - **Auth is a config-switched edge gate** ([ADR-017](architectural.md#adr-017--edge-authentication)).
   Under `AUTH_MODE=token` the console authenticates with a shared bearer token
@@ -297,4 +350,9 @@ the `/ready` probe as a per-service healthcheck; a real cluster should map `live
   stack is pointed at a real system). `/reset-baseline` and `/reset-approvals` now clear the
   runtime-state DB tables (`correlation_baseline`, `approvals`) while **preserving** the audit and
   training records.
-- Smarter detection, observability, and demo/report polish, per [WORKPLAN.md](WORKPLAN.md).
+- **Automated model retraining.** `POST /retrain` fits and persists the `trained`
+  correlator's model on demand; nothing schedules or triggers it automatically yet
+  (see [ADR-019](architectural.md#adr-019--pluggable-detectors-the-finetuning-loop-and-llm-assisted-rca)).
+  `robust`'s per-hour seasonal windows are also in-process only — not yet a durable
+  table — so a restart re-warms them from scratch.
+- Demo/report polish, per [WORKPLAN.md](WORKPLAN.md).

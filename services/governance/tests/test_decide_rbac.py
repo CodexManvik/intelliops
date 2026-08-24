@@ -1,23 +1,24 @@
 from fastapi.testclient import TestClient
 
 from common.contracts import ApprovalRequest
-from services.governance.adapters.approval_store import InMemoryApprovalStore
 from services.governance.rbac import RbacPolicy
 
 
 def _client():
+    from services.governance.adapters.approval_store import InMemoryApprovalStore
     from services.governance.app import app
 
     app.state.rbac = RbacPolicy(
         roles={"approver": [{"action": "approve", "resource": "playbook:*"}]},
         actors={"oncall-alice": ["approver"], "random-bob": []},
     )
-    app.state.approval_store = InMemoryApprovalStore()
-    app.state.approval_store.create(
+    store = InMemoryApprovalStore()
+    store.create(
         ApprovalRequest(
             id="a1", situation_id="s1", playbook_id="restart-pod", requested_by="action-service"
         )
     )
+    app.state.approval_store = store
     return TestClient(app)
 
 
