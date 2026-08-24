@@ -251,8 +251,34 @@ services:
   # Meridian sample system: stateless backend services (no DB) that mirror
   # the `read`/`demo-app` shape — inherit the anchor's redis depends_on,
   # override module + port, and use a /health healthcheck (bus-ping-free,
-  # so no redis-dependency surprise). The gateway (8008) is added in Task 3
-  # alongside its Dockerfile and the UI serve.
+  # so no redis-dependency surprise). The gateway (8008) has its own
+  # Dockerfile (deploy/Dockerfile.meridian) since it also builds+serves the
+  # Meridian UI, and it shares the rca-context volume with rca (Task 2) so
+  # /admin/deploy's deploy markers are visible to RCA's rollback scenario.
+  meridian-gateway:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.meridian
+    environment:
+      INTELLIOPS_REDIS_URL: redis://redis:6379
+      INTELLIOPS_LOG_FORMAT: json
+      SERVICE_MODULE: services.meridian.gateway.app:app
+      PORT: "8000"
+      INTELLIOPS_RCA_CONTEXT_PATH: /app/data/rca_context
+    ports:
+      - "8008:8000"
+    volumes:
+      - rca-context:/app/data/rca_context
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)\""]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+
   meridian-validation:
     <<: *service
     environment:

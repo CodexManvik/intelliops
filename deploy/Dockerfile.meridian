@@ -1,0 +1,44 @@
+# Multi-stage build for the Meridian gateway: builds the Meridian UI (Task 4)
+# with Node, then bakes the built assets into the same Python/uv service
+# image every other IntelliOps service uses (mirrors deploy/Dockerfile's
+# uv setup exactly — see that file for why `uv sync` runs twice and why
+# uvicorn is invoked directly from the venv instead of via `uv run`).
+
+FROM node:20-slim AS ui
+WORKDIR /ui
+COPY services/meridian/ui/package*.json ./
+RUN npm ci
+COPY services/meridian/ui/ ./
+RUN npm run build
+
+FROM python:3.11-slim
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+WORKDIR /app
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
+
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
+
+COPY common/ ./common/
+COPY services/ ./services/
+COPY policies/ ./policies/
+COPY deploy/playbooks/ ./data/playbooks/
+# Meridian UI static assets built in the `ui` stage above; served by the
+# gateway's StaticFiles mount (services/meridian/gateway/app.py).
+COPY --from=ui /ui/dist ./services/meridian/ui/dist
+# Alembic config + migration scripts, so the one-shot `migrate` compose service
+# can run `alembic upgrade head` against Postgres before the store services boot.
+COPY alembic.ini ./alembic.ini
+COPY alembic/ ./alembic/
+RUN uv sync --frozen --no-dev
+
+# Launch uvicorn directly from the built venv. Using `uv run` here would try to
+# re-sync the environment at container startup (re-resolving/downloading deps),
+# which delays or hangs the server bind and trips healthchecks. The venv is
+# already populated by `uv sync` above, so call its uvicorn directly.
+ENV PATH="/app/.venv/bin:${PATH}"
+ENV SERVICE_MODULE=services.meridian.gateway.app:app
+ENV PORT=8000
+CMD ["sh", "-c", "uvicorn \"$SERVICE_MODULE\" --host 0.0.0.0 --port \"$PORT\""]
