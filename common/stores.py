@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from services.correlation.adapters.baseline_store import PostgresBaselineStore
+from services.correlation.adapters.model_store import InMemoryModelStore, PostgresModelStore
 from services.feedback.adapters.training_store import FileTrainingStore, PostgresTrainingStore
 from services.governance.adapters.approval_store import InMemoryApprovalStore, PostgresApprovalStore
 from services.governance.adapters.audit_sink import FileAuditSink, PostgresAuditSink
@@ -23,6 +24,7 @@ class Stores:
     engine: object | None
     approval_store: object
     baseline_store: object | None
+    model_store: object | None
 
 
 def make_stores(settings) -> Stores:
@@ -37,6 +39,7 @@ def make_stores(settings) -> Stores:
             engine=engine,
             approval_store=PostgresApprovalStore(engine),
             baseline_store=PostgresBaselineStore(engine),
+            model_store=PostgresModelStore(engine),
         )
     return Stores(
         audit_sink=FileAuditSink(settings.audit_store_path),
@@ -45,4 +48,8 @@ def make_stores(settings) -> Stores:
         engine=None,
         approval_store=InMemoryApprovalStore(),
         baseline_store=None,
+        # In file mode the model artifact has no durable home, but an in-process
+        # store still lets POST /retrain save a fit and a later in-process reload
+        # pick it up (mirrors InMemoryApprovalStore's file-mode posture).
+        model_store=InMemoryModelStore(),
     )

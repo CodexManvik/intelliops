@@ -14,7 +14,7 @@ from common.config import get_settings
 from common.envelope import publish_model
 from common.stores import make_stores
 from services.base import create_app, db_ready
-from services.correlation.adapters.river_correlator import RiverCorrelator
+from services.correlation.adapters import make_correlator
 from services.correlation.consumer import (
     _drain_suppressed,
     _snapshot_baseline_once,
@@ -76,15 +76,32 @@ def _reload_baseline(engine, baseline_store, training_records: list[dict]) -> No
         engine._correlator.retrain(training_records)
 
 
+def _reload_model(engine, model_store, name: str = "trained") -> None:
+    """On boot: restore a persisted trained model onto the correlator. Best-effort.
+
+    Only correlators exposing load_model (the trained kind) can consume a blob; a
+    river/robust correlator has no model to restore, so this is a no-op for them.
+    Any failure (no store, no blob, feature drift, load error) leaves the
+    correlator cold — it simply re-fits from live data."""
+    if model_store is None:
+        return
+    load_model = getattr(engine._correlator, "load_model", None)
+    if load_model is None:
+        return
+    try:
+        blob = model_store.load_latest(name)
+        if blob:
+            load_model(blob)
+    except Exception as exc:  # noqa: BLE001 — a failed model reload just means cold start
+        logger.warning("model reload failed, starting cold: %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
     stop_event = threading.Event()
     engine = CorrelationEngine(
-        RiverCorrelator(
-            z_threshold=settings.correlation_z_threshold,
-            warmup_samples=settings.correlation_warmup_samples,
-        ),
+        make_correlator(settings),
         window_seconds=settings.correlation_window_seconds,
     )
     app.state.engine = engine
@@ -98,16 +115,28 @@ async def lifespan(app: FastAPI):
     # connect in postgres mode (PostgresPlaybookStore seeds on construction), so
     # it must be inside the guard too.
     baseline_store = None
+    model_store = None
     training_records: list[dict] = []
     try:
         stores = make_stores(settings)
         app.state.db_engine = stores.engine
         baseline_store = stores.baseline_store
+        model_store = getattr(stores, "model_store", None)
         training_records = [r.model_dump() for r in stores.training_store.read_all()]
     except Exception as exc:  # noqa: BLE001 — a failed boot-load just means a cold start
         logger.warning("store reload failed, starting cold: %s", exc)
+    # The durable `correlation_baseline` table only understands the river z-score's
+    # scalar codec (mean/variance/count). robust/trained carry a per-(metric,bucket)
+    # window whose snapshot rows don't fit that schema, so persisting them would
+    # KeyError on every flush (best-effort-swallowed, but noisy). Their baseline
+    # stays in-process only (ADR-019); skip the durable store so the flusher and
+    # boot reload are clean no-ops rather than logging a warning every period.
+    if settings.correlator_kind != "river":
+        baseline_store = None
     _reload_baseline(engine, baseline_store, training_records)
+    _reload_model(engine, model_store)
     app.state.baseline_store = baseline_store
+    app.state.model_store = model_store
     thread = threading.Thread(
         target=run_consumer, args=(app.state.bus, engine, stop_event), daemon=True
     )
@@ -151,3 +180,33 @@ def reset_baseline() -> dict:
         with db.begin() as conn:
             conn.execute(text("DELETE FROM correlation_baseline"))
     return {"reset": True}
+
+
+@app.post("/retrain")
+def retrain() -> dict:
+    """The REAL fit trigger for the trained correlator.
+
+    retrain()-at-boot has an empty feature deque and never fits; this endpoint is
+    what the demo/benchmark fires once the correlator has observed enough live
+    events. It fits the model from the buffered features, then persists the fresh
+    artifact best-effort (a failed save just means the next boot cold-starts and
+    re-fits). A river/robust correlator has no fit(), so this is a graceful no-op
+    ({"fitted": False}) for the non-trained kinds."""
+    engine = getattr(app.state, "engine", None)
+    fit = getattr(getattr(engine, "_correlator", None), "fit", None)
+    if fit is None:
+        return {"fitted": False, "persisted": False}
+    fitted = bool(fit())
+    persisted = False
+    if fitted:
+        model_store = getattr(app.state, "model_store", None)
+        serialize = getattr(engine._correlator, "serialize", None)
+        if model_store is not None and serialize is not None:
+            try:
+                blob = serialize()
+                if blob:
+                    model_store.save("trained", blob)
+                    persisted = True
+            except Exception as exc:  # noqa: BLE001 — persistence is best-effort
+                logger.warning("model persist failed after fit: %s", exc)
+    return {"fitted": fitted, "persisted": persisted}

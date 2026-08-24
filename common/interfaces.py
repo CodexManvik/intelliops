@@ -12,9 +12,11 @@ from typing import Protocol, runtime_checkable
 from common.contracts import (
     ApprovalRequest,
     AuditRecord,
+    EnrichmentContext,
     Playbook,
     RemediationPlan,
     RemediationTarget,
+    RootCauseHypothesis,
     Situation,
     TelemetryEvent,
     TrainingRecord,
@@ -132,3 +134,19 @@ class TrainingStore(Protocol):
     def append(self, record: TrainingRecord) -> None: ...
 
     def read_all(self) -> list[TrainingRecord]: ...
+
+
+@runtime_checkable
+class ExplanationProvider(Protocol):
+    """Produces a human-readable advisory explanation for the top RCA hypothesis.
+
+    Template (offline, deterministic) is the CI-safe default; an LLM-backed
+    implementation may be selected via config, but MUST NEVER raise out of the
+    consumer — every failure path falls back to the template output."""
+
+    def explain(
+        self,
+        hypothesis: RootCauseHypothesis,
+        context: EnrichmentContext,
+        situation: Situation,
+    ) -> str: ...

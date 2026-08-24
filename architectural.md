@@ -784,6 +784,184 @@ does cheaply; rejected in favor of the generic nudge. *Unbounded or blocking que
 dropped, recoverable UI hint for either unbounded memory growth or a stalled consumer thread;
 rejected in favor of the bounded drop-oldest queue.
 
+### ADR-019 — Pluggable detectors, the finetuning loop, and LLM-assisted RCA
+
+**Context.** The system had one correlator, `RiverCorrelator`: a per-metric online
+z-score against a running mean/variance, with a warm-up gate. It has two known,
+well-understood weaknesses. First, no seasonal awareness — a metric that legitimately
+plateaus higher at certain hours (a daily traffic pattern, a nightly batch job) looks
+like a global outlier to a single running baseline, which is a direct false-positive
+source. Second, a single early spike inflates the running mean/variance and can
+desensitize the detector to a second, same-size spike later — the z-score's classic
+failure mode. Separately, RCA's `rank_hypotheses` used three fixed-confidence rules
+with no memory of which suggested runbook had actually worked before, and diagnosis
+produced no human-readable explanation beyond a short rule description. The ask (from
+`WORKPLAN.md`'s Stream B) was to make detection and RCA measurably better *and prove
+it* — not just add a model and assert it helps.
+
+**Decision.** Four pieces, kept strictly additive so the existing `river` default and
+its tests stay byte-unchanged:
+
+- **`CORRELATOR_KIND` switch (`common/config.py`, default `river`)** selects the
+  correlator via `make_correlator(settings)`
+  (`services/correlation/adapters/__init__.py`), wired where `correlation/app.py`
+  used to construct `RiverCorrelator` directly. All three correlators subclass a new
+  `BaseCorrelator` ABC (`services/correlation/adapters/base_correlator.py`) that
+  makes explicit the contract `CorrelationEngine` already relied on implicitly:
+  `_z_threshold`/`_warmup_samples` attributes, `_severity_band`, `should_suppress`,
+  `reliability`, a `retrain` that aggregates per-signature reliability, and the
+  `snapshot()`/`load()` pair the engine's `reset()` uses to reconstruct a correlator
+  via `type(correlator)(z_threshold=..., warmup_samples=...)`. `RiverCorrelator` was
+  refactored onto this base as a pure move — the hoisted methods are verbatim, proven
+  behavior-identical by the full pre-existing correlation suite passing unmodified.
+- **`RobustCorrelator` (`kind=robust`)** replaces mean/variance with **median +
+  MAD** (median absolute deviation): score = `|value − median| / (1.4826 × MAD)`,
+  the constant making MAD a consistent σ-estimator for normal data; `MAD == 0` scores
+  `0` rather than dividing by zero. This alone fixes the single-spike-desensitizes
+  problem — a robust median barely moves from one outlier. On top of that, it keeps a
+  **seasonal baseline**: a separate numpy window per `(metric_name, hour-of-day
+  bucket)` pair (`correlation_seasonal_buckets`, default 24 buckets), so a metric is
+  scored against its own hour's local distribution instead of one global one. Config:
+  `correlation_seasonal_buckets`, `correlation_robust_window` (window size per
+  bucket), `correlation_robust_warmup` (samples required before a bucket scores
+  anything, default 30).
+- **`TrainedCorrelator` (`kind=trained`)** *composes* a `RobustCorrelator` for the
+  online path and adds a **scikit-learn `IsolationForest`**, blending
+  `max(online_score, model_score)` so the model can only add sensitivity, never
+  suppress the online detector. The model score is derived from the forest's own
+  decision boundary, not its raw `score_samples` output: `decision_function(x) =
+  score_samples(x) − offset_` is `≥ 0` for points the model calls normal and `< 0`
+  only for outliers, so the anomaly **margin** `max(0, −decision_function(x))` is
+  exactly `0` for a normal point (no false-positive contribution from the model) and
+  positive only for a genuine outlier, scaled onto the z-threshold range by a fixed
+  constant (`_MODEL_SCALE = 120`). This is a deliberate fix over the naive approach:
+  `score_samples` alone is negative for *every* point (normal points score around
+  −0.45, outliers around −0.65), so a naive `-score_samples * k` flags essentially
+  everything — the earlier form of this class did exactly that, caught by the
+  sign-convention test, and the `decision_function`-margin blend is the fix (commit
+  `668b0c7`). A cold `TrainedCorrelator` (no model fitted yet) returns the online
+  score alone — byte-identical to a bare `RobustCorrelator` — so a fresh `trained`
+  deployment works correctly before any fit ever runs.
+- **The persisted fit/retrain loop — the finetuning story, told honestly.**
+  `TrainedCorrelator.fit()` trains the `IsolationForest` on a rolling buffer of up to
+  4096 featurized events (a frozen 9-column schema — value, the online z-score,
+  hour-of-day as sin/cos, day-of-week, one-hot event kind, label count — see
+  `FEATURE_NAMES`); `serialize()`/`load_model()` round-trip the fitted model plus its
+  feature schema as a joblib blob, refusing to load a blob whose schema drifted from
+  the running code's `FEATURE_NAMES` (the correlator just stays cold rather than
+  scoring with a mismatched model). The blob persists to a new `model_artifacts`
+  table (Postgres `bytea`, migration `0003`) through a `ModelStore`
+  (`InMemoryModelStore` / `PostgresModelStore`), following `BaselineStore`'s
+  best-effort posture — a failed save just means the next boot cold-starts and
+  re-fits, never a crash. **The honest fact: the fit is triggered by `POST
+  /retrain`, not automatically.** An earlier design assumed `retrain()` at process
+  boot would fit the model; it doesn't, because the feature buffer is empty at boot
+  — there is nothing to fit *from* yet. `POST /retrain` (`correlation/app.py`) is the
+  real trigger: it calls `fit()` on the live correlator (which has been observing
+  events since boot) and persists the result. This is what the demo/benchmark fire to
+  make the learning loop visible; it is not (yet) wired to a scheduler or an
+  outcome-driven trigger inside the running service — see Consequences.
+- **RCA: reliability-weighted ranking + on-by-default, advisory-only LLM
+  explanation.** `rank_hypotheses(situation, context, reliability_provider=None)`
+  gained an optional third parameter — `None` preserves the exact prior ranking
+  (existing tests pass unmodified); when provided (a `signature -> float` callable
+  built in `rca/app.py` from `training_store.read_all()`, the same per-signature
+  worked/total aggregation `RiverCorrelator.retrain` already did), a hypothesis whose
+  `suggested_runbook_id` has a proven track record for this situation's signature
+  gets a bounded confidence boost. The top suggestion still always resolves to a real
+  playbook id — the downstream action path is unaffected. Separately, a new
+  `ExplanationProvider` Protocol (`common/interfaces.py`) is **on by default** in the
+  RCA flow: every diagnosed hypothesis carries advisory explanation text, but the
+  *provider* is config-selected. `TemplateExplanationProvider` — deterministic,
+  dependency-free, no network call — is the provider whenever
+  `llm_explanation_endpoint` is empty (the default), so CI, tests, and dev-without-
+  a-key never make a network call. `OpenAICompatibleExplanationProvider` — a sync
+  `httpx.Client` POST to `{endpoint}/chat/completions` — is used only when an
+  endpoint is configured, and works against OpenAI, a local Ollama, vLLM, or any
+  OpenAI-chat-completions-shaped server. **Advisory-only, structurally:** the
+  consumer sets the LLM text on the top hypothesis via
+  `model_copy(update={"explanation": ...})` — an additive field
+  (`RootCauseHypothesis.explanation: str | None = None`) — after ranking is already
+  final, so the explanation can never influence confidence, ordering, or
+  `suggested_runbook_id`. Every LLM failure mode (connection error, non-200,
+  non-JSON body, missing `choices`, empty content) is caught inside the provider and
+  falls back to the template output — a flaky or misbehaving LLM endpoint can never
+  break diagnosis or the downstream action path.
+- **sklearn stays off the default path.** `scikit-learn`/`joblib` are imported
+  **lazily**, inside `TrainedCorrelator.fit()`/`serialize()`/`load_model()` only —
+  never at module import time. A `river`- or `robust`-configured service never pays
+  the import cost or carries the dependency risk; only a `trained` deployment that
+  actually calls one of those methods touches sklearn.
+
+**Why.** `BaseCorrelator` turns an implicit, easy-to-break contract (the engine
+reaching into `_z_threshold`, calling `_severity_band`, reconstructing via a
+positional-kwarg factory) into an explicit one every new correlator is checked
+against, so `robust` and `trained` cannot silently violate an assumption only
+`RiverCorrelator` happened to satisfy. Median/MAD plus seasonal buckets was chosen
+over, say, a heavier seasonal-decomposition model because it is cheap, explainable
+in one line (a robust statistic against a matching hour's own window), and directly
+targets the two documented failure modes rather than a general-purpose smoothing
+technique. Composing `RobustCorrelator` inside `TrainedCorrelator` — rather than
+having the trained path reinvent an online score — means the model can only ever
+*add* sensitivity on top of a detector that already works, which is also why the
+blend is `max()` and not, say, an average that could let a confident-but-wrong model
+score suppress a real online signal. Making the LLM explanation advisory-only and
+additive-field-only is the same reversible-automation principle the rest of the
+system already applies to remediation ([ADR-007](#adr-007--reversible-only-health-verified-remediation)):
+a non-deterministic, third-party-dependent component is only ever allowed to narrate
+a decision that was already made deterministically, never to make it. Keeping the
+provider config-selected (template vs. real endpoint) rather than always calling out
+is what let "LLM explanation" ship **on by default** without adding network calls,
+flakiness, or cost to CI and tests.
+
+**Consequences.** (+) `river` stays the byte-unchanged default; the entire existing
+correlation and RCA test suites pass with no code changes, and `robust`/`trained` are
+purely opt-in via `CORRELATOR_KIND`. (+) The seasonal false-positive reduction and
+correlation-break recall gains are real and CI-enforced (one comparison) or
+documented with fresh, reproducible numbers (the rest) — see
+[docs/BENCHMARKS.md](docs/BENCHMARKS.md), not asserted in prose alone. (+) RCA gains
+a genuine feedback signal (reliability-weighted ranking) and a richer, human-readable
+explanation with no new failure mode reaching the action path. (+) sklearn's
+supply-chain and import cost is fully opt-in. (−) **The retrain trigger is manual**
+(`POST /retrain`), not automatic — there is no scheduler or outcome-driven hook in
+this build that calls it, so a `trained` deployment left alone never improves past
+its first (also manual) fit; this is explicitly listed as a deferred maturity
+milestone in §6 below, not hidden. (−) `robust`'s per-bucket seasonal windows are
+**in-process only** for this build — not written to a durable table — so a restart
+re-warms every bucket from scratch (`correlation_baseline`, the existing durable
+z-score-baseline table from [ADR-015](#adr-015--durable-runtime-state), has a
+`metric_name`-only primary key and no window column, so it cannot hold 24
+per-metric buckets without its own migration; that migration was deliberately
+deferred rather than blocking this effort — see docs/BENCHMARKS.md's honest limits).
+(−) `robust`/`trained` are measurably **more sensitive**, not strictly better: the
+benchmark shows meaningfully higher false-positive rates and lower precision than
+`river` on `sustained_anomaly`/`correlation_break` alongside their recall gains — a
+real sensitivity/specificity trade an operator switching `CORRELATOR_KIND` should
+expect, not a free upgrade. (−) The `IsolationForest`'s anomaly margin saturates on a
+near-constant feature vector, so `trained` tracks `robust` closely on the univariate
+scenarios (point/sustained) and only shows an independent edge on the multivariate
+`correlation_break` scenario — its practical value in this build is the persisted
+fit/re-fit loop and reliability learning, not a large standalone detection win.
+
+**Alternatives rejected.** *A single smarter correlator replacing `RiverCorrelator`
+outright* — would break the "test-safe by default" constraint every other adapter
+switch in this system honors ([ADR-012](#adr-012--config-switched-adapter-selection-with-test-safe-defaults))
+and removes the ability to measure the new detector against the old one on the same
+stream; rejected in favor of a config switch with `river` still default. *Automatic
+retrain on a fixed schedule or at boot* — boot has an empty feature buffer (nothing
+to fit from), and a fixed-interval scheduler adds a background timer and failure
+mode this effort did not have time to make safe (partial fits, overlapping retrains);
+deferred to `POST /retrain` as an explicit, observable trigger the operator/demo
+controls. *Averaging the model score into the blend instead of `max()`* — would let
+a wrong-but-confident model score pull a genuine online anomaly's combined score
+down; rejected, `max()` guarantees the model can only add sensitivity. *Making the
+LLM explanation replace or gate the ranked hypothesis/runbook selection* — would
+make the deterministic action path dependent on a non-deterministic, potentially
+unavailable third-party call; rejected outright as inconsistent with the reversible-
+automation principle the whole system is built on. *Async LLM calls* — the RCA
+consumer is a synchronous daemon thread, not an async event loop; a sync `httpx.Client`
+matches the actual call site instead of introducing an event loop for one provider.
+
 ---
 
 ## 4. Cross-cutting concerns
@@ -874,13 +1052,21 @@ in-region/on-prem for sovereign-cloud requirements.
   sparklines are now derived from real data in live mode instead of the old mock fallback. The
   whole console was also repainted to Apple's light website palette. See
   [docs/UI.md](docs/UI.md).
-
-**What remains deliberately deferred / simulated — the honest gap and the next milestones:**
-- **Per-user identity / an IdP.** Edge auth exists ([ADR-017](#adr-017--edge-authentication)) but
-  is a single **shared** token, not per-user; a real deployment would issue per-user tokens or
-  front the stack with an identity provider (JWT/OIDC). Deferred as the production auth path.
+- **Pluggable detectors, the finetuning loop, and LLM-assisted RCA.** A
+  `CORRELATOR_KIND=river|robust|trained` switch ([ADR-019](#adr-019--pluggable-detectors-the-finetuning-loop-and-llm-assisted-rca))
+  adds two new correlators behind `RiverCorrelator`'s unchanged default: `robust`
+  (median/MAD + per-hour seasonal baseline) and `trained` (a persisted scikit-learn
+  `IsolationForest` blended on top of `robust`'s online score, fitted via `POST
+  /retrain`). RCA's `rank_hypotheses` gained an optional reliability-weighted boost
+  from learned runbook track records, and every diagnosed hypothesis now carries an
+  advisory, on-by-default explanation (`TemplateExplanationProvider` — no network —
+  unless `llm_explanation_endpoint` is configured, in which case an OpenAI-compatible
+  endpoint is called with a template fallback on any error). A reproducible benchmark
+  (`docs/BENCHMARKS.md`) measures the actual gains — and the actual trade-offs —
+  against the `river` baseline, with one comparison CI-enforced.
 - **Automated model retraining.** The loop's *plumbing* exists; the retrain *trigger* is
-  manual/scheduled, automated as a later maturity milestone.
+  manual (`POST /retrain` on correlation-service — see [ADR-019](#adr-019--pluggable-detectors-the-finetuning-loop-and-llm-assisted-rca)),
+  not scheduled or outcome-driven yet; automating it is a later maturity milestone.
 - **Kafka in production.** Redis Streams runs dev and demo; the Kafka `BusClient` binding is
   deferred behind the same interface.
 - **Simulation controls in production.** The `/break`, `/fix`, `/reset`, `/reset-baseline`, and

@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     correlation_warmup_samples: int = 50
     correlation_z_threshold: float = 3.0
     correlation_window_seconds: float = 30.0
+    correlator_kind: str = "river"  # "river" | "robust" | "trained"
+    correlation_seasonal_buckets: int = 24
+    correlation_robust_window: int = 128
+    correlation_robust_warmup: int = 30
     governance_mode: str = "in_process"  # "in_process" | "http"
     governance_url: str = "http://localhost:8005"
     read_outcomes_max: int = 200
@@ -59,6 +63,12 @@ class Settings(BaseSettings):
     # --- Bus backend selection ---
     bus_backend: str = "redis"  # "redis" | "kafka"
     kafka_bootstrap_servers: str = "localhost:9092"
+
+    # --- RCA explanation (on-by-default via template; LLM opt-in via endpoint) ---
+    llm_explanation_endpoint: str = ""  # empty = TemplateExplanationProvider, no network
+    llm_explanation_model: str = "gpt-4o-mini"
+    llm_explanation_timeout_seconds: float = 10.0
+    llm_explanation_api_key: str = ""
 
 
 @lru_cache

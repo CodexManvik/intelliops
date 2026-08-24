@@ -19,21 +19,18 @@ NOTE (river 0.25): stats objects update in place via .update(v) and read via
 
 from __future__ import annotations
 
-import hashlib
-
 from river import stats
 
 from common.contracts import Situation, SituationStatus, TelemetryEvent
+from services.correlation.adapters.base_correlator import BaseCorrelator
 
 
-class RiverCorrelator:
+class RiverCorrelator(BaseCorrelator):
     def __init__(self, z_threshold: float = 3.0, warmup_samples: int = 50) -> None:
-        self._z_threshold = z_threshold
-        self._warmup_samples = warmup_samples
+        super().__init__(z_threshold, warmup_samples)
         self._mean: dict[str, stats.Mean] = {}
         self._var: dict[str, stats.Var] = {}
         self._count: dict[str, int] = {}
-        self._reliability: dict[str, float] = {}
 
     def detect(self, event: TelemetryEvent) -> float:
         if event.value is None:
@@ -57,9 +54,6 @@ class RiverCorrelator:
         var.update(event.value)
         self._count[name] = seen + 1
         return score
-
-    def is_anomaly(self, event: TelemetryEvent) -> bool:
-        return self.detect(event) > self._z_threshold
 
     def snapshot(self) -> list[dict]:
         """Per-metric baseline as plain scalars (see tests/test_baseline_codec)."""
@@ -103,35 +97,3 @@ class RiverCorrelator:
             last_seen=max(e.ts for e in events),
             signature=signature,
         )
-
-    def retrain(self, training_data: list[dict]) -> None:
-        # The closed loop: aggregate per-signature reliability from labeled
-        # outcomes. A signature whose remediation reliably works becomes a
-        # candidate for suppression (see should_suppress); one that fails stays
-        # sensitive. Recomputes from the given data each call.
-        worked: dict[str, int] = {}
-        total: dict[str, int] = {}
-        for record in training_data:
-            sig = record["signature"]
-            total[sig] = total.get(sig, 0) + 1
-            if record.get("worked"):
-                worked[sig] = worked.get(sig, 0) + 1
-        self._reliability = {sig: worked.get(sig, 0) / n for sig, n in total.items()}
-
-    def reliability(self, signature: str) -> float:
-        return self._reliability.get(signature, 0.0)
-
-    def should_suppress(self, signature: str, threshold: float) -> bool:
-        return self.reliability(signature) >= threshold
-
-    def _severity_band(self, score: float) -> str:
-        if score >= 8:
-            return "high"
-        if score >= 5:
-            return "medium"
-        return "low"
-
-    @staticmethod
-    def _signature(events: list[TelemetryEvent]) -> str:
-        joined = "|".join(sorted(e.fingerprint for e in events))
-        return hashlib.sha1(joined.encode()).hexdigest()[:16]
