@@ -12,7 +12,7 @@ Make the "AIOps" genuinely intelligent and, crucially, **measure the improvement
 
 - No change to the `river` default behavior — `CORRELATOR_KIND=river` (default) is byte-unchanged; `pytest`/CI/compose unaffected.
 - No breaking change to any `Correlator` Protocol method or the `rank_hypotheses` signature (additive/optional only).
-- No live LLM dependency in tests — the LLM-explanation path is behind an interface, `Null` by default.
+- No live LLM call in tests/CI — the LLM-explanation path is **on by default** but the *provider* is config-selected: a deterministic template provider (no network) whenever no LLM endpoint is configured, so CI never calls out. A real OpenAI-compatible endpoint is used only when configured (the running system/demo).
 - The **sample production system** is a SEPARATE, later effort (explicitly deferred; this spec is Stream B only).
 - No real ML infra in CI — sklearn is a normal dependency; the trained path is opt-in and the benchmark runs fast/deterministically.
 
@@ -97,7 +97,13 @@ The reliability provider is threaded from the correlation side's learned reliabi
 ### Richer context + the LLM-explanation interface
 
 - Extend `ContextProvider` usage / add a `MetricContextProvider` that surfaces correlated-metric and topology-neighbor evidence, so hypotheses cite *why* (e.g. co-spiking dependency). Behind the existing `ContextProvider` Protocol — `NullContextProvider` stays the default/test double.
-- **New `ExplanationProvider` Protocol** (`common/interfaces.py`, additive): `explain(hypothesis, context) -> str`. Default `NullExplanationProvider` returns the existing deterministic description (no behavior change, no dependency). An LLM-backed impl can slot in later behind the same interface — off by default, so tests need no API. This satisfies the workplan's "optionally an LLM-assisted explanation behind an interface" without a test-time dependency.
+- **New `ExplanationProvider` Protocol** (`common/interfaces.py`, additive): `explain(hypothesis, context, situation) -> str`. The explanation step is **ON by default** in the RCA flow — every diagnosed hypothesis carries a human-readable explanation. The **provider is config-selected** so this is on in the running system without breaking CI:
+  - **`TemplateExplanationProvider`** (the test-safe default): a deterministic, dependency-free explanation built from the hypothesis + evidence (a richer version of today's description string). Used whenever no LLM endpoint is configured — i.e. CI, tests, and dev-without-a-key. **No network call.**
+  - **`OpenAICompatibleExplanationProvider`** (the real path): calls an **OpenAI-compatible chat completions endpoint** (`POST {base_url}/chat/completions`) via `httpx` (already a dependency — no new package), sending the situation + top hypothesis + evidence and returning the model's explanation. Works with OpenAI, local Ollama, vLLM, etc.
+  - **Config (additive, `common/config.py`):** `llm_explanation_endpoint: str = ""` (base URL; empty → use the template provider), `llm_explanation_api_key: str = ""`, `llm_explanation_model: str = "gpt-4o-mini"`, `llm_explanation_timeout: float = 8.0`. A factory `make_explanation_provider(settings)` returns the OpenAI-compatible provider **iff `llm_explanation_endpoint` is set**, else the template provider.
+  - **Graceful fallback (mandatory):** the RCA consumer calls `explain(...)` wrapped so that ANY LLM error (timeout, non-200, network, malformed response) falls back to the `TemplateExplanationProvider` output and logs — a flaky LLM must never break diagnosis or the downstream action path. The LLM explanation is **advisory text on the hypothesis**; the ranking, confidence, and `suggested_runbook_id` are computed deterministically and are NEVER derived from the LLM (so the action path stays deterministic and safe).
+  - **Test-safety:** because the default endpoint is empty, `pytest`/CI use the template provider and make no network call. A test may inject a fake `ExplanationProvider` to exercise the on-by-default wiring; a focused test monkeypatches `httpx` to assert the OpenAI-compatible provider builds the right request and falls back on error. `httpx` import for the provider is fine (already used across services).
+  - This satisfies the workplan's "LLM-assisted explanation behind an interface" — on by default, real when configured, safe when not.
 
 ---
 
@@ -125,9 +131,9 @@ Methodology (scenarios, metrics, one-command re-run), the **results table** (gen
 ## Decision 4 — Docs + ADR
 
 - **`docs/BENCHMARKS.md`** (above).
-- **ADR-019 — Pluggable detectors + the finetuning loop** (next number is 019, verified — last is 018). Documents `CORRELATOR_KIND`, robust/seasonal + trained rationale, the persisted-model fine-tune loop, sklearn-on-training-path-only, and honest limits (synthetic benchmark; multivariate assumptions; the score-blend choice). Match the existing ADR heading/structure.
+- **ADR-019 — Pluggable detectors, the finetuning loop, and LLM-assisted RCA** (next number is 019, verified — last is 018). Documents `CORRELATOR_KIND`, robust/seasonal + trained rationale, the persisted-model fine-tune loop, sklearn-on-training-path-only, the **on-by-default LLM explanation** (config-selected provider, OpenAI-compatible, template fallback, LLM never touches ranking/runbook selection — advisory only), and honest limits (synthetic benchmark; multivariate assumptions; the score-blend choice; LLM explanation is advisory text, not a decision input). Match the existing ADR heading/structure.
 - **`flow.md` / `README.md`**: detection section describes the pluggable detector + retrain loop; Stream B marked shipped; ADR count → 19.
-- **`docs/OPERATIONS.md`**: `CORRELATOR_KIND` + the new tuning fields added to the env-switch table.
+- **`docs/OPERATIONS.md`**: `CORRELATOR_KIND` + the correlator tuning fields + the `LLM_EXPLANATION_*` fields added to the env-switch table (noting: unset endpoint → template provider, no network; set → OpenAI-compatible LLM explanations).
 
 ---
 
@@ -143,7 +149,7 @@ Methodology (scenarios, metrics, one-command re-run), the **results table** (gen
 1. `BaseCorrelator` (engine-facing contract) + `CORRELATOR_KIND` switch + `make_correlator` factory + config fields; wire `app.py`. (`river` default unchanged — all existing correlation tests green.)
 2. `RobustCorrelator` (robust-z + seasonal) + `snapshot`/`load` + tests.
 3. `TrainedCorrelator` (sklearn IsolationForest, lazy import) + `ModelStore` (InMemory + Postgres + migration) + retrain fit/persist/reload + tests.
-4. RCA: optional `reliability_provider` in `rank_hypotheses` + evidence-driven scoring + reliability wired from training records in `consumer.py`; richer context + `ExplanationProvider` Protocol (Null default) + tests.
+4. RCA: optional `reliability_provider` in `rank_hypotheses` + evidence-driven scoring + reliability wired from training records in `consumer.py`; richer context + `ExplanationProvider` Protocol with `TemplateExplanationProvider` (default, no network) and `OpenAICompatibleExplanationProvider` (config-selected via `make_explanation_provider`), on-by-default in the consumer with mandatory template fallback on any LLM error + tests (template path + a monkeypatched-httpx LLM path).
 5. Benchmark: scenario generator + runner + `test_benchmark.py` (CI-enforced improvement).
 6. Generate real numbers → `docs/BENCHMARKS.md`; ADR-019; flow/README/OPERATIONS updates.
 
