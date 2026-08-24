@@ -1,0 +1,37 @@
+--- a/services/correlation/app.py
++++ b/services/correlation/app.py
+@@ -11,6 +11,7 @@
+ from common.config import get_settings
+ from common.envelope import publish_model
+ from common.stores import make_stores
++from services.correlation.adapters.isolation_forest_correlator import IsolationForestCorrelator
+ from services.correlation.adapters.river_correlator import RiverCorrelator
+ from services.correlation.consumer import (
+     _drain_suppressed,
+@@ -83,12 +84,21 @@ async def lifespan(app: FastAPI):
+     if db is None:
+         logger.warning("No database engine available for correlation service")
+ 
+-    engine = CorrelationEngine(
+-        RiverCorrelator(
+-            z_threshold=settings.correlation_z_threshold,
+-            warmup_samples=settings.correlation_warmup_samples,
+-        ),
+-        window_seconds=settings.correlation_window_seconds,
+-    )
++    if settings.correlation_kind == "isolation_forest":
++        correlator = IsolationForestCorrelator(
++            contamination=settings.correlation_isolation_contamination,
++            max_samples=settings.correlation_isolation_max_samples,
++            buffer_size=settings.correlation_isolation_buffer_size,
++        )
++        logger.info("Using IsolationForestCorrelator")
++    else:
++        correlator = RiverCorrelator(
++            z_threshold=settings.correlation_z_threshold,
++            warmup_samples=settings.correlation_warmup_samples,
++        )
++        logger.info("Using RiverCorrelator")
++
++    engine = CorrelationEngine(correlator, window_seconds=settings.correlation_window_seconds)
+     app.state.engine = engine

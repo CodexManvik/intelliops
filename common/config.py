@@ -36,6 +36,14 @@ class Settings(BaseSettings):
     correlation_warmup_samples: int = 50
     correlation_z_threshold: float = 3.0
     correlation_window_seconds: float = 30.0
+
+    # --- Smarter detection settings (Stream B) ---
+    correlation_kind: str = "river"  # "river" | "isolation_forest" | "ewma"
+    correlation_isolation_contamination: float = 0.1
+    correlation_isolation_max_samples: int = 100
+    correlation_isolation_buffer_size: int = 200
+    correlation_ewma_alpha: float = 0.3
+    correlation_ewma_threshold: float = 3.0
     governance_mode: str = "in_process"  # "in_process" | "http"
     governance_url: str = "http://localhost:8005"
     read_outcomes_max: int = 200

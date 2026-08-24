@@ -15,6 +15,7 @@ from common.envelope import publish_model
 from common.stores import make_stores
 from services.base import create_app, db_ready
 from services.correlation.adapters.river_correlator import RiverCorrelator
+from services.correlation.adapters.isolation_forest_correlator import IsolationForestCorrelator
 from services.correlation.consumer import (
     _drain_suppressed,
     _snapshot_baseline_once,
@@ -80,13 +81,21 @@ def _reload_baseline(engine, baseline_store, training_records: list[dict]) -> No
 async def lifespan(app: FastAPI):
     settings = get_settings()
     stop_event = threading.Event()
-    engine = CorrelationEngine(
-        RiverCorrelator(
+    if settings.correlation_kind == "isolation_forest":
+        correlator = IsolationForestCorrelator(
+            contamination=settings.correlation_isolation_contamination,
+            max_samples=settings.correlation_isolation_max_samples,
+            buffer_size=settings.correlation_isolation_buffer_size,
+        )
+        logger.info("Using IsolationForestCorrelator")
+    else:
+        correlator = RiverCorrelator(
             z_threshold=settings.correlation_z_threshold,
             warmup_samples=settings.correlation_warmup_samples,
-        ),
-        window_seconds=settings.correlation_window_seconds,
-    )
+        )
+        logger.info("Using RiverCorrelator")
+
+    engine = CorrelationEngine(correlator, window_seconds=settings.correlation_window_seconds)
     app.state.engine = engine
     # Reload-on-boot: restore the durable baseline + reliability BEFORE the
     # consumer thread starts, so the first events are scored against the
