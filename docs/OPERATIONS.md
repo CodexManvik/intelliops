@@ -133,3 +133,83 @@ gated) see the [Auth at the edge](#auth-at-the-edge) section above.
 | `INTELLIOPS_STORE_BACKEND` | `file`, `postgres` | `file` | Persistence layer. `file` = JSONL files on disk (test-safe, no DB needed). `postgres` = PostgreSQL via SQLAlchemy (requires `INTELLIOPS_DATABASE_URL`). |
 | `INTELLIOPS_BUS_BACKEND` | `redis`, `kafka` | `redis` | Event-bus binding. `redis` = Redis Streams (`RedisBus`). `kafka` = Kafka (`KafkaBus`, requires `INTELLIOPS_KAFKA_BOOTSTRAP_SERVERS`). Both bindings use at-most-once delivery — see [Delivery guarantees](#delivery-guarantees). |
 | `INTELLIOPS_REMEDIATOR_MODE` | `dry_run`, `k8s` | `dry_run` | Remediation execution mode. `dry_run` = log steps only, no real infrastructure changes (CI/test default). `k8s` = execute playbook steps against a real Kubernetes cluster via the official `kubernetes` Python client (requires a valid kubeconfig and `INTELLIOPS_K8S_NAMESPACE`). |
+
+---
+
+## Consumer kill / recovery
+
+### What this scenario tests
+
+Kills the `correlation` service mid-stream while low-rate telemetry events are
+in flight, restarts it, and measures recovery time and message loss. This
+surfaces the actual delivery guarantee the system provides — not the one you
+might assume.
+
+### RedisBus XACK behaviour (read this first)
+
+`RedisBus.consume()` calls `XACK` **before** yielding to the caller. The
+sequence is:
+
+1. `XREADGROUP` — entry moves to the Pending Entries List (PEL)
+2. `XACK` — immediately, entry removed from PEL
+3. `yield fields` — caller processes
+
+Consequence: **there is no PEL accumulation on a kill.** Entries the dead
+consumer had already read are gone — `XPENDING` will show 0. There is also no
+need for `XCLAIM`/`XAUTOCLAIM` because nothing is ever stuck in the PEL.
+
+Entries that had not yet been read by any consumer when the kill happened **are**
+recovered — they are still in the stream, and the restarted consumer picks them
+up because the group's last-delivered-id advances only on `XREADGROUP`.
+
+The loss window is therefore: entries read (and acked) by the killed consumer
+between its last successful `XREADGROUP` and the kill signal. At 1 event/s
+that is typically 0–2 entries.
+
+### Running the test
+
+```bash
+# Stack must be up first
+docker compose -f deploy/docker-compose.yml up -d
+
+# Run the chaos test (default: 1 event/s, kill after 5s warmup)
+bash scripts/chaos-test.sh
+
+# Higher rate
+RATE=5 bash scripts/chaos-test.sh
+```
+
+### Results (one real run, 1 event/s, Redis backend)
+
+| Metric | Value |
+|---|---|
+| Events sent total | 15 |
+| PEL entries at kill-time | 0 |
+| Recovery time | 4s |
+| Events sent while consumer dead | 5 |
+| Events delivered after restart | 5 (all — were still in stream, unread) |
+| True loss (acked-but-unprocessed) | 1 |
+
+### What the assertions check
+
+The script asserts two things:
+
+1. **PEL == 0** at kill-time — structural verification that `RedisBus` acks
+   before yielding. If this ever becomes non-zero, ack timing has changed and
+   the "no stuck messages" guarantee no longer holds.
+2. **Recovery within 30s** — the consumer group resumes after `docker compose
+   up correlation`.
+
+It does **not** assert zero loss, because zero loss is not the guarantee this
+system makes.
+
+### Expected result
+
+Loss is expected and bounded under the at-most-once delivery model — not a
+bug. The bounded loss is entries that were in-flight (read, acked, not yet
+processed) at kill-time. At the rates this system targets that is a handful of
+events, not a runaway number.
+
+Upgrading to at-least-once delivery (moving `XACK` to after processing, and
+`enable_auto_commit=False` on Kafka) is a deliberate future decision documented
+in the [Delivery guarantees](#delivery-guarantees) section above.
