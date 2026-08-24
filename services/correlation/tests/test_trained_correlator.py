@@ -85,9 +85,21 @@ def test_fit_produces_model_and_outlier_scores_above_cluster_point():
 
     assert c.fit() is True  # enough samples -> a model exists
 
-    # score a normal cluster point vs a gross outlier, same bucket/hour
-    normal_score = c.detect(_event(value=10.0, ts=ts0 + timedelta(seconds=1000)))
-    outlier_score = c.detect(_event(value=5000.0, ts=ts0 + timedelta(seconds=1001)))
+    # Guard the sign convention on the ISOLATED model score, not the max()-blend.
+    # detect() returns max(online, model_score); for a gross outlier the online
+    # robust score dominates, so asserting on detect() alone would pass even with
+    # a flipped negation. Assert on the raw model instead: after negating
+    # score_samples (HIGHER=more normal), a planted outlier's negated score MUST
+    # exceed a cluster point's. A flipped sign fails this.
+    normal_row = c.featurize(_event(value=10.0, ts=ts0 + timedelta(seconds=1000)), 0.0)
+    outlier_row = c.featurize(_event(value=5000.0, ts=ts0 + timedelta(seconds=1001)), 0.0)
+    normal_model = -float(c._model.score_samples([normal_row])[0])
+    outlier_model = -float(c._model.score_samples([outlier_row])[0])
+    assert outlier_model > normal_model  # negation is correct: outlier reads MORE anomalous
+
+    # And the blended detect() still ranks the outlier above a normal point.
+    normal_score = c.detect(_event(value=10.0, ts=ts0 + timedelta(seconds=1002)))
+    outlier_score = c.detect(_event(value=5000.0, ts=ts0 + timedelta(seconds=1003)))
     assert outlier_score > normal_score
 
 
