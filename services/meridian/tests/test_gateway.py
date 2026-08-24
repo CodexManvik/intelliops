@@ -27,12 +27,22 @@ import os
 
 import httpx
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from prometheus_client import CollectorRegistry
 
 from services.meridian.common import make_meridian_service
 
 _RCA_CONTEXT_ENV = "INTELLIOPS_RCA_CONTEXT_PATH"
+_MERIDIAN_SERVICES = {"gateway", "validation", "aggregation", "reporting"}
+
+
+def _known_service(name: str) -> str:
+    # Mirrors gateway/app.py._known_service — reject an unknown service before
+    # it is interpolated into an in-cluster URL (request-forgery guard).
+    if name not in _MERIDIAN_SERVICES:
+        raise HTTPException(status_code=400, detail=f"Unknown Meridian service: {name!r}")
+    return name
 
 
 def _ops_routes(app, state) -> None:
@@ -51,7 +61,7 @@ def _ops_routes(app, state) -> None:
 
     @app.post("/api/ops/fault")
     def ops_fault(body: dict) -> dict:
-        svc = body["service"]
+        svc = _known_service(body["service"])
         spec = body["spec"]
         url = f"http://meridian-{svc}:8000/admin/fault"
         with httpx.Client(timeout=5.0) as c:
@@ -60,7 +70,7 @@ def _ops_routes(app, state) -> None:
 
     @app.post("/api/ops/clear")
     def ops_clear(body: dict) -> dict:
-        svc = body["service"]
+        svc = _known_service(body["service"])
         url = f"http://meridian-{svc}:8000/admin/clear"
         with httpx.Client(timeout=5.0) as c:
             r = c.post(url)
@@ -72,7 +82,7 @@ def _ops_routes(app, state) -> None:
         # module-level _RCA_CONTEXT computed at import time) so tests can
         # monkeypatch it per-test via os.environ.
         rca_context = os.environ.get(_RCA_CONTEXT_ENV, "data/rca_context")
-        svc_name = f"meridian-{body['service']}"
+        svc_name = f"meridian-{_known_service(body['service'])}"
         os.makedirs(rca_context, exist_ok=True)
         path = os.path.join(rca_context, "deploys.json")
         from datetime import UTC, datetime
@@ -262,21 +272,21 @@ def test_static_mount_registered_when_dist_dir_present(tmp_path):
     assert "meridian ui" in r.text
 
 
-@pytest.mark.parametrize("bad_svc", ["", "not-a-real-service"])
-def test_ops_fault_still_proxies_unknown_service_names_verbatim(monkeypatch, bad_svc):
-    # The gateway doesn't validate `service` against _MERIDIAN_SERVICES
-    # before proxying (per the brief's exact route body) — it just formats
-    # the URL. Document that behavior so a future validation change is a
-    # deliberate, visible diff here rather than a silent behavior change.
-    seen = {}
+@pytest.mark.parametrize("bad_svc", ["", "not-a-real-service", "evil-host", "gateway:9999"])
+def test_ops_fault_rejects_unknown_service_and_never_proxies(monkeypatch, bad_svc):
+    # The proxy interpolates `service` into an in-cluster URL, so an
+    # unvalidated value is a request-forgery seam. Only the four Meridian
+    # services are legitimate targets; anything else is a 400 and NO
+    # outbound request is ever made.
+    called = {"n": 0}
 
     def handler(request: httpx.Request) -> httpx.Response:
-        seen["url"] = str(request.url)
+        called["n"] += 1
         return httpx.Response(200, json={})
 
     _mock_httpx_client(monkeypatch, handler)
 
     c = _client()
     r = c.post("/api/ops/fault", json={"service": bad_svc, "spec": {"type": "crash"}})
-    assert r.status_code == 200
-    assert seen["url"] == f"http://meridian-{bad_svc}:8000/admin/fault"
+    assert r.status_code == 400
+    assert called["n"] == 0  # never proxied to a forged host

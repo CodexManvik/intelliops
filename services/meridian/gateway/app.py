@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
+from fastapi import HTTPException
 from fastapi.staticfiles import StaticFiles
 
 from services.meridian.common import make_meridian_service
@@ -33,6 +34,19 @@ _MERIDIAN_SERVICES = {"gateway", "validation", "aggregation", "reporting"}
 # mounted rca-context volume path so the rca service (Task 2) can read the
 # same deploy markers for the rollback RCA scenario.
 _RCA_CONTEXT = os.environ.get("INTELLIOPS_RCA_CONTEXT_PATH", "data/rca_context")
+
+
+def _known_service(name: str) -> str:
+    """Reject any service the ops-proxy doesn't recognize.
+
+    The proxy interpolates the service name into an in-cluster URL
+    (http://meridian-<svc>:8000/...), so an unvalidated value is a
+    request-forgery seam. Only the four Meridian services are ever a
+    legitimate ops target; anything else is a 400, never a URL.
+    """
+    if name not in _MERIDIAN_SERVICES:
+        raise HTTPException(status_code=400, detail=f"Unknown Meridian service: {name!r}")
+    return name
 
 
 def _routes(app, state) -> None:
@@ -61,7 +75,7 @@ def _routes(app, state) -> None:
 
     @app.post("/api/ops/fault")
     def ops_fault(body: dict) -> dict:
-        svc = body["service"]
+        svc = _known_service(body["service"])
         spec = body["spec"]
         url = f"http://meridian-{svc}:8000/admin/fault"
         with httpx.Client(timeout=5.0) as c:
@@ -71,7 +85,7 @@ def _routes(app, state) -> None:
 
     @app.post("/api/ops/clear")
     def ops_clear(body: dict) -> dict:
-        svc = body["service"]
+        svc = _known_service(body["service"])
         url = f"http://meridian-{svc}:8000/admin/clear"
         with httpx.Client(timeout=5.0) as c:
             r = c.post(url)
@@ -79,7 +93,7 @@ def _routes(app, state) -> None:
 
     @app.post("/api/ops/deploy")
     def ops_deploy(body: dict) -> dict:
-        svc = f"meridian-{body['service']}"
+        svc = f"meridian-{_known_service(body['service'])}"
         os.makedirs(_RCA_CONTEXT, exist_ok=True)
         path = os.path.join(_RCA_CONTEXT, "deploys.json")
         entry = {
