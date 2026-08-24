@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import text
 
 from common.config import get_settings
 from common.contracts import ApprovalRequest, AuditRecord, HitlMode, Playbook
@@ -128,6 +129,18 @@ def decide_approval(approval_id: str, decision: Decision) -> ApprovalRequest:
         approval_id, status=decision.decision, decided_by=decision.decided_by
     )
     return updated
+
+
+@app.post("/reset-approvals")
+def reset_approvals() -> dict:
+    db = getattr(app.state, "db_engine", None)
+    if db is not None:
+        with db.begin() as conn:
+            conn.execute(text("DELETE FROM approvals"))
+    store = getattr(app.state, "approval_store", None)
+    if hasattr(store, "_by_id"):
+        store._by_id.clear()
+    return {"reset": True}
 
 
 @app.post("/playbooks/{playbook_id}/graduate")

@@ -3,8 +3,14 @@ import type { AuditRow, Metrics, OutcomeRow, Playbook, Situation } from "./types
 const READ = import.meta.env.VITE_READ_URL ?? "http://localhost:8007";
 const GOV = import.meta.env.VITE_GOV_URL ?? "http://localhost:8005";
 
+const AUTH_TOKEN = import.meta.env.VITE_AUTH_TOKEN ?? "";
+
+function authHeaders(base: Record<string, string> = {}): Record<string, string> {
+  return AUTH_TOKEN ? { ...base, Authorization: `Bearer ${AUTH_TOKEN}` } : base;
+}
+
 async function getJSON<T>(url: string): Promise<T> {
-  const r = await fetch(url);
+  const r = await fetch(url, { headers: authHeaders() });
   if (!r.ok) throw new Error(`${url} → ${r.status}`);
   return (await r.json()) as T;
 }
@@ -22,8 +28,14 @@ export async function decideApproval(
 ): Promise<void> {
   const r = await fetch(`${GOV}/approvals/${approvalId}/decide`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: authHeaders({ "content-type": "application/json" }),
     body: JSON.stringify({ decision, decided_by: decidedBy }),
   });
   if (!r.ok) throw new Error(`decide → ${r.status}`);
+}
+
+export function openStream(): EventSource {
+  const url = new URL(`${READ}/stream`);
+  if (AUTH_TOKEN) url.searchParams.set("token", AUTH_TOKEN);
+  return new EventSource(url.toString()); // no withCredentials — conflicts with wildcard CORS
 }

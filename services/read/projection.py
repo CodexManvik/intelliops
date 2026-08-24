@@ -8,6 +8,8 @@ translation layer.
 
 from __future__ import annotations
 
+import asyncio
+import threading
 from typing import ClassVar
 
 from common.contracts import (
@@ -41,6 +43,48 @@ class ReadModel:
         self._ttl_ms = ttl_seconds * 1000
         self._max_sits = max_situations
         self._suppressed_count = 0
+        self._subscribers: set[asyncio.Queue] = set()
+        self._subs_lock = threading.Lock()
+        self._loop: asyncio.AbstractEventLoop | None = None
+
+    def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Called once from the async lifespan so consumer threads can hand off."""
+        self._loop = loop
+
+    def subscribe(self, maxsize: int = 1000) -> asyncio.Queue:
+        """MUST be called on the event-loop thread (from the /stream coroutine)."""
+        q: asyncio.Queue = asyncio.Queue(maxsize=maxsize)
+        with self._subs_lock:
+            self._subscribers.add(q)
+        return q
+
+    def unsubscribe(self, q: asyncio.Queue) -> None:
+        with self._subs_lock:
+            self._subscribers.discard(q)
+
+    def publish(self, event: dict) -> None:
+        """Called from consumer THREADS. Marshals delivery onto the loop."""
+        loop = self._loop
+        if loop is None:
+            return
+        with self._subs_lock:
+            subs = list(self._subscribers)
+        for q in subs:
+            try:
+                loop.call_soon_threadsafe(self._deliver, q, event)
+            except RuntimeError:
+                pass  # loop closed during shutdown
+
+    def _deliver(self, q: asyncio.Queue, event: dict) -> None:
+        # runs ON the loop thread
+        try:
+            q.put_nowait(event)
+        except asyncio.QueueFull:
+            try:
+                q.get_nowait()
+                q.put_nowait(event)
+            except (asyncio.QueueEmpty, asyncio.QueueFull):
+                pass
 
     def apply_detected(self, s: Situation) -> None:
         existing = self._sits.get(s.id, {})
@@ -62,9 +106,11 @@ class ReadModel:
             "suppressed": False,
             "last_activity": existing.get("last_activity", _epoch_ms(s.first_seen)),
         }
+        self.publish({"type": "changed"})
 
     def apply_suppressed(self, s: Situation) -> None:
         self._suppressed_count += 1
+        self.publish({"type": "changed"})
 
     def apply_diagnosed(self, d: DiagnosedSituation) -> None:
         self.apply_detected(d.situation)
@@ -82,6 +128,7 @@ class ReadModel:
                 "suggested_runbook_id": d.suggested_runbook_id,
             }
         )
+        self.publish({"type": "changed"})
 
     def apply_outcome(self, o: RemediationOutcome) -> None:
         if o.situation_id in self._sits:
@@ -108,6 +155,7 @@ class ReadModel:
             },
         )
         del self._outcomes[self._max :]
+        self.publish({"type": "changed"})
 
     _TERMINAL: ClassVar[set[str]] = {"resolved", "failed"}
 

@@ -1,0 +1,32 @@
+# deploy/docker-compose.auth.yml
+# Demo override: turn edge auth ON (AUTH_MODE=token) across all app services with
+# a shared token. Layer it on the base stack for the "production-credible, auth-on"
+# demo (see docs/DEMO.md):
+#
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.auth.yml up
+#
+# Compose merges the `environment` maps across override files (unlike the YAML
+# `<<: *service` anchor merge), so these keys are ADDED to each service's existing
+# environment rather than replacing it. The frontend must send the same token via
+# VITE_AUTH_TOKEN (see frontend/.env.example).
+#
+# The token here is a demo secret, not a production credential.
+x-auth: &auth
+  INTELLIOPS_AUTH_MODE: token
+  INTELLIOPS_AUTH_TOKEN: intelliops-demo-token
+
+services:
+  ingestion:
+    environment: *auth
+  correlation:
+    environment: *auth
+  rca:
+    environment: *auth
+  action:
+    environment: *auth
+  governance:
+    environment: *auth
+  feedback:
+    environment: *auth
+  read:
+    environment: *auth

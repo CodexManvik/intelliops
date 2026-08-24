@@ -8,6 +8,7 @@ import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from sqlalchemy import text
 
 from common.config import get_settings
 from common.envelope import publish_model
@@ -145,4 +146,8 @@ def reset_baseline() -> dict:
     engine = getattr(app.state, "engine", None)
     if engine is not None:
         engine.reset()
+    db = getattr(app.state, "db_engine", None)
+    if db is not None:
+        with db.begin() as conn:
+            conn.execute(text("DELETE FROM correlation_baseline"))
     return {"reset": True}

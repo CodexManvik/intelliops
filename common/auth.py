@@ -6,9 +6,9 @@ AUTH_MODE=token: a request must carry `Authorization: Bearer
 <INTELLIOPS_AUTH_TOKEN>` to reach a protected endpoint; a missing or
 mismatched token gets 401.
 
-/health is exempt in every service, in every mode (see services/base.py),
-so container healthchecks, k8s liveness/readiness probes, and the CI
-compose-smoke job keep working without a token. demo-app's /metrics
+/health and /ready are exempt in every service, in every mode (see
+services/base.py), so container healthchecks, k8s liveness/readiness probes,
+and the CI compose-smoke job keep working without a token. demo-app's /metrics
 (scraped by Prometheus, unauthenticated) and /work (simulated app
 traffic, not a control) are exempt the same way — see services/demo_app/app.py.
 Only the endpoints named in WORKPLAN.md (read, governance, and the

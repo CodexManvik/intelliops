@@ -25,12 +25,12 @@ export function Bezel({
 }) {
   return (
     <div
-      className={`rounded-4xl p-1.5 border border-white/[0.07] bg-white/[0.035] ${
+      className={`rounded-4xl p-1.5 border border-black/[0.08] bg-black/[0.02] ${
         glow ? "shadow-glow" : ""
       } ${className}`}
     >
       <div
-        className={`rounded-[calc(2rem-6px)] bg-ground-raised shadow-inset border border-white/[0.05] ${coreClassName}`}
+        className={`rounded-[calc(2rem-6px)] bg-ground-sunken shadow-inset border border-black/[0.06] ${coreClassName}`}
       >
         {children}
       </div>
@@ -43,7 +43,7 @@ export function Bezel({
 --------------------------------------------------------------------------- */
 export function Eyebrow({ children }: { children: ReactNode }) {
   return (
-    <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-2xs font-medium uppercase tracking-[0.2em] text-signal">
+    <span className="inline-flex items-center gap-2 rounded-full border border-black/[0.08] bg-signal/[0.06] px-3 py-1 text-2xs font-medium uppercase tracking-[0.2em] text-signal-dim">
       {children}
     </span>
   );
@@ -69,15 +69,15 @@ export function CTA({
     "group relative inline-flex items-center gap-3 rounded-full pl-6 pr-2 py-2.5 text-sm font-medium transition-all duration-500 ease-fluid active:scale-[0.97] disabled:opacity-40 disabled:active:scale-100";
   const skin =
     variant === "primary"
-      ? "bg-signal text-ground-sunken shadow-[0_8px_30px_rgba(61,214,208,0.22)] hover:shadow-[0_12px_40px_rgba(61,214,208,0.32)]"
-      : "bg-white/[0.05] text-ink border border-white/10 hover:bg-white/[0.08]";
+      ? "bg-signal text-white shadow-[0_8px_24px_-6px_rgba(0,113,227,0.35)] hover:shadow-[0_12px_32px_-6px_rgba(0,113,227,0.45)]"
+      : "bg-black/[0.04] text-ink border border-black/[0.10] hover:bg-black/[0.06]";
   return (
     <button className={`${base} ${skin}`} onClick={onClick} disabled={disabled}>
       <span className="tracking-tight">{children}</span>
       {icon && (
         <span
           className={`flex h-8 w-8 items-center justify-center rounded-full transition-transform duration-500 ease-fluid group-hover:translate-x-0.5 group-hover:-translate-y-[1px] group-hover:scale-105 ${
-            variant === "primary" ? "bg-black/10" : "bg-white/10"
+            variant === "primary" ? "bg-white/20" : "bg-black/[0.06]"
           }`}
         >
           <ArrowUpRight size={15} weight="bold" />
@@ -94,7 +94,7 @@ const sevSkin: Record<Severity, string> = {
   critical: "bg-sev-crit/12 text-sev-crit border-sev-crit/25",
   high: "bg-sev-warn/12 text-sev-warn border-sev-warn/25",
   medium: "bg-sev-info/12 text-sev-info border-sev-info/25",
-  low: "bg-white/[0.05] text-ink-2 border-white/10",
+  low: "bg-black/[0.05] text-ink-2 border-black/[0.10]",
 };
 export function SevChip({ sev }: { sev: Severity }) {
   return (
@@ -114,7 +114,7 @@ const statusLabel: Record<SituationStatus, string> = {
   suppressed: "Suppressed",
 };
 const statusSkin: Record<SituationStatus, string> = {
-  detected: "text-ink-2 bg-white/[0.05]",
+  detected: "text-ink-2 bg-black/[0.05]",
   diagnosed: "text-sev-info bg-sev-info/10",
   acting: "text-sev-warn bg-sev-warn/10",
   resolved: "text-sev-ok bg-sev-ok/10",
@@ -134,7 +134,7 @@ export function StatusChip({ status }: { status: SituationStatus }) {
 --------------------------------------------------------------------------- */
 export function Sparkline({
   data,
-  color = "#3DD6D0",
+  color = "#0071E3",
   height = 44,
   width = 160,
 }: {
@@ -163,7 +163,7 @@ export function Sparkline({
           <stop offset="100%" stopColor={color} stopOpacity="0" />
         </linearGradient>
       </defs>
-      <line x1="0" y1={height / 2} x2={width} y2={height / 2} stroke="white" strokeOpacity="0.05" />
+      <line x1="0" y1={height / 2} x2={width} y2={height / 2} stroke="black" strokeOpacity="0.08" />
       <path d={area} fill={`url(#${id})`} />
       <path d={line} fill="none" stroke={color} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
       <circle cx={last[0]} cy={last[1]} r="3" fill={color} />
