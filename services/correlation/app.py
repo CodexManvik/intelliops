@@ -125,6 +125,14 @@ async def lifespan(app: FastAPI):
         training_records = [r.model_dump() for r in stores.training_store.read_all()]
     except Exception as exc:  # noqa: BLE001 — a failed boot-load just means a cold start
         logger.warning("store reload failed, starting cold: %s", exc)
+    # The durable `correlation_baseline` table only understands the river z-score's
+    # scalar codec (mean/variance/count). robust/trained carry a per-(metric,bucket)
+    # window whose snapshot rows don't fit that schema, so persisting them would
+    # KeyError on every flush (best-effort-swallowed, but noisy). Their baseline
+    # stays in-process only (ADR-019); skip the durable store so the flusher and
+    # boot reload are clean no-ops rather than logging a warning every period.
+    if settings.correlator_kind != "river":
+        baseline_store = None
     _reload_baseline(engine, baseline_store, training_records)
     _reload_model(engine, model_store)
     app.state.baseline_store = baseline_store
