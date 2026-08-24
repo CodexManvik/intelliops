@@ -17,6 +17,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     Index,
+    LargeBinary,
     MetaData,
     String,
     Table,
@@ -90,6 +91,17 @@ correlation_baseline = Table(
     Column("mean", Float, nullable=False),
     Column("variance", Float, nullable=False),
     Column("count", BigInteger, nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+
+# A trained model artifact (joblib-serialized IsolationForest + feature metadata)
+# keyed by a logical name. LargeBinary -> bytea on Postgres. Best-effort like the
+# baseline: a lost flush just means the trained correlator re-fits.
+model_artifacts = Table(
+    "model_artifacts",
+    METADATA,
+    Column("name", String, primary_key=True),
+    Column("artifact", LargeBinary, nullable=False),  # -> bytea on postgres
     Column("updated_at", DateTime(timezone=True), nullable=False),
 )
 
