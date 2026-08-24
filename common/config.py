@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     correlation_warmup_samples: int = 50
     correlation_z_threshold: float = 3.0
     correlation_window_seconds: float = 30.0
+    correlator_kind: str = "river"  # "river" | "robust" | "trained"
+    correlation_seasonal_buckets: int = 24
+    correlation_robust_window: int = 128
+    correlation_robust_warmup: int = 30
     governance_mode: str = "in_process"  # "in_process" | "http"
     governance_url: str = "http://localhost:8005"
     read_outcomes_max: int = 200
