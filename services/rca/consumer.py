@@ -4,6 +4,10 @@ Consumes situations.detected, diagnoses each (enrich → rank → surface runboo
 marks it diagnosed, publishes a DiagnosedSituation to situations.diagnosed, and
 writes an audit record threaded by the situation id. Runs in a daemon thread
 started by the FastAPI lifespan; a stop_event allows clean shutdown.
+
+After surface_runbook, an ExplanationProvider sets advisory text on the TOP
+hypothesis only, via model_copy — this is purely additive text and MUST NOT
+affect confidence, hypothesis order, or suggested_runbook_id.
 """
 
 from __future__ import annotations
@@ -18,17 +22,25 @@ from common.contracts import (
     SituationStatus,
 )
 from common.envelope import iter_models, publish_model
-from common.interfaces import AuditSink, ContextProvider, PlaybookStore
+from common.interfaces import AuditSink, ContextProvider, ExplanationProvider, PlaybookStore
 from services.rca.enrich import enrich
 from services.rca.rank import rank_hypotheses, surface_runbook
 
 
 def diagnose(
-    situation: Situation, provider: ContextProvider, store: PlaybookStore
+    situation: Situation,
+    provider: ContextProvider,
+    store: PlaybookStore,
+    explainer: ExplanationProvider,
+    reliability_provider=None,
 ) -> DiagnosedSituation:
     context = enrich(situation, provider)
-    hypotheses = rank_hypotheses(situation, context)
+    hypotheses = rank_hypotheses(situation, context, reliability_provider)
     runbook = surface_runbook(hypotheses, store)
+    if hypotheses:
+        top = hypotheses[0]
+        advisory = explainer.explain(top, context, situation)
+        hypotheses = [top.model_copy(update={"explanation": advisory}), *hypotheses[1:]]
     diagnosed_situation = situation.model_copy(update={"status": SituationStatus.DIAGNOSED})
     return DiagnosedSituation(
         situation=diagnosed_situation,
@@ -44,12 +56,14 @@ def run_consumer(
     provider: ContextProvider,
     store: PlaybookStore,
     audit_sink: AuditSink,
+    explainer: ExplanationProvider,
     stop_event: threading.Event,
+    reliability_provider=None,
 ) -> None:
     for situation in iter_models(bus, "situations.detected", "rca", Situation):
         if stop_event.is_set():
             break
-        diagnosed = diagnose(situation, provider, store)
+        diagnosed = diagnose(situation, provider, store, explainer, reliability_provider)
         publish_model(bus, "situations.diagnosed", diagnosed)
         audit_sink.write(
             AuditRecord(

@@ -64,6 +64,12 @@ class Settings(BaseSettings):
     bus_backend: str = "redis"  # "redis" | "kafka"
     kafka_bootstrap_servers: str = "localhost:9092"
 
+    # --- RCA explanation (on-by-default via template; LLM opt-in via endpoint) ---
+    llm_explanation_endpoint: str = ""  # empty = TemplateExplanationProvider, no network
+    llm_explanation_model: str = "gpt-4o-mini"
+    llm_explanation_timeout_seconds: float = 10.0
+    llm_explanation_api_key: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -70,6 +70,7 @@ class RootCauseHypothesis(BaseModel):
     confidence: float
     evidence: list[str] = Field(default_factory=list)
     suggested_runbook_id: str | None = None
+    explanation: str | None = None
 
 
 class RemediationStep(BaseModel):
