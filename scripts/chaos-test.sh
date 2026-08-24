@@ -59,8 +59,7 @@ log() { echo "[$(date +%T)] $*"; }
 send_event() {
     curl -fsS -X POST "$INGEST_URL/ingest" \
         -H "Content-Type: application/json" \
-        -d '{"source":"chaos","kind":"metric","name":"cpu_usage","value":85.0,
-             "labels":{"service":"web"},"fingerprint":"chaos-fp"}' \
+        -d '{"events":[{"source":"chaos","kind":"metric","name":"cpu_usage","value":85.0,"labels":{"service":"web"},"fingerprint":"chaos-fp"}]}' \
         >/dev/null 2>&1 && echo 1 || echo 0
 }
 
@@ -110,9 +109,9 @@ SENT=$((SENT + DEAD_SENT))
 log "  sent $DEAD_SENT events while dead (total so far: $SENT)"
 
 # Check PEL — should be 0 because RedisBus acks before yielding.
-log "  checking Redis PEL for topics.telemetry…"
-PENDING=$(redis-cli -u "$REDIS_URL" XPENDING topics.telemetry \
-    telemetry-group - + 100 2>/dev/null | wc -l || echo "unknown")
+log "  checking Redis PEL for telemetry.raw…"
+PENDING=$(redis-cli -u "$REDIS_URL" XPENDING telemetry.raw \
+    correlation - + 100 2>/dev/null | wc -l || echo "unknown")
 log "  PEL entries: $PENDING (expected: 0 — ack-before-yield means no accumulation)"
 
 # ── phase 3: restart and measure recovery ────────────────────────────────────
