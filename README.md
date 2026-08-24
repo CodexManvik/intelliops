@@ -25,6 +25,12 @@ it, and it is **open-source-first** to avoid vendor lock-in.
 > live **Pipeline** tab animates every incident through the closed loop as it happens, a new
 > **Audit** tab makes the audit trail filterable, and the console was repainted to Apple's light
 > website palette (see [docs/UI.md](docs/UI.md), [ADR-018](architectural.md#adr-018--real-time-console-read-path-sse)).
+> **Detection and RCA got measurably smarter**: a `CORRELATOR_KIND=river|robust|trained` switch
+> adds a seasonal robust-z-score detector and a persisted, re-trainable scikit-learn model on top
+> of the unchanged `river` default, RCA ranking now learns from real remediation outcomes, and
+> every diagnosis carries an on-by-default (template or LLM) explanation — with a reproducible
+> benchmark proving the gains and the trade-offs (see [docs/BENCHMARKS.md](docs/BENCHMARKS.md),
+> [ADR-019](architectural.md#adr-019--pluggable-detectors-the-finetuning-loop-and-llm-assisted-rca)).
 > Next up: the Kafka bus binding and a whole-stack Helm deploy (in review).
 > See [WORKPLAN.md](WORKPLAN.md).
 
@@ -36,7 +42,7 @@ IntelliOps is and how it works:
 | Read this | To understand |
 |-----------|---------------|
 | **[flow.md](flow.md)** | **How a signal flows through the system** — the one-incident journey, every bus topic and data contract, a function-by-function reference for each of the seven services, and the current status (what's real vs. simulated). |
-| **[architectural.md](architectural.md)** | **Why the system is shaped this way** — the layer model and eighteen ADRs (Architecture Decision Records), each with the context, the decision, the trade-offs, and the alternatives rejected. |
+| **[architectural.md](architectural.md)** | **Why the system is shaped this way** — the layer model and nineteen ADRs (Architecture Decision Records), each with the context, the decision, the trade-offs, and the alternatives rejected. |
 
 Then, for the team: **[WORKPLAN.md](WORKPLAN.md)** divides the remaining work into four
 owned streams with acceptance criteria. The full original design spec is at
@@ -129,7 +135,7 @@ intelliops/
 | Services | Python 3.11+ · FastAPI · Pydantic | — |
 | Event bus | Redis Streams (dev) → Kafka (prod) | — |
 | Telemetry sources | Prometheus · Loki · OpenTelemetry | any, via `TelemetrySource` |
-| ML / correlation | River (online) · scikit-learn | Moogsoft · BigPanda · Dynatrace (via `Correlator`) |
+| ML / correlation | River (online, default) · scikit-learn `IsolationForest` (opt-in `trained` kind) | Moogsoft · BigPanda · Dynatrace (via `Correlator`) |
 | Remediation | Kubernetes API · Ansible | any, via `Remediator` |
 | Audit + training store | Postgres | — |
 | Persistence | Postgres (SQLAlchemy Core + Alembic) | any, via `STORE_BACKEND` |
@@ -238,7 +244,7 @@ work builds on top of them.
 | Security & CI | Edge auth (`AUTH_MODE=token`, internal calls authenticate) + a CI pipeline on every PR | ✅ done |
 | Observability | Structured JSON logging + a `/ready` readiness probe per service | ✅ done |
 | Platform | Kafka bus binding, whole-stack Helm deploy, load/chaos testing | 🚧 in review |
-| Intelligence | Smarter detection + a measured benchmark vs. the baseline | ⬜ open |
+| Intelligence | Pluggable detectors (`robust`/`trained`), persisted retrain loop, reliability-weighted + LLM-explained RCA, CI-enforced benchmark | ✅ done |
 | Frontend | Real-time console over SSE, a live incident-pipeline view, an audit explorer, Apple-light repaint | ✅ done |
 
 ## Security, compliance & safety
@@ -255,7 +261,7 @@ work builds on top of them.
 
 ## Documentation map
 
-- **[architectural.md](architectural.md)** — design principles, the 5→6 layer mapping, eighteen
+- **[architectural.md](architectural.md)** — design principles, the 5→6 layer mapping, nineteen
   ADRs, cross-cutting concerns, compliance mapping.
 - **[docs/DEMO.md](docs/DEMO.md)** — the guided two-act demo walkthrough: the live dry-run loop,
   then real remediation on a kind cluster.
@@ -263,6 +269,9 @@ work builds on top of them.
   per-function reference for all seven services.
 - **[docs/PERSISTENCE.md](docs/PERSISTENCE.md)** — the Postgres backend: the schema, the
   `STORE_BACKEND` switch, migrations, and the durable runtime state (approvals + baseline).
+- **[docs/BENCHMARKS.md](docs/BENCHMARKS.md)** — the correlator benchmark: methodology, the
+  real results table, and an honest reading of where `robust`/`trained` win, lose, and cost more
+  than the `river` baseline.
 - **[docs/OBSERVABILITY.md](docs/OBSERVABILITY.md)** — structured JSON logging and the
   `/health` (liveness) vs `/ready` (readiness) probes.
 - **[docs/OPERATIONS.md](docs/OPERATIONS.md)** — deploy, the env-switch table, and the auth model.
