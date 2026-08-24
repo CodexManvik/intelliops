@@ -31,6 +31,14 @@ it, and it is **open-source-first** to avoid vendor lock-in.
 > every diagnosis carries an on-by-default (template or LLM) explanation — with a reproducible
 > benchmark proving the gains and the trade-offs (see [docs/BENCHMARKS.md](docs/BENCHMARKS.md),
 > [ADR-019](architectural.md#adr-019--pluggable-detectors-the-finetuning-loop-and-llm-assisted-rca)).
+> **A real sample system now feeds the pipeline**: **Meridian**, a four-service Deloitte-style
+> financial/audit platform with its own client-portal UI, runs alongside IntelliOps in
+> `docker compose up`, wired in through additive-only Prometheus scrape jobs, a broadened
+> ingestion query, and a shared deploy-context volume — no IntelliOps code changed. Three fault
+> scenarios were verified live end-to-end in real Docker, each producing a genuinely different,
+> correct diagnosis (`scale-service` / `restart-pod` / `rollback-deploy`); see
+> [docs/MERIDIAN.md](docs/MERIDIAN.md) and
+> [ADR-020](architectural.md#adr-020--meridian-sample-production-system).
 > Next up: the Kafka bus binding and a whole-stack Helm deploy (in review).
 > See [WORKPLAN.md](WORKPLAN.md).
 
@@ -42,7 +50,7 @@ IntelliOps is and how it works:
 | Read this | To understand |
 |-----------|---------------|
 | **[flow.md](flow.md)** | **How a signal flows through the system** — the one-incident journey, every bus topic and data contract, a function-by-function reference for each of the seven services, and the current status (what's real vs. simulated). |
-| **[architectural.md](architectural.md)** | **Why the system is shaped this way** — the layer model and nineteen ADRs (Architecture Decision Records), each with the context, the decision, the trade-offs, and the alternatives rejected. |
+| **[architectural.md](architectural.md)** | **Why the system is shaped this way** — the layer model and twenty ADRs (Architecture Decision Records), each with the context, the decision, the trade-offs, and the alternatives rejected. |
 
 Then, for the team: **[WORKPLAN.md](WORKPLAN.md)** divides the remaining work into four
 owned streams with acceptance criteria. The full original design spec is at
@@ -122,6 +130,7 @@ intelliops/
 ├── common/                ← shared library: contracts, interfaces, bus client, config
 ├── services/              ← the six services (ingestion, correlation, rca, action,
 │                            governance, feedback) — added slice by slice
+│   └── meridian/          ← Meridian: 4-service sample financial platform + portal UI
 ├── playbooks/             ← YAML playbook definitions (the CoE registry seed)
 ├── alembic/               ← Postgres schema migrations (versioned, run as a one-shot step)
 ├── deploy/                ← docker-compose (dev), deploy/k8s (kind remediation demo)
@@ -246,6 +255,35 @@ work builds on top of them.
 | Platform | Kafka bus binding, whole-stack Helm deploy, load/chaos testing | 🚧 in review |
 | Intelligence | Pluggable detectors (`robust`/`trained`), persisted retrain loop, reliability-weighted + LLM-explained RCA, CI-enforced benchmark | ✅ done |
 | Frontend | Real-time console over SSE, a live incident-pipeline view, an audit explorer, Apple-light repaint | ✅ done |
+| Sample production system | **Meridian** — a 4-service financial platform + portal UI, wired to the pipeline, verified live | ✅ done |
+
+## Meridian — a real sample system for IntelliOps to operate
+
+Every incident described above used to come from `demo-app`, a one-endpoint toy target. **Meridian**
+(`services/meridian/`) is a small but real **Deloitte-style financial/audit reporting platform** —
+four backend services (gateway, validation, aggregation, reporting) plus its own client-portal +
+ops-panel UI — that runs alongside IntelliOps in the same `docker compose up` and gives it something
+genuinely production-shaped to watch.
+
+Meridian is wired into the pipeline through **additive-only** changes: a Prometheus scrape job per
+service, the ingestion query broadened to a regex selector in the compose environment only (the
+`common/config.py` default stays `cpu_usage`), and a shared volume that finally lets the
+`rollback-deploy` playbook see real deploy markers. No IntelliOps service code changed. Three fault
+scenarios were run **sequentially** against real Docker and each produced the expected, genuinely
+different diagnosis:
+
+| Fault | Service | Diagnosis |
+|---|---|---|
+| CPU saturation | meridian-aggregation | `scale-service` |
+| Error-rate spike (cpu held at baseline) | meridian-validation | `restart-pod` |
+| Deploy marker + saturation | meridian-gateway | `rollback-deploy` (outranks saturation) |
+
+Faults must be injected **one at a time** — the correlator groups anomalies by time window, not by
+service, so concurrent faults on two services would merge into one incident; the Meridian
+Operations panel enforces this with a sequential-injection guard. Full write-up, the demo script,
+and honest limits (synthetic data, toggle-based faults, dry-run remediation) in
+[docs/MERIDIAN.md](docs/MERIDIAN.md); the design rationale is
+[ADR-020](architectural.md#adr-020--meridian-sample-production-system).
 
 ## Security, compliance & safety
 
@@ -277,6 +315,9 @@ work builds on top of them.
 - **[docs/OPERATIONS.md](docs/OPERATIONS.md)** — deploy, the env-switch table, and the auth model.
 - **[docs/UI.md](docs/UI.md)** — the operator console: the five views, mock vs. live mode, the SSE
   real-time architecture, and the Apple-light repaint.
+- **[docs/MERIDIAN.md](docs/MERIDIAN.md)** — Meridian, the sample financial/audit platform: its
+  services and UI, the additive IntelliOps wiring, the verified scenarios, the demo script, and
+  honest limits.
 - **[deploy/k8s/README.md](deploy/k8s/README.md)** — the real-remediation demo on a kind cluster.
 - **[docs/superpowers/specs/2026-08-13-intelliops-coe-design.md](docs/superpowers/specs/2026-08-13-intelliops-coe-design.md)**
   — the original design spec; later decisions have their own specs under `docs/superpowers/specs/`.

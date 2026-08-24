@@ -14,6 +14,13 @@ and why**. Read it alongside:
 > Kubernetes cluster behind an opt-in switch (dry-run stays the production-safe default). See
 > [§8 Current status & what's next](#8-current-status--whats-next) for exactly what's real, what's
 > still simulated, and what's next.
+>
+> **A sample production system now feeds real faults into this pipeline.** **Meridian**
+> (`services/meridian/`) — a four-service financial/audit platform with its own portal UI — runs
+> alongside IntelliOps, scraped by the same Prometheus, ingested by the same ingestion service
+> (query broadened additively), and diagnosed by the same unmodified RCA rules. See
+> [docs/MERIDIAN.md](docs/MERIDIAN.md) and
+> [ADR-020](architectural.md#adr-020--meridian-sample-production-system).
 
 ---
 
@@ -340,6 +347,20 @@ never affects ranking or the suggested runbook. A reproducible, seeded benchmark
 actual gains **and** the actual trade-offs (higher recall but also higher
 false-positive rate on `robust`/`trained`) against the `river` baseline, with one
 comparison CI-enforced.
+
+**A real sample system now drives the pipeline.** **Meridian** (`services/meridian/`) — four
+backend services plus a client-portal/ops-panel UI, built on the same `services.base.create_app`
+scaffold — runs alongside IntelliOps in `docker compose up`. It is wired in additively: a
+Prometheus scrape job per service, the ingestion query broadened to a regex selector in the
+compose environment only (the code default is unchanged), and a shared volume that lets
+`rca-service` see Meridian's deploy markers for the first time. Three fault scenarios were run
+sequentially against real Docker and each produced the expected, distinct diagnosis —
+`scale-service`, `restart-pod`, `rollback-deploy` — through the unmodified detection/RCA/action
+path. Faults must be injected one at a time: `correlation-service` groups anomalies by time
+window, not by service, so concurrent faults on two Meridian services would merge into a single
+Situation — a real constraint, confirmed live, that the Meridian UI enforces with a
+sequential-injection guard. See [docs/MERIDIAN.md](docs/MERIDIAN.md) and
+[ADR-020](architectural.md#adr-020--meridian-sample-production-system).
 
 **What is still deliberately simulated / deferred:**
 - **Auth is a config-switched edge gate** ([ADR-017](architectural.md#adr-017--edge-authentication)).

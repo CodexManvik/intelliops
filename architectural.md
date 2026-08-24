@@ -962,6 +962,114 @@ automation principle the whole system is built on. *Async LLM calls* — the RCA
 consumer is a synchronous daemon thread, not an async event loop; a sync `httpx.Client`
 matches the actual call site instead of introducing an event loop for one provider.
 
+### ADR-020 — Meridian sample production system
+
+**Context.** Every incident IntelliOps had ever detected, diagnosed, and remediated was against
+`demo-app` — a single-endpoint toy target whose only job is to expose one `cpu_usage` gauge and
+flip it via `/break`/`/fix`. That is enough to prove the loop closes, but it is not a credible
+"we connected a real system" story for a PPO panel: a real target has multiple independently
+faulting services, a service topology RCA can reason about, and traffic that looks like a product,
+not a probe. The instruction was to make Meridian's faults **genuinely real** — detected off real
+metrics, diagnosed by the unmodified RCA rules, gated by the unmodified governance path — rather
+than build a second demo harness that fakes the interesting part. Three verified facts shaped
+every decision below: (1) the correlator's z-score baseline is keyed on metric *name* only, so a
+service pinned "broken" from boot never spikes — each Meridian service needed the same
+toggle-at-runtime pattern `demo-app` already uses; (2) `CorrelationEngine` groups anomalies by time
+window, not by service, so concurrent faults on two services merge into one Situation; (3) RCA's
+`rank_hypotheses` maps by metric-name token and a recent-deploy match, not by value, so getting
+three *different* diagnoses out of one rule set requires engineering which signal each fault
+raises, not just how large it is.
+
+**Decision.** Build Meridian as a small, realistic **Deloitte-style financial/audit reporting
+platform** — four backend services (`gateway`, `validation`, `aggregation`, `reporting`) built from
+one shared factory (`services/meridian/common.py`'s `make_meridian_service()`, mirroring
+`services.base.create_app`), plus a client-portal + ops-panel UI served by the gateway — and wire
+IntelliOps to observe it through **additive-only** changes:
+
+- **A distinct `service`-labeled Prometheus scrape job per Meridian backend**
+  (`deploy/prometheus.yml`), alongside the untouched `demo-app` job, so RCA can attribute an
+  incident to the right service.
+- **The ingestion query broadened to an instant-vector selector, in compose only.**
+  `INTELLIOPS_PROMETHEUS_QUERY: '{__name__=~"cpu_usage|meridian_error_rate"}'` is set on the
+  `ingestion` service's compose environment; `common/config.py`'s default stays the bare
+  `cpu_usage` query. No ingestion code changed — `PrometheusSource` already treats its configured
+  query as an opaque PromQL string, and a regex selector is still a valid instant-vector query.
+  This was the design's single riskiest unknown and was verified live against a real Prometheus
+  before being relied on (see [docs/MERIDIAN.md §5](../docs/MERIDIAN.md#5-verified-live--the-real-end-to-end-run)):
+  `resultType: vector`, each Meridian service its own series, its `service` label intact.
+- **A shared named volume (`rca-context`) mounted on both `rca` and `meridian-gateway`.** Before
+  this, `rca-service` had no mount for its on-disk deploy-context file, so `recent_deploys()` was
+  always empty and `rollback-deploy` could never fire for anyone. The gateway's new
+  `POST /api/ops/deploy` writes `deploys.json` into the shared volume; RCA's existing enrichment
+  step reads the same file unmodified.
+- **A time-window constraint honored by the UI, not fought in the detector.** Rather than teach
+  `CorrelationEngine` to group by service (a real change to a component every other service also
+  depends on, for a sample-system-only need), the Meridian Operations panel enforces **sequential
+  fault injection**: firing a new fault is disabled while one is active, with an explicit banner
+  naming the ~15-second window and a Clear action. The constraint is real and was confirmed live
+  (a stale fault overlapping a new one inside the window caused a genuine situation merge during
+  verification) — the UI encodes the operational discipline the detector's current design requires,
+  rather than papering over it.
+- **No new playbooks, no IntelliOps service code changes.** `scale-service`, `restart-pod`, and
+  `rollback-deploy` are already `${service}`-templated, so they target Meridian by name with zero
+  registry changes. Meridian imports only the shared platform utilities
+  (`services.base.create_app`, `common.auth`, `common.config`, `common.db`) — never IntelliOps
+  domain logic.
+
+**Why.** The additive-wiring shape follows directly from the project's own design principle that
+new behavior lives behind a switch defaulting to current behavior
+([ADR-012](#adr-012--config-switched-adapter-selection-with-test-safe-defaults)): a fresh
+`docker compose up` without Meridian, and the full `pytest` suite, must see the exact same
+ingestion query and the exact same RCA rules they saw before this effort — and they do, because the
+query override lives in one compose service's environment block, not in a code default. Choosing a
+compose-level query override over a code change to `PrometheusSource`'s query mechanism (a
+documented fallback in the original design) kept this a zero-Python-diff change to a service nobody
+on this effort owned outright. Enforcing sequential injection in the UI, instead of adding
+per-service grouping to `CorrelationEngine`, was the narrower fix for the actual need: Meridian
+needs *demonstrable, distinct* incidents for a scripted demo, not a general-purpose multi-tenant
+correlator, and changing the shared correlator's grouping semantics would have been a much larger,
+riskier change for a benefit only this sample system currently needs. The `error`-fault
+baseline-hold (keep `cpu_usage` at 18.0 while raising `meridian_error_rate`) is the same kind of
+narrow, verified engineering: without it, `scale-service`'s 0.6 confidence would always beat
+`restart-pod`'s 0.5 and the demo would never show a diverse diagnosis, so the fault mechanism itself
+was built to raise exactly one signal at a time.
+
+**Consequences.** (+) IntelliOps now has a second, structurally different target — four
+independently-faultable services instead of one, a real cross-service rollback story, and a UI a
+non-engineer can drive — with a genuinely diverse diagnosis proven live: `scale-service`,
+`restart-pod`, and `rollback-deploy` all fired correctly across three sequential, real scenarios
+(see [docs/MERIDIAN.md §5](../docs/MERIDIAN.md#5-verified-live--the-real-end-to-end-run)). (+) The
+regex-selector approach required zero changes to `PrometheusSource`, `ingestion-service`, or any
+other IntelliOps code path. (+) The rollback-deploy path is now real for the first time — the
+`rca-context` volume gap existed before Meridian and is now fixed for any future service that wants
+the same deploy-aware RCA rule. (−) **Sequential injection is a real, load-bearing constraint, not
+a cosmetic UI choice** — it exists because `CorrelationEngine` groups by time window, not by
+service, and that grouping was deliberately left unchanged. A future multi-tenant or
+concurrent-incident demo would need to revisit that grouping, not just add another UI guard. (−)
+The `crash` fault type has no dedicated RCA rule in `rank_hypotheses` today — it is detected but not
+richly diagnosed (it lands in the generic low-confidence fallback unless it happens to co-occur
+with a saturation-token metric), a known, documented gap rather than a hidden one. (−) Only the
+gateway has real domain business logic wired in; `validation`/`aggregation`/`reporting` are fully
+faultable and independently observed but their domain endpoints are scaffolded, not yet real
+request handlers. (−) The demo's remediation is dry-run by default, same as the rest of the system
+— Meridian does not currently have a `REMEDIATOR_MODE=k8s` path of its own.
+
+**Alternatives rejected.** *Teaching `CorrelationEngine` to group by service instead of enforcing
+sequential injection* — would let Meridian run concurrent scenarios, but changes grouping semantics
+every other service and test in the system depends on, for a benefit scoped to one sample system;
+rejected in favor of an honestly-documented UI constraint. *A code-level multi-query ingestion
+enhancement (`_make_source` polling `cpu_usage` and `meridian_error_rate` as two separate queries)*
+— named in the original design as the fallback if the regex selector broke; not needed once the
+selector was verified live to return a correct instant vector, so the simpler compose-only override
+shipped instead. *A second Postgres/Redis for Meridian* — unnecessary; Meridian's two tables
+(`meridian_submissions`, `meridian_reports`) live on the existing `common.db.METADATA` and share the
+existing bus. *Faking Meridian's metrics from canned incident scripts instead of a real toggleable
+gauge* — would have been faster to build but would not exercise the real scrape → ingest → detect
+path this effort exists to prove; rejected as contrary to the entire point of a "sample production
+system." *A cyan/Geist-themed Meridian UI matching the console* — rejected deliberately: a visually
+distinct light enterprise theme makes the demo's two systems ("the client's app" vs. "IntelliOps
+watching it") legible at a glance, which matters for an audience seeing both for the first time.
+
 ---
 
 ## 4. Cross-cutting concerns
@@ -1064,6 +1172,18 @@ in-region/on-prem for sovereign-cloud requirements.
   endpoint is called with a template fallback on any error). A reproducible benchmark
   (`docs/BENCHMARKS.md`) measures the actual gains — and the actual trade-offs —
   against the `river` baseline, with one comparison CI-enforced.
+- **Meridian — a sample production system.** A four-service, Deloitte-style financial/audit
+  platform (`services/meridian/`) plus its own client-portal + ops-panel UI now runs alongside
+  IntelliOps in `docker compose up` ([ADR-020](#adr-020--meridian-sample-production-system)),
+  wired to the pipeline through additive-only changes: per-service Prometheus scrape jobs, an
+  ingestion query broadened to a regex selector in the compose environment only (the
+  `common/config.py` default is unchanged), and a shared `rca-context` volume that makes the
+  `rollback-deploy` playbook fire for the first time. Three real fault scenarios were verified
+  live against real Docker, each producing a genuinely different diagnosis — `scale-service`,
+  `restart-pod`, `rollback-deploy` — see [docs/MERIDIAN.md](docs/MERIDIAN.md). Faults must be
+  injected **sequentially** (the correlator groups by time window, not by service — a real
+  constraint the Meridian UI enforces, confirmed live during verification), and the `crash` fault
+  type is detection-only today (no dedicated RCA rule).
 - **Automated model retraining.** The loop's *plumbing* exists; the retrain *trigger* is
   manual (`POST /retrain` on correlation-service — see [ADR-019](#adr-019--pluggable-detectors-the-finetuning-loop-and-llm-assisted-rca)),
   not scheduled or outcome-driven yet; automating it is a later maturity milestone.

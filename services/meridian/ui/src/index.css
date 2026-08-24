@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: theme("fontFamily.sans");
+  }
+  body {
+    @apply bg-surface-subtle text-ink antialiased;
+  }
+  ::selection {
+    background-color: theme("colors.brand.tint");
+    color: theme("colors.brand.dim");
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-lg border border-line bg-surface shadow-card;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded border px-3.5 py-2 text-sm font-medium transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-40;
+  }
+  .btn-primary {
+    @apply btn border-brand bg-brand text-white hover:bg-brand-dim disabled:hover:bg-brand;
+  }
+  .btn-secondary {
+    @apply btn border-line bg-surface text-ink hover:bg-surface-subtle;
+  }
+  .btn-danger {
+    @apply btn border-data-neg bg-data-neg text-white hover:bg-red-800 disabled:hover:bg-data-neg;
+  }
+  .input {
+    @apply w-full rounded border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-4 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20;
+  }
+  .label {
+    @apply mb-1.5 block text-xs font-semibold uppercase tracking-wide text-ink-3;
+  }
+  .pill {
+    @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-2xs font-semibold uppercase tracking-wide;
+  }
+  .pill-ok {
+    @apply pill border-brand/30 bg-brand-tint text-brand-dim;
+  }
+  .pill-warn {
+    @apply pill border-amber-300 bg-amber-50 text-data-warn;
+  }
+  .pill-crit {
+    @apply pill border-red-300 bg-red-50 text-data-neg;
+  }
+  .pill-neutral {
+    @apply pill border-line-strong bg-surface-sunken text-ink-3;
+  }
+}
