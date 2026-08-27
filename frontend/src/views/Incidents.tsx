@@ -263,18 +263,26 @@ export function Incidents() {
                 {/* the gate / result */}
                 <div className="mt-5 rounded-2xl border border-black/[0.06] bg-black/[0.03] p-4">
                   {sel.status === "resolved" ? (
-                    <div className="flex items-center gap-3">
-                      <span className="flex h-9 w-9 items-center justify-center rounded-full bg-sev-ok/15 text-sev-ok"><Check size={17} weight="bold" /></span>
+                    <div className="flex items-start gap-3">
+                      <span className="mt-0.5 flex h-9 w-9 flex-none items-center justify-center rounded-full bg-sev-ok/15 text-sev-ok"><Check size={17} weight="bold" /></span>
                       <div>
-                        <div className="text-sm font-medium text-ink">Resolved · <span className="font-mono text-sev-ok">healthy</span></div>
+                        <div className="text-sm font-medium text-ink">
+                          Resolved · <span className="font-mono text-sev-ok">{sel.outcome?.health_after ?? "resolved"}</span>
+                          {sel.outcome?.mode === "dry_run" && <span className="ml-2 rounded-md bg-black/[0.05] px-1.5 py-0.5 font-mono text-2xs text-ink-3">dry-run</span>}
+                        </div>
+                        {sel.outcome?.steps && sel.outcome.steps.length > 0 && (
+                          <div className="mt-1 font-mono text-2xs text-ink-3">steps: {sel.outcome.steps.join(" → ")}</div>
+                        )}
                         <div className="font-mono text-2xs text-ink-3">outcome labeled → reliability rising → next matching storm may be suppressed</div>
                       </div>
                     </div>
                   ) : sel.status === "failed" ? (
-                    <div className="flex items-center gap-3">
-                      <span className="flex h-9 w-9 items-center justify-center rounded-full bg-sev-warn/15 text-sev-warn"><X size={17} weight="bold" /></span>
+                    <div className="flex items-start gap-3">
+                      <span className="mt-0.5 flex h-9 w-9 flex-none items-center justify-center rounded-full bg-sev-warn/15 text-sev-warn"><X size={17} weight="bold" /></span>
                       <div>
-                        <div className="text-sm font-medium text-ink">No action taken · <span className="font-mono text-sev-warn">aborted:rejected</span></div>
+                        <div className="text-sm font-medium text-ink">
+                          No action taken · <span className="font-mono text-sev-warn">{sel.outcome?.health_after ?? "aborted"}</span>
+                        </div>
                         <div className="font-mono text-2xs text-ink-3">gate failed closed — nothing executed</div>
                       </div>
                     </div>
