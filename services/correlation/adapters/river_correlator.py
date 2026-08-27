@@ -84,6 +84,14 @@ class RiverCorrelator(BaseCorrelator):
             self._var[r["metric_name"]] = stats.Var._from_state(n, r["mean"], r["variance"], ddof=1)
             self._count[r["metric_name"]] = int(r["count"])
 
+    def baseline_snapshot(self) -> dict:
+        """Per-metric {name: {mean, std}} for attaching to an emitted Situation."""
+        out: dict = {}
+        for name, mean in list(self._mean.items()):
+            var = self._var[name]
+            out[name] = {"mean": mean.get(), "std": var.get() ** 0.5}
+        return out
+
     def correlate(self, events: list[TelemetryEvent], severity: str = "low") -> Situation:
         if not events:
             raise ValueError("cannot correlate an empty event list")

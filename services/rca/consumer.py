@@ -39,8 +39,11 @@ def diagnose(
     runbook = surface_runbook(hypotheses, store)
     if hypotheses:
         top = hypotheses[0]
-        advisory = explainer.explain(top, context, situation)
-        hypotheses = [top.model_copy(update={"explanation": advisory}), *hypotheses[1:]]
+        advisory, source = explainer.explain_with_source(top, context, situation)
+        hypotheses = [
+            top.model_copy(update={"explanation": advisory, "explanation_source": source}),
+            *hypotheses[1:],
+        ]
     diagnosed_situation = situation.model_copy(update={"status": SituationStatus.DIAGNOSED})
     return DiagnosedSituation(
         situation=diagnosed_situation,
@@ -56,14 +59,14 @@ def run_consumer(
     provider: ContextProvider,
     store: PlaybookStore,
     audit_sink: AuditSink,
-    explainer: ExplanationProvider,
+    explainer_source,  # zero-arg callable -> ExplanationProvider (live-swappable)
     stop_event: threading.Event,
     reliability_provider=None,
 ) -> None:
     for situation in iter_models(bus, "situations.detected", "rca", Situation):
         if stop_event.is_set():
             break
-        diagnosed = diagnose(situation, provider, store, explainer, reliability_provider)
+        diagnosed = diagnose(situation, provider, store, explainer_source(), reliability_provider)
         publish_model(bus, "situations.diagnosed", diagnosed)
         audit_sink.write(
             AuditRecord(

@@ -158,7 +158,7 @@ export function Overview() {
             <div className="relative flex h-full flex-col">
               <div className="flex items-center justify-between">
                 <span className="text-2xs font-medium uppercase tracking-[0.16em] text-ink-3">Alert noise reduction · today</span>
-                <span className="rounded-full border border-sev-ok/25 bg-sev-ok/10 px-2.5 py-0.5 font-mono text-2xs text-sev-ok">on target</span>
+                <span className="rounded-full border border-sev-ok/25 bg-sev-ok/10 px-2.5 py-0.5 font-mono text-2xs text-sev-ok">{metrics.noiseReductionPct >= 80 ? "on target" : `${metrics.noiseReductionPct}%`}</span>
               </div>
               <div className="mt-6 flex items-end gap-3">
                 <div className="text-[5.5rem] font-semibold leading-[0.9] tracking-tightest tnum">{metrics.noiseReductionPct}<span className="text-4xl text-ink-3">%</span></div>
@@ -185,8 +185,8 @@ export function Overview() {
             label="MTTR"
             value={metrics.mttrMinutes.toFixed(1)}
             unit="min"
-            delta="−41%"
-            up
+            delta={LIVE ? undefined : "−41%"}
+            up={!LIVE}
             spark={LIVE ? sparkSeries(mttrHistory, metrics.mttrMinutes) : series(24, 14, -0.32, 3)}
             color="#34C759"
           />
@@ -196,8 +196,8 @@ export function Overview() {
             label="Auto-remediated"
             value={`${metrics.autoRemediatedPct}`}
             unit="%"
-            delta="+6"
-            up
+            delta={LIVE ? undefined : "+6"}
+            up={!LIVE}
             spark={LIVE ? sparkSeries(autoRemHistory, metrics.autoRemediatedPct) : series(24, 22, 0.6, 9)}
             color="#5E5CE6"
           />

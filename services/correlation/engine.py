@@ -69,6 +69,16 @@ class CorrelationEngine:
     def _correlate_buffer(self) -> Situation | None:
         severity = self._correlator._severity_band(self._max_score)
         sit = self._correlator.correlate(self._buffer, severity=severity)
+        peak = self._max_score
+        baseline = (
+            self._correlator.baseline_snapshot()
+            if hasattr(self._correlator, "baseline_snapshot")
+            else None
+        )
+        member_metrics = {e.name for e in self._buffer}
+        if baseline is not None:
+            baseline = {k: v for k, v in baseline.items() if k in member_metrics}
+        sit = sit.model_copy(update={"peak_score": peak, "baseline": baseline})
         self._buffer = []
         self._max_score = 0.0
         # Closed loop: suppress a Situation whose signature reliably self-heals.

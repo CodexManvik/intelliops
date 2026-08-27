@@ -71,7 +71,7 @@ def test_consumer_publishes_diagnosed_and_audits():
         NullContextProvider(),
         InMemoryPlaybookStore(),
         audit,
-        TemplateExplanationProvider(),
+        lambda: TemplateExplanationProvider(),
         threading.Event(),
     )
 
@@ -104,7 +104,7 @@ def test_consumer_stops_on_stop_event():
         NullContextProvider(),
         InMemoryPlaybookStore(),
         InMemoryAuditSink(),
-        TemplateExplanationProvider(),
+        lambda: TemplateExplanationProvider(),
         stop,
     )
     assert bus.published == []
@@ -116,6 +116,9 @@ class _StubExplainer:
 
     def explain(self, hypothesis, context, situation):
         return "ADVISORY"
+
+    def explain_with_source(self, hypothesis, context, situation):
+        return "ADVISORY", "llm"
 
 
 def test_explanation_is_advisory_only_on_top_hypothesis():
@@ -142,3 +145,16 @@ def test_explanation_is_advisory_only_on_top_hypothesis():
     assert [h.suggested_runbook_id for h in stubbed_result.hypotheses] == [
         h.suggested_runbook_id for h in template_result.hypotheses
     ]
+
+
+def test_diagnose_sets_explanation_source_from_provider():
+    situation = _situation()
+    template_result = diagnose(
+        situation, NullContextProvider(), InMemoryPlaybookStore(), TemplateExplanationProvider()
+    )
+    stubbed_result = diagnose(
+        situation, NullContextProvider(), InMemoryPlaybookStore(), _StubExplainer()
+    )
+
+    assert template_result.hypotheses[0].explanation_source == "template"
+    assert stubbed_result.hypotheses[0].explanation_source == "llm"

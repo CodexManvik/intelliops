@@ -33,13 +33,22 @@ class TemplateExplanationProvider:
         context: EnrichmentContext,
         situation: Situation,
     ) -> str:
+        return self.explain_with_source(hypothesis, context, situation)[0]
+
+    def explain_with_source(
+        self,
+        hypothesis: RootCauseHypothesis,
+        context: EnrichmentContext,
+        situation: Situation,
+    ) -> tuple[str, str]:
         runbook = hypothesis.suggested_runbook_id or "no runbook available"
         evidence = "; ".join(hypothesis.evidence) if hypothesis.evidence else "no direct evidence"
-        return (
+        text = (
             f"Likely root cause: {hypothesis.description} "
             f"(confidence {hypothesis.confidence:.2f}). "
             f"Evidence: {evidence}. Suggested runbook: {runbook}."
         )
+        return text, "template"
 
 
 class OpenAICompatibleExplanationProvider:
@@ -66,6 +75,14 @@ class OpenAICompatibleExplanationProvider:
         context: EnrichmentContext,
         situation: Situation,
     ) -> str:
+        return self.explain_with_source(hypothesis, context, situation)[0]
+
+    def explain_with_source(
+        self,
+        hypothesis: RootCauseHypothesis,
+        context: EnrichmentContext,
+        situation: Situation,
+    ) -> tuple[str, str]:
         fallback = self._template.explain(hypothesis, context, situation)
         headers = {"Content-Type": "application/json"}
         if self._api_key:
@@ -101,13 +118,13 @@ class OpenAICompatibleExplanationProvider:
                 "llm explanation endpoint unreachable (%s); using template fallback",
                 exc.__class__.__name__,
             )
-            return fallback
+            return fallback, "template"
         if resp.status_code != 200:
             logger.info(
                 "llm explanation endpoint returned status %s; using template fallback",
                 resp.status_code,
             )
-            return fallback
+            return fallback, "template"
         try:
             body = resp.json()
         except ValueError as exc:
@@ -115,7 +132,7 @@ class OpenAICompatibleExplanationProvider:
                 "llm explanation endpoint returned non-JSON body (%s); using template fallback",
                 exc.__class__.__name__,
             )
-            return fallback
+            return fallback, "template"
         try:
             choices = body["choices"]
             content = choices[0]["message"]["content"]
@@ -124,11 +141,11 @@ class OpenAICompatibleExplanationProvider:
                 "llm explanation response missing choices/content (%s); using template fallback",
                 exc.__class__.__name__,
             )
-            return fallback
+            return fallback, "template"
         if not content:
             logger.info("llm explanation response had empty content; using template fallback")
-            return fallback
-        return content
+            return fallback, "template"
+        return content, "llm"
 
 
 def make_explanation_provider(

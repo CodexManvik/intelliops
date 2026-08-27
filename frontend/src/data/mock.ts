@@ -1,10 +1,12 @@
 import type {
   AuditRow,
+  BaselineInfo,
   Metrics,
   OutcomeRow,
   Playbook,
   ServiceHealth,
   Situation,
+  SystemInfo,
 } from "./types";
 
 /**
@@ -36,6 +38,25 @@ export const metrics: Metrics = {
   suppressedToday: 27,
   approvalsPending: 1,
   successRate: 0.94,
+};
+
+export const system: SystemInfo = {
+  correlator_kind: "river",
+  bus_backend: "redis",
+  store_backend: "file",
+  remediator_mode: "dry_run",
+  auth_mode: "off",
+  llm: { provider: "template", endpoint_configured: false, endpoint: "", model: "gpt-4o-mini", last_probe: null },
+};
+
+export const baseline: BaselineInfo = {
+  correlator_kind: "river",
+  baselines: [
+    { metric_name: "cpu_pct", mean: 42.3, std: 9.1, count: 1840 },
+    { metric_name: "error_rate", mean: 0.012, std: 0.006, count: 1840 },
+    { metric_name: "latency_ms", mean: 118.4, std: 24.7, count: 1840 },
+    { metric_name: "mem_pct", mean: 61.8, std: 7.4, count: 1840 },
+  ],
 };
 
 export const situations: Situation[] = [

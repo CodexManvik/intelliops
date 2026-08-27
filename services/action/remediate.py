@@ -27,7 +27,12 @@ _ACTOR = "action-service"
 
 
 def _outcome(
-    situation: Situation, playbook: Playbook, result: RemediationResult, health_after: str
+    situation: Situation,
+    playbook: Playbook,
+    result: RemediationResult,
+    health_after: str,
+    steps: list[str] | None = None,
+    mode: str = "dry_run",
 ) -> RemediationOutcome:
     return RemediationOutcome(
         situation_id=situation.id,
@@ -36,7 +41,22 @@ def _outcome(
         health_after=health_after,
         ts=datetime.now(UTC),
         hitl_mode=playbook.hitl_mode,
+        steps=steps or [],
+        mode=mode,
     )
+
+
+def _format_steps(plan: RemediationPlan) -> list[str]:
+    out: list[str] = []
+    for step in plan.steps:
+        if step.action == "scale" and step.replicas is not None:
+            sign = "+" if step.replicas >= 0 else ""
+            out.append(f"scale {plan.target.deployment} {sign}{step.replicas} replicas")
+        elif step.note:
+            out.append(f"{step.action}: {step.note}")
+        else:
+            out.append(step.action)
+    return out
 
 
 def _audit(gate, situation: Situation, playbook: Playbook, decision: str) -> None:
@@ -97,17 +117,30 @@ def execute_remediation(
     plan = RemediationPlan(
         target=target, steps=playbook.steps, rollback_steps=playbook.rollback_steps
     )
+    steps = _format_steps(plan)
+    mode = get_settings().remediator_mode
 
     # Execute.
     if not remediator.execute(plan):
         _audit(gate, situation, playbook, "execute-failed")
-        return _outcome(situation, playbook, RemediationResult.FAILURE, "execute-failed")
+        return _outcome(
+            situation, playbook, RemediationResult.FAILURE, "execute-failed", steps=steps, mode=mode
+        )
 
     # Verify health; roll back if unhealthy.
     if health.check(situation, target):
         _audit(gate, situation, playbook, "allow")
-        return _outcome(situation, playbook, RemediationResult.SUCCESS, "healthy")
+        return _outcome(
+            situation, playbook, RemediationResult.SUCCESS, "healthy", steps=steps, mode=mode
+        )
 
     remediator.rollback(plan)
     _audit(gate, situation, playbook, "rolled-back")
-    return _outcome(situation, playbook, RemediationResult.ROLLED_BACK, "unhealthy:rolled-back")
+    return _outcome(
+        situation,
+        playbook,
+        RemediationResult.ROLLED_BACK,
+        "unhealthy:rolled-back",
+        steps=steps,
+        mode=mode,
+    )

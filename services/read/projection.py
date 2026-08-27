@@ -33,6 +33,24 @@ def _epoch_ms(dt) -> int:
     return int(dt.timestamp() * 1000)
 
 
+_MAX_MEMBER_EVENTS = 20
+
+
+def _project_events(s: Situation) -> list[dict]:
+    out: list[dict] = []
+    for ev in s.member_events[:_MAX_MEMBER_EVENTS]:
+        out.append(
+            {
+                "name": ev.name,
+                "value": ev.value,
+                "labels": dict(ev.labels),
+                "kind": ev.kind.value if hasattr(ev.kind, "value") else str(ev.kind),
+                "ts": _epoch_ms(ev.ts),
+            }
+        )
+    return out
+
+
 class ReadModel:
     def __init__(
         self, max_outcomes: int = 200, ttl_seconds: float = 600.0, max_situations: int = 50
@@ -97,6 +115,9 @@ class ReadModel:
             "status": s.status.value if isinstance(s.status, SituationStatus) else str(s.status),
             "severity": _SEVERITY_MAP.get(s.severity, "medium"),
             "memberCount": len(s.member_events),
+            "member_events": _project_events(s),
+            "peak_score": s.peak_score,
+            "baseline": s.baseline,
             "first_seen": _epoch_ms(s.first_seen),
             "hypotheses": existing.get("hypotheses", []),
             "suggested_runbook_id": existing.get("suggested_runbook_id"),
@@ -105,7 +126,11 @@ class ReadModel:
             "reliability": existing.get("reliability", 0.0),
             "suppressed": False,
             "last_activity": existing.get("last_activity", _epoch_ms(s.first_seen)),
+            "stages": existing.get("stages", {}),
         }
+        stages = self._sits[s.id].get("stages", {})
+        stages.setdefault("detected", _epoch_ms(s.first_seen))
+        self._sits[s.id]["stages"] = stages
         self.publish({"type": "changed"})
 
     def apply_suppressed(self, s: Situation) -> None:
@@ -114,18 +139,28 @@ class ReadModel:
 
     def apply_diagnosed(self, d: DiagnosedSituation) -> None:
         self.apply_detected(d.situation)
+        hyps = [
+            {
+                "description": h.description,
+                "confidence": h.confidence,
+                "suggested_runbook_id": h.suggested_runbook_id,
+                "evidence": list(h.evidence),
+                "explanation": h.explanation,
+                "explanation_source": h.explanation_source,
+            }
+            for h in d.hypotheses
+        ]
+        service = self._sits[d.situation.id].get("service", "unknown")
+        title = f"{hyps[0]['description']} · {service}" if hyps else d.situation.signature
+        stages = self._sits[d.situation.id].get("stages", {})
+        stages["diagnosed"] = _epoch_ms(d.situation.last_seen)
         self._sits[d.situation.id].update(
             {
                 "status": "diagnosed",
-                "hypotheses": [
-                    {
-                        "description": h.description,
-                        "confidence": h.confidence,
-                        "suggested_runbook_id": h.suggested_runbook_id,
-                    }
-                    for h in d.hypotheses
-                ],
+                "hypotheses": hyps,
                 "suggested_runbook_id": d.suggested_runbook_id,
+                "title": title,
+                "stages": stages,
             }
         )
         self.publish({"type": "changed"})
@@ -134,6 +169,18 @@ class ReadModel:
         if o.situation_id in self._sits:
             self._sits[o.situation_id]["status"] = _RESULT_STATUS.get(o.result, "failed")
             self._sits[o.situation_id]["last_activity"] = _epoch_ms(o.ts)
+            terminal = _RESULT_STATUS.get(o.result, "failed")
+            stages = self._sits[o.situation_id].get("stages", {})
+            stages[terminal] = _epoch_ms(o.ts)
+            self._sits[o.situation_id]["stages"] = stages
+            self._sits[o.situation_id]["outcome"] = {
+                "result": o.result.value
+                if isinstance(o.result, RemediationResult)
+                else str(o.result),
+                "health_after": o.health_after,
+                "mode": getattr(o, "mode", "dry_run"),
+                "steps": list(getattr(o, "steps", [])),
+            }
         result = o.result.value if isinstance(o.result, RemediationResult) else str(o.result)
         sit = self._sits.get(o.situation_id, {})
         mttr_ms = None
@@ -191,6 +238,10 @@ class ReadModel:
 
     def outcomes(self) -> list[dict]:
         return list(self._outcomes)
+
+    def situation(self, sid: str) -> dict | None:
+        s = self._sits.get(sid)
+        return dict(s) if s is not None else None
 
     def reset(self) -> None:
         self._sits.clear()

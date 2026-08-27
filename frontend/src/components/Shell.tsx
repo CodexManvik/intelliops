@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { FlowArrow, ListMagnifyingGlass, Pulse, ShieldCheck, SquaresFour, Waveform } from "@phosphor-icons/react";
+import { Circuitry, FlowArrow, ListMagnifyingGlass, Pulse, ShieldCheck, SquaresFour, Waveform } from "@phosphor-icons/react";
 import { fluid } from "./primitives";
 import { ToastHost } from "../hooks/useToast";
 
-export type View = "overview" | "incidents" | "pipeline" | "governance" | "audit";
+export type View = "overview" | "incidents" | "pipeline" | "governance" | "audit" | "system";
 
 const tabs: { id: View; label: string; icon: JSX.Element }[] = [
   { id: "overview", label: "Overview", icon: <SquaresFour size={17} weight="light" /> },
@@ -12,6 +12,7 @@ const tabs: { id: View; label: string; icon: JSX.Element }[] = [
   { id: "pipeline", label: "Pipeline", icon: <FlowArrow size={17} weight="light" /> },
   { id: "governance", label: "Governance", icon: <ShieldCheck size={17} weight="light" /> },
   { id: "audit", label: "Audit", icon: <ListMagnifyingGlass size={17} weight="light" /> },
+  { id: "system", label: "System", icon: <Circuitry size={17} weight="light" /> },
 ];
 
 export function Shell({
