@@ -62,6 +62,8 @@ class Situation(BaseModel):
     first_seen: datetime
     last_seen: datetime
     signature: str
+    peak_score: float | None = None  # correlator max z-score for the window
+    baseline: dict | None = None  # per-metric {name: {mean, std}} at emit time
 
 
 class RootCauseHypothesis(BaseModel):
@@ -116,6 +118,8 @@ class RemediationOutcome(BaseModel):
     health_after: str
     ts: datetime
     hitl_mode: HitlMode = HitlMode.HITL
+    steps: list[str] = Field(default_factory=list)
+    mode: str = "dry_run"  # "dry_run" | "k8s"
 
 
 class AuditRecord(BaseModel):
