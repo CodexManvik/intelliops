@@ -13,7 +13,7 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { Bezel, Eyebrow, SevChip, StatusChip, timeAgo, motion as m } from "../components/primitives";
-import { loadSituations, decideApproval } from "../data/source";
+import { loadSituations, loadSituationDetail, decideApproval } from "../data/source";
 import { useLiveData } from "../hooks/useLiveData";
 import { pushToast } from "../hooks/useToast";
 import type { Situation, SituationStatus } from "../data/types";
@@ -76,6 +76,15 @@ export function Incidents() {
 
   const sel = useMemo(() => list.find((s) => s.id === selId) ?? null, [list, selId]);
 
+  // fetch the full detail (member_events, baseline, evidence, explanation) for the
+  // selected situation — the list endpoint returns these too, but the detail fetch
+  // keeps the drill-down panel authoritative.
+  const { data: detail } = useLiveData(
+    useMemo(() => () => (selId ? loadSituationDetail(selId) : Promise.resolve(null as Situation | null)), [selId]),
+    null as Situation | null,
+  );
+  const shown = sel && detail && detail.id === selId ? { ...sel, ...detail, ...overrides[selId] } : sel;
+
   function update(id: string, patch: Partial<Situation>) {
     setOverrides((o) => ({ ...o, [id]: { ...o[id], ...patch } }));
   }
@@ -128,7 +137,7 @@ export function Incidents() {
     }
   }
 
-  const stageIndex = sel ? order.indexOf(sel.status === "failed" ? "acting" : sel.status) : 0;
+  const stageIndex = shown ? order.indexOf(shown.status === "failed" ? "acting" : shown.status) : 0;
 
   return (
     <div className="space-y-5">
@@ -187,7 +196,7 @@ export function Incidents() {
         </div>
 
         {/* detail */}
-        {sel ? (
+        {sel && shown ? (
         <div className="lg:col-span-7">
           <AnimatePresence mode="wait">
             <m.div key={sel.id} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}>
@@ -196,18 +205,18 @@ export function Incidents() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2">
-                      <SevChip sev={sel.severity} />
-                      <StatusChip status={sel.status} />
+                      <SevChip sev={shown.severity} />
+                      <StatusChip status={shown.status} />
                     </div>
-                    <h2 className="mt-3 text-2xl font-semibold tracking-tight">{sel.title}</h2>
+                    <h2 className="mt-3 text-2xl font-semibold tracking-tight">{shown.title}</h2>
                     <div className="mt-1.5 flex items-center gap-3 font-mono text-2xs text-ink-3">
-                      <span className="text-signal-dim">{sel.id}</span>
-                      <span>signature {sel.signature}</span>
-                      <span>· {sel.memberCount} alerts collapsed</span>
+                      <span className="text-signal-dim">{shown.id}</span>
+                      <span>signature {shown.signature}</span>
+                      <span>· {shown.memberCount} alerts collapsed</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5 rounded-full border border-black/[0.08] bg-black/[0.03] px-3 py-1.5 font-mono text-2xs text-ink-2">
-                    <Cpu size={14} weight="light" /> {sel.service}
+                    <Cpu size={14} weight="light" /> {shown.service}
                   </div>
                 </div>
 
@@ -216,8 +225,8 @@ export function Incidents() {
                   <div className="space-y-1.5">
                     {stageDefs.map((st, i) => {
                       const done = i < stageIndex;
-                      const now = i === stageIndex && sel.status !== "resolved" && sel.status !== "failed";
-                      const doneAll = sel.status === "resolved";
+                      const now = i === stageIndex && shown.status !== "resolved" && shown.status !== "failed";
+                      const doneAll = shown.status === "resolved";
                       const isDone = done || doneAll;
                       return (
                         <div key={st.key} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors duration-500 ${now ? "bg-signal/[0.07]" : ""}`}>
@@ -236,6 +245,26 @@ export function Incidents() {
                   </div>
                 </div>
 
+                {/* what broke — member events + z-score vs baseline */}
+                {shown.member_events && shown.member_events.length > 0 && (
+                  <div className="mt-5">
+                    <div className="mb-2 text-2xs font-medium uppercase tracking-[0.14em] text-ink-3">What broke — the signal</div>
+                    <div className="space-y-1">
+                      {shown.member_events.slice(0, 6).map((ev, i) => {
+                        const b = shown.baseline?.[ev.name];
+                        return (
+                          <div key={i} className="flex items-center gap-3 rounded-lg bg-black/[0.02] px-3 py-1.5 font-mono text-2xs">
+                            <span className="text-ink">{ev.name}</span>
+                            <span className="text-signal-dim">{ev.value ?? "—"}</span>
+                            {b && <span className="text-ink-3">vs baseline {b.mean.toFixed(1)}±{b.std.toFixed(1)}</span>}
+                            {shown.peak_score != null && i === 0 && <span className="ml-auto text-sev-warn">z ≈ {shown.peak_score.toFixed(1)}</span>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 {/* hypotheses */}
                 <div className="mt-5">
                   <div className="mb-2 flex items-center gap-2">
@@ -243,7 +272,7 @@ export function Incidents() {
                     <span className="text-2xs font-medium uppercase tracking-[0.14em] text-ink-3">Ranked root cause</span>
                   </div>
                   <div className="space-y-2">
-                    {sel.hypotheses.map((h, i) => (
+                    {shown.hypotheses.map((h, i) => (
                       <div key={i} className={`rounded-xl border p-3 ${i === 0 ? "border-signal/25 bg-signal/[0.05]" : "border-black/[0.06] bg-black/[0.02]"}`}>
                         <div className="flex items-center justify-between gap-3">
                           <span className="text-sm text-ink-2">{h.description}</span>
@@ -255,6 +284,19 @@ export function Incidents() {
                           </div>
                           {h.suggested_runbook_id && <span className="rounded-md bg-black/[0.05] px-2 py-0.5 font-mono text-2xs text-ink-2">{h.suggested_runbook_id}</span>}
                         </div>
+                        {h.evidence && h.evidence.length > 0 && (
+                          <ul className="mt-2 space-y-0.5">
+                            {h.evidence.map((e, j) => (
+                              <li key={j} className="font-mono text-2xs text-ink-3">• {e}</li>
+                            ))}
+                          </ul>
+                        )}
+                        {i === 0 && h.explanation && (
+                          <div className="mt-2 rounded-lg bg-black/[0.03] p-2 text-2xs leading-relaxed text-ink-2">
+                            <span className="font-mono text-ink-3">{shown.baseline ? "AI/template explanation" : "explanation"}: </span>
+                            {h.explanation}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -262,35 +304,35 @@ export function Incidents() {
 
                 {/* the gate / result */}
                 <div className="mt-5 rounded-2xl border border-black/[0.06] bg-black/[0.03] p-4">
-                  {sel.status === "resolved" ? (
+                  {shown.status === "resolved" ? (
                     <div className="flex items-start gap-3">
                       <span className="mt-0.5 flex h-9 w-9 flex-none items-center justify-center rounded-full bg-sev-ok/15 text-sev-ok"><Check size={17} weight="bold" /></span>
                       <div>
                         <div className="text-sm font-medium text-ink">
-                          Resolved · <span className="font-mono text-sev-ok">{sel.outcome?.health_after ?? "resolved"}</span>
-                          {sel.outcome?.mode === "dry_run" && <span className="ml-2 rounded-md bg-black/[0.05] px-1.5 py-0.5 font-mono text-2xs text-ink-3">dry-run</span>}
+                          Resolved · <span className="font-mono text-sev-ok">{shown.outcome?.health_after ?? "resolved"}</span>
+                          {shown.outcome?.mode === "dry_run" && <span className="ml-2 rounded-md bg-black/[0.05] px-1.5 py-0.5 font-mono text-2xs text-ink-3">dry-run</span>}
                         </div>
-                        {sel.outcome?.steps && sel.outcome.steps.length > 0 && (
-                          <div className="mt-1 font-mono text-2xs text-ink-3">steps: {sel.outcome.steps.join(" → ")}</div>
+                        {shown.outcome?.steps && shown.outcome.steps.length > 0 && (
+                          <div className="mt-1 font-mono text-2xs text-ink-3">steps: {shown.outcome.steps.join(" → ")}</div>
                         )}
                         <div className="font-mono text-2xs text-ink-3">outcome labeled → reliability rising → next matching storm may be suppressed</div>
                       </div>
                     </div>
-                  ) : sel.status === "failed" ? (
+                  ) : shown.status === "failed" ? (
                     <div className="flex items-start gap-3">
                       <span className="mt-0.5 flex h-9 w-9 flex-none items-center justify-center rounded-full bg-sev-warn/15 text-sev-warn"><X size={17} weight="bold" /></span>
                       <div>
                         <div className="text-sm font-medium text-ink">
-                          No action taken · <span className="font-mono text-sev-warn">{sel.outcome?.health_after ?? "aborted"}</span>
+                          No action taken · <span className="font-mono text-sev-warn">{shown.outcome?.health_after ?? "aborted"}</span>
                         </div>
                         <div className="font-mono text-2xs text-ink-3">gate failed closed — nothing executed</div>
                       </div>
                     </div>
-                  ) : sel.hitl_mode === "auto" ? (
+                  ) : shown.hitl_mode === "auto" ? (
                     <div className="flex items-center gap-3">
                       <span className="flex h-9 w-9 items-center justify-center rounded-full bg-signal/15 text-signal"><Lightning size={17} weight="light" /></span>
                       <div>
-                        <div className="text-sm font-medium text-ink">Auto-remediating · <span className="font-mono text-signal">{sel.suggested_runbook_id}</span></div>
+                        <div className="text-sm font-medium text-ink">Auto-remediating · <span className="font-mono text-signal">{shown.suggested_runbook_id}</span></div>
                         <div className="font-mono text-2xs text-ink-3">graduated playbook — RBAC-checked, running without a human</div>
                       </div>
                     </div>
@@ -299,7 +341,7 @@ export function Incidents() {
                       <div className="flex items-center gap-2">
                         <span className="flex h-2 w-2 animate-beat rounded-full bg-sev-warn" />
                         <span className="text-sm font-medium text-ink">Human approval required</span>
-                        <span className="ml-auto rounded-md bg-black/[0.05] px-2 py-0.5 font-mono text-2xs text-ink-2">{sel.suggested_runbook_id} · hitl</span>
+                        <span className="ml-auto rounded-md bg-black/[0.05] px-2 py-0.5 font-mono text-2xs text-ink-2">{shown.suggested_runbook_id} · hitl</span>
                       </div>
                       <p className="mt-1.5 font-mono text-2xs text-ink-3">action-service is authorized to <span className="text-ink-2">execute</span> this reversible playbook. Approve to run it, or reject to hold.</p>
                       <div className="mt-3 flex gap-2">

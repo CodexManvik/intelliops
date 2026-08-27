@@ -1,4 +1,4 @@
-import type { AuditRow, Metrics, OutcomeRow, Playbook, Situation } from "./types";
+import type { AuditRow, Metrics, OutcomeRow, Playbook, Situation, SystemInfo } from "./types";
 
 const READ = import.meta.env.VITE_READ_URL ?? "http://localhost:8007";
 const GOV = import.meta.env.VITE_GOV_URL ?? "http://localhost:8005";
@@ -16,6 +16,8 @@ async function getJSON<T>(url: string): Promise<T> {
 }
 
 export const loadSituations = () => getJSON<Situation[]>(`${READ}/situations`);
+export const loadSituationDetail = (id: string) => getJSON<Situation>(`${READ}/situations/${id}`);
+export const loadSystem = () => getJSON<SystemInfo>(`${READ}/system`);
 export const loadOutcomes = () => getJSON<OutcomeRow[]>(`${READ}/outcomes`);
 export const loadAudit = () => getJSON<AuditRow[]>(`${GOV}/audit`);
 export const loadPlaybooks = () => getJSON<Playbook[]>(`${GOV}/playbooks`);

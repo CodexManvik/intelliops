@@ -5,6 +5,7 @@ import type {
   Playbook,
   ServiceHealth,
   Situation,
+  SystemInfo,
 } from "./types";
 
 /**
@@ -36,6 +37,15 @@ export const metrics: Metrics = {
   suppressedToday: 27,
   approvalsPending: 1,
   successRate: 0.94,
+};
+
+export const system: SystemInfo = {
+  correlator_kind: "river",
+  bus_backend: "redis",
+  store_backend: "file",
+  remediator_mode: "dry_run",
+  auth_mode: "off",
+  llm: { provider: "template", endpoint_configured: false, endpoint: "", model: "gpt-4o-mini", last_probe: null },
 };
 
 export const situations: Situation[] = [

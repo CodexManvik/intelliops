@@ -33,6 +33,8 @@ export interface Hypothesis {
   description: string;
   confidence: number; // 0..1
   suggested_runbook_id: string | null;
+  evidence?: string[];
+  explanation?: string | null;
 }
 
 export interface SituationOutcome {
@@ -58,6 +60,10 @@ export interface Situation {
   reliability: number; // per-signature reliability (0..1)
   suppressed: boolean;
   outcome?: SituationOutcome; // present once remediation has produced a result
+  peak_score?: number | null;
+  baseline?: Record<string, { mean: number; std: number }> | null;
+  member_events?: MemberEvent[];
+  stages?: Partial<Record<"detected" | "diagnosed" | "acting" | "resolved" | "failed", number>>;
 }
 
 export interface OutcomeRow {
@@ -106,4 +112,27 @@ export interface Metrics {
   suppressedToday: number;
   approvalsPending: number;
   successRate: number; // 0..1
+}
+
+export interface MemberEvent {
+  name: string;
+  value: number | null;
+  labels: Record<string, string>;
+  kind: string;
+  ts: number;
+}
+
+export interface SystemInfo {
+  correlator_kind: string;
+  bus_backend: string;
+  store_backend: string;
+  remediator_mode: string;
+  auth_mode: string;
+  llm: {
+    provider: "template" | "openai-compatible";
+    endpoint_configured: boolean;
+    endpoint: string;
+    model: string;
+    last_probe?: { ok: boolean; latency_ms?: number; error?: string } | null;
+  };
 }
