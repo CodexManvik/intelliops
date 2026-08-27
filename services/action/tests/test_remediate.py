@@ -196,3 +196,16 @@ def test_audit_written_on_success():
     g = FakeGate()
     _run(_playbook(), g, RecordingRemediator(), FixedHealthChecker(True))
     assert any(a.action == "execute" and a.correlation_id == "s1" for a in g.audits)
+
+
+def test_successful_outcome_records_steps_and_mode():
+    playbook = _playbook(hitl=HitlMode.AUTO, reversible=True).model_copy(
+        update={"steps": [RemediationStep(action="scale", replicas=2)]}
+    )
+    out = _run(
+        playbook, FakeGate(), RecordingRemediator(execute_result=True), FixedHealthChecker(True)
+    )
+    assert out.result == RemediationResult.SUCCESS
+    assert out.steps  # non-empty, human-readable
+    assert any("scale" in s for s in out.steps)
+    assert out.mode in ("dry_run", "k8s")
