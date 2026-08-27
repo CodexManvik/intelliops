@@ -35,6 +35,13 @@ export interface Hypothesis {
   suggested_runbook_id: string | null;
 }
 
+export interface SituationOutcome {
+  result: RemediationResult;
+  health_after: OutcomeReason;
+  mode: "dry_run" | "k8s";
+  steps: string[];
+}
+
 export interface Situation {
   id: string; // "sit-" + signature
   signature: string;
@@ -50,6 +57,7 @@ export interface Situation {
   reversible: boolean;
   reliability: number; // per-signature reliability (0..1)
   suppressed: boolean;
+  outcome?: SituationOutcome; // present once remediation has produced a result
 }
 
 export interface OutcomeRow {
