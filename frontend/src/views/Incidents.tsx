@@ -35,11 +35,37 @@ export function Incidents() {
   const [selId, setSelId] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
 
-  // merge server data with local optimistic overrides
+  // merge server data with local optimistic overrides, but let server truth win:
+  // once the server shows a terminal status, the optimistic override is stale.
   const list = useMemo<Situation[]>(
-    () => seed.map((s) => ({ ...s, ...overrides[s.id] })),
+    () =>
+      seed.map((s) => {
+        const o = overrides[s.id];
+        if (!o) return s;
+        // server reached a terminal state → discard the optimistic flip
+        if (s.status === "resolved" || s.status === "failed") return s;
+        return { ...s, ...o };
+      }),
     [seed, overrides],
   );
+
+  // Prune overrides the server has caught up to, so the map can't pin a stale
+  // 'acting' forever (the bug: overrides never cleared → gate reappears).
+  useEffect(() => {
+    setOverrides((o) => {
+      const next: Record<string, Partial<Situation>> = {};
+      let changed = false;
+      for (const [id, patch] of Object.entries(o)) {
+        const srv = seed.find((s) => s.id === id);
+        if (srv && (srv.status === "resolved" || srv.status === "failed")) {
+          changed = true; // drop it — server is terminal
+        } else {
+          next[id] = patch;
+        }
+      }
+      return changed ? next : o;
+    });
+  }, [seed]);
 
   // keep a valid selection as data streams in
   useEffect(() => {
@@ -57,27 +83,48 @@ export function Incidents() {
   async function approve() {
     if (working || !sel) return;
     setWorking(true);
-    update(sel.id, { status: "acting" });
+    update(sel.id, { status: "acting" }); // transient: "awaiting outcome"
     try {
       await decideApproval(`appr-${sel.id}`, "approved");
       pushToast("success", `Approved — remediating ${sel.suggested_runbook_id ?? "playbook"}`);
-      if (!LIVE) setTimeout(() => update(sel.id, { status: "resolved" }), 1400);
-      // live mode: let the 5s poll converge to the real server status
+      if (!LIVE) {
+        // mock mode: server never advances, so simulate the terminal outcome locally
+        setTimeout(
+          () =>
+            update(sel.id, {
+              status: "resolved",
+              outcome: { result: "success", health_after: "healthy", mode: "dry_run", steps: [] },
+            }),
+          1400,
+        );
+      }
+      // live mode: the 5s poll converges to the real server status; Step 1 prunes the override
     } catch (e) {
       pushToast("error", `Approval failed: ${e instanceof Error ? e.message : "unknown"}`);
       update(sel.id, { status: "diagnosed" }); // roll the optimistic flip back
+    } finally {
+      setWorking(false);
     }
-    setTimeout(() => setWorking(false), 1500);
   }
 
   async function reject() {
-    if (!sel) return;
+    if (working || !sel) return;
+    setWorking(true);
     update(sel.id, { status: "failed" });
     try {
       await decideApproval(`appr-${sel.id}`, "rejected");
       pushToast("success", "Rejected — no action taken");
+      if (!LIVE) {
+        update(sel.id, {
+          status: "failed",
+          outcome: { result: "failure", health_after: "aborted:rejected", mode: "dry_run", steps: [] },
+        });
+      }
     } catch (e) {
       pushToast("error", `Reject failed: ${e instanceof Error ? e.message : "unknown"}`);
+      update(sel.id, { status: "diagnosed" });
+    } finally {
+      setWorking(false);
     }
   }
 
@@ -255,9 +302,11 @@ export function Incidents() {
                         <button onClick={reject} disabled={working} className="flex items-center gap-2 rounded-full border border-black/[0.10] bg-black/[0.04] px-5 py-2.5 text-sm text-ink-2 transition-all duration-300 ease-fluid hover:bg-black/[0.06] active:scale-[0.97]">
                           <X size={15} weight="bold" /> Reject
                         </button>
-                        <button onClick={() => update(sel.id, { status: "detected" })} className="ml-auto flex items-center gap-1.5 rounded-full px-3 py-2.5 font-mono text-2xs text-ink-3 hover:text-ink-2">
-                          <ArrowsClockwise size={13} weight="light" /> reset
-                        </button>
+                        {!LIVE && (
+                          <button onClick={() => update(sel.id, { status: "detected", outcome: undefined })} className="ml-auto flex items-center gap-1.5 rounded-full px-3 py-2.5 font-mono text-2xs text-ink-3 hover:text-ink-2">
+                            <ArrowsClockwise size={13} weight="light" /> reset
+                          </button>
+                        )}
                       </div>
                     </div>
                   )}
