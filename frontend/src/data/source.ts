@@ -1,5 +1,6 @@
 import * as api from "./api";
 import * as mock from "./mock";
+import type { LlmProbe, SystemInfo } from "./types";
 
 const LIVE = import.meta.env.VITE_DATA_MODE === "live";
 
@@ -21,3 +22,15 @@ export const decideApproval = LIVE
   : async () => {
       /* mock mode: no-op; Incidents' local optimistic update drives the UI */
     };
+export const loadBaseline = LIVE ? api.loadBaseline : async () => mock.baseline;
+export const loadLlmConfig = LIVE ? api.loadLlmConfig : async () => mock.system.llm;
+export const setLlmConfig = LIVE
+  ? api.setLlmConfig
+  : async (_cfg: { endpoint: string; api_key: string; model: string }): Promise<SystemInfo["llm"]> =>
+      mock.system.llm;
+export const testLlmConfig = LIVE
+  ? api.testLlmConfig
+  : async (_cfg: { endpoint: string; api_key: string; model: string }): Promise<LlmProbe> => ({
+      ok: false,
+      error: "mock mode",
+    });

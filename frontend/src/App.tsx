@@ -5,6 +5,7 @@ import { Incidents } from "./views/Incidents";
 import { Pipeline } from "./views/Pipeline";
 import { Governance } from "./views/Governance";
 import { Audit } from "./views/Audit";
+import { System } from "./views/System";
 import "./styles/view.css";
 
 export default function App() {
@@ -22,6 +23,7 @@ export default function App() {
         {view === "pipeline" && <Pipeline />}
         {view === "governance" && <Governance />}
         {view === "audit" && <Audit />}
+        {view === "system" && <System />}
       </div>
     </Shell>
   );

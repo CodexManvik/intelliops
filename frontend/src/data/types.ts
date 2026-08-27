@@ -136,3 +136,15 @@ export interface SystemInfo {
     last_probe?: { ok: boolean; latency_ms?: number; error?: string } | null;
   };
 }
+
+export interface BaselineInfo {
+  correlator_kind: string;
+  baselines: { metric_name: string; mean: number; std: number; count: number }[];
+}
+
+export interface LlmProbe {
+  ok: boolean;
+  model?: string;
+  latency_ms?: number;
+  error?: string;
+}
