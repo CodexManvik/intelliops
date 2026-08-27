@@ -146,6 +146,7 @@ class ReadModel:
                 "suggested_runbook_id": h.suggested_runbook_id,
                 "evidence": list(h.evidence),
                 "explanation": h.explanation,
+                "explanation_source": h.explanation_source,
             }
             for h in d.hypotheses
         ]

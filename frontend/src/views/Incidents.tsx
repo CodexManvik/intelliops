@@ -235,7 +235,9 @@ export function Incidents() {
                           </span>
                           <div className="min-w-0">
                             <div className={`text-sm ${isDone || now ? "text-ink" : "text-ink-3"}`}>{st.label}</div>
-                            <div className="font-mono text-2xs text-ink-3">{st.note}</div>
+                            <div className="font-mono text-2xs text-ink-3">
+                              {st.key === "detected" ? `${shown.memberCount ?? "—"} alerts → 1 Situation` : st.note}
+                            </div>
                           </div>
                           {now && <span className="ml-auto font-mono text-2xs text-signal-dim">in progress</span>}
                           {isDone && <span className="ml-auto font-mono text-2xs text-sev-ok">done</span>}
@@ -293,7 +295,13 @@ export function Incidents() {
                         )}
                         {i === 0 && h.explanation && (
                           <div className="mt-2 rounded-lg bg-black/[0.03] p-2 text-2xs leading-relaxed text-ink-2">
-                            <span className="font-mono text-ink-3">{shown.baseline ? "AI/template explanation" : "explanation"}: </span>
+                            <span className="font-mono text-ink-3">
+                              {h.explanation_source === "llm"
+                                ? "AI explanation"
+                                : h.explanation_source === "template"
+                                  ? "Template explanation (no LLM)"
+                                  : "explanation"}
+                              : </span>
                             {h.explanation}
                           </div>
                         )}

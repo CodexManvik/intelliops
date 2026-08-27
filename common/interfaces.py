@@ -150,3 +150,10 @@ class ExplanationProvider(Protocol):
         context: EnrichmentContext,
         situation: Situation,
     ) -> str: ...
+
+    def explain_with_source(
+        self,
+        hypothesis: RootCauseHypothesis,
+        context: EnrichmentContext,
+        situation: Situation,
+    ) -> tuple[str, str]: ...

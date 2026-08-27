@@ -35,6 +35,7 @@ export interface Hypothesis {
   suggested_runbook_id: string | null;
   evidence?: string[];
   explanation?: string | null;
+  explanation_source?: string | null; // "llm" | "template"
 }
 
 export interface SituationOutcome {

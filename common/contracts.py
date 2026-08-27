@@ -73,6 +73,7 @@ class RootCauseHypothesis(BaseModel):
     evidence: list[str] = Field(default_factory=list)
     suggested_runbook_id: str | None = None
     explanation: str | None = None
+    explanation_source: str | None = None  # "llm" | "template" — provenance of `explanation`
 
 
 class RemediationStep(BaseModel):

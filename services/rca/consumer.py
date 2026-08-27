@@ -39,8 +39,11 @@ def diagnose(
     runbook = surface_runbook(hypotheses, store)
     if hypotheses:
         top = hypotheses[0]
-        advisory = explainer.explain(top, context, situation)
-        hypotheses = [top.model_copy(update={"explanation": advisory}), *hypotheses[1:]]
+        advisory, source = explainer.explain_with_source(top, context, situation)
+        hypotheses = [
+            top.model_copy(update={"explanation": advisory, "explanation_source": source}),
+            *hypotheses[1:],
+        ]
     diagnosed_situation = situation.model_copy(update={"status": SituationStatus.DIAGNOSED})
     return DiagnosedSituation(
         situation=diagnosed_situation,
