@@ -71,7 +71,7 @@ def test_consumer_publishes_diagnosed_and_audits():
         NullContextProvider(),
         InMemoryPlaybookStore(),
         audit,
-        TemplateExplanationProvider(),
+        lambda: TemplateExplanationProvider(),
         threading.Event(),
     )
 
@@ -104,7 +104,7 @@ def test_consumer_stops_on_stop_event():
         NullContextProvider(),
         InMemoryPlaybookStore(),
         InMemoryAuditSink(),
-        TemplateExplanationProvider(),
+        lambda: TemplateExplanationProvider(),
         stop,
     )
     assert bus.published == []

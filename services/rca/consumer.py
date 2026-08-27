@@ -56,14 +56,14 @@ def run_consumer(
     provider: ContextProvider,
     store: PlaybookStore,
     audit_sink: AuditSink,
-    explainer: ExplanationProvider,
+    explainer_source,  # zero-arg callable -> ExplanationProvider (live-swappable)
     stop_event: threading.Event,
     reliability_provider=None,
 ) -> None:
     for situation in iter_models(bus, "situations.detected", "rca", Situation):
         if stop_event.is_set():
             break
-        diagnosed = diagnose(situation, provider, store, explainer, reliability_provider)
+        diagnosed = diagnose(situation, provider, store, explainer_source(), reliability_provider)
         publish_model(bus, "situations.diagnosed", diagnosed)
         audit_sink.write(
             AuditRecord(
