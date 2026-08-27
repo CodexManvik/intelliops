@@ -238,6 +238,10 @@ class ReadModel:
     def outcomes(self) -> list[dict]:
         return list(self._outcomes)
 
+    def situation(self, sid: str) -> dict | None:
+        s = self._sits.get(sid)
+        return dict(s) if s is not None else None
+
     def reset(self) -> None:
         self._sits.clear()
         self._outcomes.clear()
