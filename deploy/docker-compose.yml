@@ -111,6 +111,11 @@ services:
       PORT: "8000"
       INTELLIOPS_STORE_BACKEND: postgres
       INTELLIOPS_DATABASE_URL: postgresql+psycopg://intelliops:intelliops@postgres:5432/intelliops
+      # --- Optional: enable the LLM explanation provider (default is the offline template) ---
+      # INTELLIOPS_LLM_EXPLANATION_ENDPOINT: "https://api.openai.com/v1"
+      # INTELLIOPS_LLM_EXPLANATION_MODEL: "gpt-4o-mini"
+      # INTELLIOPS_LLM_EXPLANATION_API_KEY: "sk-..."
+      # Or configure it live from the console's System view — no restart needed.
     ports:
       - "8003:8000"
     volumes:

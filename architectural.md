@@ -1070,6 +1070,69 @@ system." *A cyan/Geist-themed Meridian UI matching the console* — rejected del
 distinct light enterprise theme makes the demo's two systems ("the client's app" vs. "IntelliOps
 watching it") legible at a glance, which matters for an audience seeing both for the first time.
 
+### ADR-021 — Evidence exposure & honesty pass
+
+**Context.** An adversarial audit set out to answer one question: if someone opened the console
+and asked "prove this is real," could it? The engine underneath was genuinely real — 414+ tests,
+a live correlator, RCA rules running against real telemetry, real (dry-run) remediation — but the
+read-model *projection* (`services/read/projection.py`) that feeds the console was throwing away
+every rich signal at the exact boundary where a human would look for proof. Member telemetry
+events were collapsed to a bare count. A hypothesis's supporting evidence and its LLM (or
+template) explanation were computed and then discarded. The correlator's peak z-score was computed
+against a real baseline and then reset without ever being attached to the emitted `Situation`. The
+remediation outcome was appended to a global outcomes list but never joined back onto the situation
+it belonged to, so a resolved incident's own record couldn't say what actually happened to it. On
+top of the missing evidence, two UI bugs made the console actively misleading rather than merely
+uninformative: the approve/reject gate reappeared on a situation that had already been decided, and
+the outcome panel rendered hardcoded `"healthy"` / `"aborted"` text regardless of what the backend
+reported. Separately, the LLM-assisted explanation path ([ADR-019](#adr-019--pluggable-detectors-the-finetuning-loop-and-llm-assisted-rca))
+was dormant and invisible by default — nothing in the compose stack or the console told an operator
+whether an explanation came from a real model or the offline template, or how to turn a real one on.
+
+**Decision.** Fix this by widening the read-model projection, not by touching engine logic —
+`CorrelationEngine`, `rank_hypotheses`, and the remediation playbooks are unchanged. Every new
+field is an additive, optional contract field with a test-safe default, the same discipline that
+keeps contract changes cheap and keeps the existing suite green
+([ADR-006](#adr-006--monorepo-with-a-shared-common-library),
+[ADR-012](#adr-012--config-switched-adapter-selection-with-test-safe-defaults)). Concretely:
+
+- The projection now carries each member event's real `name`, `value`, `labels`, and `kind`
+  instead of a count, and attaches the correlator's peak z-score plus the baseline it was measured
+  against to the `Situation` it belongs to.
+- A diagnosed situation's ranked hypotheses keep their evidence list and their explanation text
+  (labeled by source — LLM or template) all the way to the read model, instead of being summarized
+  away.
+- The real remediation outcome — result, executed steps, and mode (dry-run vs. live) — is joined
+  onto its situation by id, alongside a stage timeline, and the read model resolves a readable
+  title instead of the raw signature.
+- Three new read-only introspection endpoints expose the internals directly: read's
+  `GET /situations/{id}` (the full per-incident record) and `GET /system` (live correlator
+  baselines, configured backends, remediation mode, LLM provider status), plus correlation's
+  `GET /baseline`. Governance's `GET /audit` already existed and needed no change.
+- The LLM explanation provider becomes live-configurable instead of boot-time-only: RCA gets
+  `POST /config/llm` and `POST /config/llm/test`, backed by a `ProviderHolder` — a small
+  lock-guarded holder the daemon consumer re-reads every iteration and the request thread writes
+  to, so swapping providers takes effect without a restart. Both endpoints sit behind the existing
+  edge auth ([ADR-017](#adr-017--edge-authentication)) and the response never echoes the
+  `api_key` back, configured or not.
+- The console's drill-down and a new System view are built on top of these endpoints; the
+  reappearing-approve-gate and hardcoded-outcome-text bugs are fixed as part of the same pass,
+  since they were found during the same audit and are console-side, not projection-side.
+
+**Why.** The rule this pass enforces is simple: no fabricated numbers in live mode, and every
+number or claim the console shows must trace to a real source — a metric, a stored evidence
+record, a stored outcome, or a value explicitly labeled as a dry-run simulation. Widening the
+projection rather than changing the engine keeps the blast radius small and testable: the engine's
+own 414+ tests are untouched, and the new fields default to shapes the existing tests and mock mode
+already produce, so nothing that passed before this pass can start failing because of it. This
+followed the same reasoning as [ADR-012](#adr-012--config-switched-adapter-selection-with-test-safe-defaults) —
+new behavior is additive and defaults to the old behavior — and the same contract discipline as
+[ADR-006](#adr-006--monorepo-with-a-shared-common-library), where shared shapes live in one place
+so a change to them is one edit reviewed once rather than drift across services. The LLM stays
+**off by default** — an offline template explanation ships out of the box, which is the honest
+default for a system with no API key configured — and turning it on is opt-in, either via the
+compose environment variables or live from the console's System view, never assumed.
+
 ---
 
 ## 4. Cross-cutting concerns

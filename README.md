@@ -50,7 +50,7 @@ IntelliOps is and how it works:
 | Read this | To understand |
 |-----------|---------------|
 | **[flow.md](flow.md)** | **How a signal flows through the system** — the one-incident journey, every bus topic and data contract, a function-by-function reference for each of the seven services, and the current status (what's real vs. simulated). |
-| **[architectural.md](architectural.md)** | **Why the system is shaped this way** — the layer model and twenty ADRs (Architecture Decision Records), each with the context, the decision, the trade-offs, and the alternatives rejected. |
+| **[architectural.md](architectural.md)** | **Why the system is shaped this way** — the layer model and twenty-one ADRs (Architecture Decision Records), each with the context, the decision, the trade-offs, and the alternatives rejected. |
 
 Then, for the team: **[WORKPLAN.md](WORKPLAN.md)** divides the remaining work into four
 owned streams with acceptance criteria. The full original design spec is at
@@ -228,6 +228,27 @@ baseline, and empties the read model.
 > are simulation controls, not production endpoints. When this stack is pointed at a real system,
 > they must be gated or removed.
 
+## Proving it's real
+
+The console isn't just a status light — every incident it shows drills down into the evidence
+behind it. Open a Situation and you get the metric name and value that tripped it, the
+correlator's z-score plotted against its learned baseline, the ranked hypotheses with the
+evidence each one cites, a (labeled: LLM or offline-template) explanation, a stage timeline, and
+the real remediation outcome with the steps that were actually executed — dry-run runs are
+labeled as such, never presented as live infrastructure changes. Nothing on that screen is a
+placeholder number; if a field has no real value yet, it isn't shown.
+
+Open the new **System view** and you get the same honesty applied to the platform itself: live
+correlator baselines per metric, which backends are wired up (store, bus, telemetry source), the
+current remediation mode (dry-run vs. real), and a status badge for the LLM explanation provider.
+That badge tells you the truth plainly: **the default is the offline template**, not a live
+model — RCA ships with no LLM configured out of the box, which is the honest default for a system
+that hasn't been given an API key. Turning a real provider on is opt-in, either via the
+`INTELLIOPS_LLM_EXPLANATION_*` environment variables on the `rca` service (see
+`deploy/docker-compose.yml`) or live from the console's System view itself, which calls RCA's
+`POST /config/llm` (and a `/config/llm/test` probe) to swap the running provider with no restart.
+The key you enter is never echoed back by the API.
+
 ## Roadmap
 
 Delivered in vertical slices mapped to the proposal's phased rollout. Each slice is a working
@@ -299,8 +320,8 @@ and honest limits (synthetic data, toggle-based faults, dry-run remediation) in
 
 ## Documentation map
 
-- **[architectural.md](architectural.md)** — design principles, the 5→6 layer mapping, nineteen
-  ADRs, cross-cutting concerns, compliance mapping.
+- **[architectural.md](architectural.md)** — design principles, the 5→6 layer mapping,
+  twenty-one ADRs, cross-cutting concerns, compliance mapping.
 - **[docs/DEMO.md](docs/DEMO.md)** — the guided two-act demo walkthrough: the live dry-run loop,
   then real remediation on a kind cluster.
 - **[flow.md](flow.md)** — the one-incident journey, bus topics, data contracts, and a
