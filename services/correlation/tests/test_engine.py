@@ -94,6 +94,42 @@ def test_engine_snapshot_load_roundtrip():
     assert e2._correlator.is_anomaly(ev(500.0))
 
 
+def test_emitted_situation_carries_peak_score():
+    from datetime import UTC, datetime, timedelta
+
+    from common.contracts import TelemetryEvent, TelemetryKind
+    from services.correlation.adapters.river_correlator import RiverCorrelator
+    from services.correlation.engine import CorrelationEngine
+
+    eng = CorrelationEngine(RiverCorrelator(z_threshold=3.0, warmup_samples=5), window_seconds=30.0)
+    base = datetime(2026, 1, 1, tzinfo=UTC)
+
+    def ev(v, i):
+        return TelemetryEvent(
+            source="test",
+            kind=TelemetryKind.METRIC,
+            name="cpu_usage",
+            value=v,
+            labels={"service": "web"},
+            ts=base + timedelta(seconds=i),
+            fingerprint="fp",
+        )
+
+    # river.stats.Var needs non-identical samples to produce a nonzero
+    # variance (see RiverCorrelator.detect's sd == 0 guard); a perfectly
+    # flat baseline never yields a std dev, so no value could ever score
+    # as anomalous. Tiny deterministic jitter around 20 keeps this a
+    # "~20 baseline" while giving the z-score something to divide by.
+    jitter = [0.0, 0.1, -0.1, 0.2, -0.2, 0.1, -0.1, 0.2, -0.2, 0.1]
+    for i in range(10):
+        eng.add(ev(20.0 + jitter[i], i))  # learn a ~20 baseline
+    eng.add(ev(200.0, 11))  # spike → scores high, buffers
+    sit = eng.flush()
+    assert sit is not None
+    assert sit.peak_score is not None and sit.peak_score > 3.0
+    assert sit.baseline is not None and "cpu_usage" in sit.baseline
+
+
 def test_add_scores_under_lock():
     """detect() must run while the engine lock is held, so a concurrent
     snapshot()/load() on the flusher thread can never read a half-updated
