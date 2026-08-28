@@ -21,7 +21,7 @@ import type { Situation, SituationStatus, Metrics, OutcomeRow } from "../data/ty
 const LIVE = import.meta.env.VITE_DATA_MODE === "live";
 
 const stageDefs = [
-  { key: "detected", label: "ingestion → correlation", icon: <FlowArrow size={15} weight="light" />, note: "214 alerts → 1 Situation" },
+  { key: "detected", label: "ingestion → correlation", icon: <FlowArrow size={15} weight="light" />, note: "alerts → 1 Situation" },
   { key: "diagnosed", label: "rca", icon: <MagicWand size={15} weight="light" />, note: "ranked root cause" },
   { key: "acting", label: "action → governance", icon: <ShieldCheck size={15} weight="light" />, note: "approval gate" },
   { key: "resolved", label: "execute · verify", icon: <Lightning size={15} weight="light" />, note: "reversible remediation" },
