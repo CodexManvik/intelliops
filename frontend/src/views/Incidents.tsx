@@ -13,15 +13,15 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { Bezel, Eyebrow, SevChip, StatusChip, timeAgo, motion as m } from "../components/primitives";
-import { loadSituations, loadSituationDetail, decideApproval } from "../data/source";
+import { loadSituations, loadSituationDetail, decideApproval, loadMetrics, loadOutcomes } from "../data/source";
 import { useLiveData } from "../hooks/useLiveData";
 import { pushToast } from "../hooks/useToast";
-import type { Situation, SituationStatus } from "../data/types";
+import type { Situation, SituationStatus, Metrics, OutcomeRow } from "../data/types";
 
 const LIVE = import.meta.env.VITE_DATA_MODE === "live";
 
 const stageDefs = [
-  { key: "detected", label: "ingestion → correlation", icon: <FlowArrow size={15} weight="light" />, note: "214 alerts → 1 Situation" },
+  { key: "detected", label: "ingestion → correlation", icon: <FlowArrow size={15} weight="light" />, note: "alerts → 1 Situation" },
   { key: "diagnosed", label: "rca", icon: <MagicWand size={15} weight="light" />, note: "ranked root cause" },
   { key: "acting", label: "action → governance", icon: <ShieldCheck size={15} weight="light" />, note: "approval gate" },
   { key: "resolved", label: "execute · verify", icon: <Lightning size={15} weight="light" />, note: "reversible remediation" },
@@ -29,8 +29,61 @@ const stageDefs = [
 
 const order: SituationStatus[] = ["detected", "diagnosed", "acting", "resolved"];
 
+const METRIC_DOCS: Record<string, { title: string; formula: string; meaning: string }> = {
+  noise: {
+    title: "Noise reduction",
+    meaning: "How much raw alert noise IntelliOps collapsed into a handful of real incidents.",
+    formula: "1 − (situations ÷ raw alerts ingested)",
+  },
+  mttr: {
+    title: "MTTR",
+    meaning: "Mean Time To Resolve — average time from an incident first appearing to it being fixed.",
+    formula: "avg(resolved_at − first_seen) over successful remediations",
+  },
+  auto: {
+    title: "Auto-remediated",
+    meaning: "Share of fixes that ran automatically, because the playbook had earned autonomy (≥3 clean successes).",
+    formula: "auto-mode outcomes ÷ all outcomes",
+  },
+  success: {
+    title: "Success rate",
+    meaning: "Share of remediations that verified healthy afterward.",
+    formula: "successful outcomes ÷ all outcomes",
+  },
+};
+
+function MetricCard({
+  docKey, value, sub,
+}: { docKey: keyof typeof METRIC_DOCS; value: string; sub: string }) {
+  const [open, setOpen] = useState(false);
+  const d = METRIC_DOCS[docKey];
+  return (
+    <button onClick={() => setOpen((o) => !o)} className="block w-full text-left">
+      <div className="rounded-2xl border border-black/[0.06] bg-black/[0.02] p-4 transition-colors hover:bg-black/[0.04]">
+        <div className="flex items-center justify-between">
+          <span className="text-2xs font-medium uppercase tracking-[0.14em] text-ink-3">{d.title}</span>
+          <span className="font-mono text-2xs text-ink-4">{open ? "−" : "?"}</span>
+        </div>
+        <div className="mt-1 text-2xl font-semibold tracking-tightest tnum">{value}</div>
+        <div className="font-mono text-2xs text-ink-3">{sub}</div>
+        {open && (
+          <div className="mt-3 border-t border-black/[0.06] pt-3">
+            <p className="text-2xs leading-relaxed text-ink-2">{d.meaning}</p>
+            <p className="mt-1.5 font-mono text-2xs text-ink-3">= {d.formula}</p>
+          </div>
+        )}
+      </div>
+    </button>
+  );
+}
+
 export function Incidents() {
   const { data: seed } = useLiveData(loadSituations, [] as Situation[]);
+  const { data: metrics } = useLiveData(loadMetrics, {
+    alertsIngested: 0, situationsOpen: 0, noiseReductionPct: 0, mttrMinutes: 0,
+    autoRemediatedPct: 0, suppressedToday: 0, approvalsPending: 0, successRate: 0,
+  } as Metrics);
+  const { data: recentOutcomes } = useLiveData(loadOutcomes, [] as OutcomeRow[]);
   const [overrides, setOverrides] = useState<Record<string, Partial<Situation>>>({});
   const [selId, setSelId] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
@@ -141,6 +194,13 @@ export function Incidents() {
 
   return (
     <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <MetricCard docKey="noise" value={`${metrics.noiseReductionPct}%`} sub={`${metrics.alertsIngested.toLocaleString()} alerts → ${metrics.situationsOpen} open`} />
+        <MetricCard docKey="mttr" value={metrics.mttrMinutes > 0 ? `${metrics.mttrMinutes}m` : "—"} sub={metrics.mttrMinutes > 0 ? "mean time to resolve" : "no fixes yet"} />
+        <MetricCard docKey="auto" value={`${metrics.autoRemediatedPct}%`} sub="ran without a human" />
+        <MetricCard docKey="success" value={`${Math.round(metrics.successRate * 100)}%`} sub="verified healthy" />
+      </div>
+
       <div>
         <Eyebrow>
           <span className="h-1.5 w-1.5 animate-beat rounded-full bg-sev-warn" /> Incident workspace · on-call
@@ -379,6 +439,21 @@ export function Incidents() {
           </div>
         )}
       </div>
+
+      {recentOutcomes.length > 0 && (
+        <div className="rounded-2xl border border-black/[0.06] bg-black/[0.02] p-4">
+          <div className="mb-2 text-2xs font-medium uppercase tracking-[0.14em] text-ink-3">Recent outcomes</div>
+          <div className="space-y-1">
+            {recentOutcomes.slice(0, 5).map((o, i) => (
+              <div key={i} className="flex items-center gap-3 font-mono text-2xs">
+                <span className="text-ink-3">{timeAgo(o.ts)}</span>
+                <span className="w-40 truncate text-ink-2">{o.playbook_id}</span>
+                <span className="ml-auto text-ink-3">{o.reason}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
