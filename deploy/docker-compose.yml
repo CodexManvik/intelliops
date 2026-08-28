@@ -4,6 +4,7 @@ x-service: &service
   build:
     context: ..
     dockerfile: deploy/Dockerfile
+    target: base
   environment:
     INTELLIOPS_REDIS_URL: redis://redis:6379
   depends_on:
@@ -73,6 +74,10 @@ services:
 
   correlation:
     <<: *service
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      target: full
     environment:
       INTELLIOPS_REDIS_URL: redis://redis:6379
       INTELLIOPS_LOG_FORMAT: json
@@ -138,6 +143,10 @@ services:
 
   action:
     <<: *service
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      target: full
     environment:
       INTELLIOPS_REDIS_URL: redis://redis:6379
       INTELLIOPS_LOG_FORMAT: json

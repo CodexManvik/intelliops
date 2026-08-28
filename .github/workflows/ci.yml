@@ -16,7 +16,7 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
-      - run: uv sync --frozen
+      - run: uv sync --frozen --extra ml --extra k8s
       - run: uv run ruff check .
       - run: uv run ruff format --check .
 
@@ -32,7 +32,7 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
-      - run: uv sync --frozen
+      - run: uv sync --frozen --extra ml --extra k8s
       - run: uv run pytest -q -m "not postgres and not kafka"
 
   frontend-build:
@@ -50,24 +50,71 @@ jobs:
       - run: npm ci
       - run: npm run build
 
+  slim-boundary:
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Build base-only venv (no ml/k8s extras)
+        run: |
+          uv venv .slim
+          VIRTUAL_ENV=.slim uv sync --frozen --no-dev --active
+      - name: Every base-image service imports with zero heavy deps
+        run: |
+          for svc in ingestion read demo_app governance action feedback rca \
+                     meridian.gateway meridian.validation meridian.aggregation meridian.reporting; do
+            VIRTUAL_ENV=.slim .slim/bin/python -c "
+          import importlib, sys
+          importlib.import_module('services.${svc}.app')
+          leaked = {'numpy','scipy','sklearn','river','joblib','kubernetes'} & set(sys.modules)
+          assert not leaked, f'${svc} leaked: {leaked}'
+          print('OK ${svc}')" || exit 1
+          done
+          VIRTUAL_ENV=.slim .slim/bin/python -c "from common.stores import make_stores; print('OK make_stores on slim')" || exit 1
+      - name: Grep-lint guards
+        run: |
+          ! grep -rEn 'numpy|scipy|sklearn|river|joblib' services/feedback/ || { echo 'feedback must not import heavy deps'; exit 1; }
+          ! grep -nE '^(import|from) .*(sklearn|joblib)' services/correlation/adapters/trained_correlator.py || { echo 'sklearn/joblib must stay lazy in trained_correlator'; exit 1; }
+
   compose-smoke:
     runs-on: ubuntu-latest
     needs: [test, frontend-build]
     steps:
       - uses: actions/checkout@v4
       - run: docker compose -f deploy/docker-compose.yml up -d --build
-      - name: Wait for all services to become healthy
+      - name: Wait for all services, verify readiness
         run: |
-          for port in 8001 8002 8003 8004 8005 8006 8007 8080; do
+          # migrate is a one-shot with no HTTP port — assert it exited 0
+          mid=$(docker compose -f deploy/docker-compose.yml ps -aq migrate)
+          for attempt in $(seq 1 20); do
+            state=$(docker inspect -f '{{.State.Status}}' "$mid" 2>/dev/null || echo pending)
+            [ "$state" = "exited" ] && break
+            [ "$attempt" -eq 20 ] && { echo "migrate never exited"; exit 1; }
+            sleep 3
+          done
+          code=$(docker inspect -f '{{.State.ExitCode}}' "$mid")
+          [ "$code" = "0" ] || { echo "migrate exited $code"; exit 1; }
+          echo " ✓ migrate exited 0"
+          # /ready for the 7 IntelliOps HTTP services (runs bus.ping + db_ready)
+          for port in 8001 8002 8003 8004 8005 8006 8007; do
             for attempt in $(seq 1 20); do
-              if curl -sf http://localhost:$port/health; then
-                echo " ✓ port $port healthy"
-                break
-              fi
-              if [ "$attempt" -eq 20 ]; then
-                echo " ✗ port $port never became healthy"
-                exit 1
-              fi
+              curl -sf "http://localhost:$port/ready" && { echo " ✓ $port /ready"; break; }
+              [ "$attempt" -eq 20 ] && { echo " ✗ $port /ready never 200"; exit 1; }
+              sleep 3
+            done
+          done
+          # /health for meridian (8008/8011/8012/8013) + demo-app (8080)
+          for port in 8008 8011 8012 8013 8080; do
+            for attempt in $(seq 1 20); do
+              curl -sf "http://localhost:$port/health" && { echo " ✓ $port /health"; break; }
+              [ "$attempt" -eq 20 ] && { echo " ✗ $port /health never 200"; exit 1; }
               sleep 3
             done
           done
