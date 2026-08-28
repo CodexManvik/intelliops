@@ -23,6 +23,7 @@ from fastapi.staticfiles import StaticFiles
 
 from common.config import get_settings
 from services.meridian.common import make_meridian_service
+from services.meridian.gateway.ops_target import ops_target_url
 
 # The 4 Meridian services, reachable in-compose by their service name. The
 # ops-proxy and /admin/deploy both key off this short name (not the full
@@ -78,7 +79,7 @@ def _routes(app, state) -> None:
     def ops_fault(body: dict) -> dict:
         svc = _known_service(body["service"])
         spec = body["spec"]
-        url = f"http://meridian-{svc}:8000/admin/fault"
+        url = ops_target_url(svc, "admin/fault", get_settings().meridian_ops_target_mode)
         with httpx.Client(timeout=5.0) as c:
             # demo-app-style targets are un-tokenized; server-side call.
             r = c.post(url, json=spec)
@@ -87,7 +88,7 @@ def _routes(app, state) -> None:
     @app.post("/api/ops/clear")
     def ops_clear(body: dict) -> dict:
         svc = _known_service(body["service"])
-        url = f"http://meridian-{svc}:8000/admin/clear"
+        url = ops_target_url(svc, "admin/clear", get_settings().meridian_ops_target_mode)
         with httpx.Client(timeout=5.0) as c:
             r = c.post(url)
         return {"status": r.status_code}
