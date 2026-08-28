@@ -21,6 +21,7 @@ import httpx
 from fastapi import HTTPException
 from fastapi.staticfiles import StaticFiles
 
+from common.config import get_settings
 from services.meridian.common import make_meridian_service
 
 # The 4 Meridian services, reachable in-compose by their service name. The
@@ -104,6 +105,55 @@ def _routes(app, state) -> None:
         with open(path, "w") as f:
             json.dump([entry], f)
         return {"deployed": svc}
+
+    @app.get("/api/ops/metrics")
+    def ops_metrics() -> dict:
+        """Live per-service telemetry, proxied from Prometheus server-side so the
+        UI stays same-origin (no CORS) and never holds the Prometheus URL.
+        Fail-soft: any Prometheus error yields an empty payload, never a 5xx."""
+        prom = get_settings().prometheus_url.rstrip("/")
+        query = '{__name__=~"cpu_usage|meridian_error_rate"}'
+        try:
+            with httpx.Client(timeout=5.0) as c:
+                resp = c.get(f"{prom}/api/v1/query", params={"query": query})
+        except httpx.HTTPError:
+            return {"scraped": False, "services": []}
+        if resp.status_code != 200:
+            return {"scraped": False, "services": []}
+        try:
+            body = resp.json()
+        except ValueError:
+            return {"scraped": False, "services": []}
+        if not isinstance(body, dict) or body.get("status") != "success":
+            return {"scraped": False, "services": []}
+        # Fold the flat result vector into per-service {cpu_usage, error_rate}.
+        by_service: dict[str, dict] = {}
+        for entry in body.get("data", {}).get("result", []):
+            metric = entry.get("metric", {})
+            svc = metric.get("service")
+            name = metric.get("__name__")
+            value_pair = entry.get("value", [0, "0"])
+            if not svc or not isinstance(value_pair, list) or len(value_pair) < 2:
+                continue
+            try:
+                val = float(value_pair[1])
+            except (TypeError, ValueError):
+                continue
+            row = by_service.setdefault(
+                svc, {"service": svc, "cpu_usage": None, "error_rate": None}
+            )
+            if name == "cpu_usage":
+                row["cpu_usage"] = val
+            elif name == "meridian_error_rate":
+                row["error_rate"] = val
+        services = []
+        for row in by_service.values():
+            cpu = row["cpu_usage"]
+            err = row["error_rate"]
+            row["healthy"] = (cpu is None or cpu < 50) and (err is None or err < 0.1)
+            services.append(row)
+        services.sort(key=lambda r: r["service"])
+        return {"scraped": bool(services), "services": services}
 
 
 app = make_meridian_service("meridian-gateway", _routes)
