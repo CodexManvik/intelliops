@@ -40,37 +40,19 @@ Living backlog of features and fixes deliberately deferred. Each entry: what, wh
 
 ---
 
-## MEDIUM — Live Meridian metrics view in the console
+## DONE — Live Meridian metrics view
 
-**What:** The console has no screen showing Meridian's *scraped* metrics. `cpu_usage` + `meridian_error_rate` per meridian service are exposed at each service's `/metrics` and scraped by Prometheus every 5s (`deploy/prometheus.yml`), but the only ways to see them today are raw (`http://localhost:8008/metrics`, or Prometheus at `http://localhost:9090`) or indirectly (Settings → z-score baselines; the incident drill-down's "what broke" panel).
+**Status:** DONE / shipped in the `feat/live-ui-additions` PR. Landed in the **Meridian UI as a new Metrics page** (not the IntelliOps console) — a 3rd nav item, live per-service `cpu_usage`/`error_rate` polled from Prometheus via a new gateway proxy endpoint (`GET /api/ops/metrics`), with an honest empty state when Prometheus is unreachable (`{scraped:false, services:[]}`, fail-soft, never a 5xx).
 
-**Want:** a live panel (on the Settings/System page, or a small strip) that queries Prometheus (`GET /api/v1/query?query=cpu_usage` etc.) and shows the real per-service values updating — so a presenter can point at the spike *inside the console*.
-
-**Work required:**
-- A read-side or direct-from-browser Prometheus query (Prometheus HTTP API is `http://localhost:9090/api/v1/query`); add `VITE_PROM_URL` to the console env, or proxy through the read service to avoid CORS.
-- A `<MeridianMetrics>` panel: poll the query, render per-service `cpu_usage`/`error_rate` with a healthy/broken indicator.
-- Honest labeling (real Prometheus data, live).
-
-**Why deferred (this pass):** was queued alongside the live-gates work; both are UI additions. Being built now if the user greenlit — otherwise here for later.
-
-**Status:** REQUESTED for the current pass (see the live-gates item). If built, move to a merged PR and delete this entry.
+**What it was:** The console had no screen showing Meridian's *scraped* metrics. `cpu_usage` + `meridian_error_rate` per meridian service are exposed at each service's `/metrics` and scraped by Prometheus every 5s (`deploy/prometheus.yml`), but the only ways to see them were raw (`http://localhost:8008/metrics`, or Prometheus at `http://localhost:9090`) or indirectly (Settings → z-score baselines; the incident drill-down's "what broke" panel).
 
 ---
 
-## MEDIUM — Live Governance gate activity (not static cards)
+## DONE — Live Governance gate activity (not static cards)
 
-**What:** The Governance page's three "gate" cards (`frontend/src/views/Governance.tsx`, the `gates` array) are **static descriptions**. The gates themselves ARE real and enforced in `services/action/remediate.py` (Gate 1 reversible-only, Gate 2 RBAC fail-closed, Gate 3 HITL), and the audit trail below the cards IS live proof they fire — but the cards don't *show* live activity.
+**Status:** DONE / shipped in the `feat/live-ui-additions` PR. The Governance page's three gate cards now show real passed/blocked counts + last-fired, computed client-side from the already-loaded audit/outcomes data — no fabricated numbers.
 
-**Want:** drive the cards from real audit data — e.g. a live count per gate of how many times it fired (`allow`/`deny`/`abort`), derived from the audit records (`GET /audit`), so they read as active enforcement, not documentation.
-
-**Work required:**
-- Aggregate audit records by decision/reason: `denied:rbac` → RBAC gate; `refused:not-reversible` → reversible gate; `aborted:*` → HITL gate; `allow` → passed.
-- Add a live count/last-fired to each gate card, computed client-side from the already-loaded audit data.
-- Keep the descriptive text; add the live numbers.
-
-**Why deferred (this pass):** queued for the current pass alongside the metrics view.
-
-**Status:** REQUESTED for the current pass. If built, move to a merged PR and delete this entry.
+**What it was:** The Governance page's three "gate" cards (`frontend/src/views/Governance.tsx`, the `gates` array) were **static descriptions**. The gates themselves ARE real and enforced in `services/action/remediate.py` (Gate 1 reversible-only, Gate 2 RBAC fail-closed, Gate 3 HITL), and the audit trail below the cards was live proof they fire — but the cards didn't *show* live activity until this pass.
 
 ---
 
@@ -89,6 +71,20 @@ Living backlog of features and fixes deliberately deferred. Each entry: what, wh
 **Want (optional):** enrich the mock fixtures so a mock-mode demo also shows the drill-down.
 
 **Why deferred:** live mode is the demo path; mock is a fallback. Flagged in the honesty-and-evidence effort (PR #27).
+
+---
+
+## LOW/MEDIUM — `useLiveData.ts` dev-only React StrictMode bug
+
+**What:** Under `npm run dev` (StrictMode's double-invoke of effects), the `audit`/`outcomes` `useLiveData` hooks can get stuck at `loading:true` / empty data even though the underlying network calls return 200. Root cause is the interaction between StrictMode's mount→cleanup→remount effect cycle and the `let alive` closure-flag cleanup pattern in `frontend/src/hooks/useLiveData.ts` — the first mount's in-flight `tick()` promise can resolve after cleanup has already flipped `alive = false`, and depending on timing the remounted effect's own state updates can be missed by the component's render.
+
+**Verified:** production builds (`vite build`) are **unaffected** — this only reproduces under `npm run dev` + StrictMode's double-invoke, not in the shipped bundle. Not a shipped-behavior defect; a dev-experience follow-up.
+
+**Blast radius:** `useLiveData` is shared — used by `Governance.tsx`, `System.tsx`, and `Incidents.tsx`, so any of these can show the stuck-loading symptom in dev mode.
+
+**Suggested fix:** replace the `let alive` closure-flag cleanup with an `AbortController`-based cleanup (abort on unmount/re-run, check `signal.aborted` instead of `alive` before each state update).
+
+**Why deferred:** dev-only; found during the Task 3 (live Governance gate activity) build. Flagged in the `feat/live-ui-additions` final review.
 
 ---
 
