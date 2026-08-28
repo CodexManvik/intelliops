@@ -16,6 +16,57 @@ import { Reveal as Section } from "../hooks/useReveal";
 import { pushToast } from "../hooks/useToast";
 import type { LlmProbe, SystemInfo } from "../data/types";
 
+/** OpenAI-compatible provider presets. The RCA service appends
+ * `/chat/completions` to whatever base URL we send, so `endpoint` here is the
+ * BASE (e.g. `.../v1`). Groq and llama.cpp both speak the OpenAI chat schema,
+ * so the same backend provider drives all of them — only the base URL, the
+ * default model, and whether a key is required differ. */
+type ProviderId = "groq" | "llamacpp" | "openai" | "custom";
+
+interface ProviderPreset {
+  id: ProviderId;
+  label: string;
+  endpoint: string; // base URL; blank for "custom"
+  defaultModel: string;
+  needsKey: boolean; // llama.cpp local server needs no key
+  hint: string;
+}
+
+const LLM_PROVIDERS: ProviderPreset[] = [
+  {
+    id: "groq",
+    label: "Groq",
+    endpoint: "https://api.groq.com/openai/v1",
+    defaultModel: "llama-3.3-70b-versatile",
+    needsKey: true,
+    hint: "Groq Cloud · OpenAI-compatible. Paste your gsk_… key.",
+  },
+  {
+    id: "llamacpp",
+    label: "Local — llama.cpp",
+    endpoint: "http://localhost:8081/v1",
+    defaultModel: "local-model",
+    needsKey: false,
+    hint: "llama.cpp server (llama-server) on your machine — no key needed. Default base assumes port 8081 (8080 is taken by the demo app).",
+  },
+  {
+    id: "openai",
+    label: "OpenAI",
+    endpoint: "https://api.openai.com/v1",
+    defaultModel: "gpt-4o-mini",
+    needsKey: true,
+    hint: "OpenAI API · paste your sk-… key.",
+  },
+  {
+    id: "custom",
+    label: "Custom (other OpenAI-compatible)",
+    endpoint: "",
+    defaultModel: "",
+    needsKey: true,
+    hint: "Any OpenAI-compatible /chat/completions endpoint. Enter the base URL ending in /v1.",
+  },
+];
+
 /** Provider badge is derived strictly from the live `/config/llm` response —
  * never from what the operator just typed into the form. `provider` and
  * `last_probe` are both server-reported, so this can't drift into a
@@ -56,14 +107,27 @@ export function System() {
   const { data: baseline } = useLiveData(loadBaseline, mockBaseline);
   const { data: llm } = useLiveData(loadLlmConfig, mockSystem.llm);
 
-  const [endpoint, setEndpoint] = useState("");
+  const [providerId, setProviderId] = useState<ProviderId>("groq");
+  const [endpoint, setEndpoint] = useState(LLM_PROVIDERS[0].endpoint);
   const [apiKey, setApiKey] = useState("");
-  const [model, setModel] = useState("gpt-4o-mini");
+  const [model, setModel] = useState(LLM_PROVIDERS[0].defaultModel);
   const [probe, setProbe] = useState<LlmProbe | null>(null);
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const badge = llmBadge(llm);
+  const preset = LLM_PROVIDERS.find((p) => p.id === providerId) ?? LLM_PROVIDERS[0];
+
+  // Switching provider prefills its base URL + a sensible default model, but
+  // never touches the api key (the user may be reusing one). "custom" clears the
+  // endpoint so the field becomes a blank slate.
+  const onProviderChange = (id: ProviderId) => {
+    setProviderId(id);
+    const p = LLM_PROVIDERS.find((x) => x.id === id) ?? LLM_PROVIDERS[0];
+    setEndpoint(p.endpoint);
+    if (p.defaultModel) setModel(p.defaultModel);
+    setProbe(null);
+  };
 
   const cfg = () => ({ endpoint, api_key: apiKey, model });
 
@@ -190,33 +254,61 @@ export function System() {
             </span>
           </div>
 
+          <label className="mb-3 block">
+            <span className="mb-1.5 block text-2xs font-medium uppercase tracking-[0.14em] text-ink-3">
+              Provider
+            </span>
+            <select
+              value={providerId}
+              onChange={(e) => onProviderChange(e.target.value as ProviderId)}
+              className="w-full appearance-none rounded-xl border border-black/[0.08] bg-white px-3 py-2 text-sm text-ink focus:border-signal/40 focus:outline-none focus:ring-2 focus:ring-signal/15"
+            >
+              {LLM_PROVIDERS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <label className="block">
               <span className="mb-1.5 block text-2xs font-medium uppercase tracking-[0.14em] text-ink-3">
-                Endpoint
+                Endpoint (base URL)
               </span>
               <input
                 type="text"
                 value={endpoint}
                 onChange={(e) => setEndpoint(e.target.value)}
-                placeholder="https://api.openai.com/v1"
+                placeholder="https://api.groq.com/openai/v1"
                 className="w-full rounded-xl border border-black/[0.08] bg-white px-3 py-2 font-mono text-2xs text-ink placeholder:text-ink-4 focus:border-signal/40 focus:outline-none focus:ring-2 focus:ring-signal/15"
               />
             </label>
 
-            <label className="block">
-              <span className="mb-1.5 flex items-center gap-1 text-2xs font-medium uppercase tracking-[0.14em] text-ink-3">
-                <Key size={11} weight="light" /> API key
-              </span>
-              <input
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder="sk-…"
-                autoComplete="off"
-                className="w-full rounded-xl border border-black/[0.08] bg-white px-3 py-2 font-mono text-2xs text-ink placeholder:text-ink-4 focus:border-signal/40 focus:outline-none focus:ring-2 focus:ring-signal/15"
-              />
-            </label>
+            {preset.needsKey ? (
+              <label className="block">
+                <span className="mb-1.5 flex items-center gap-1 text-2xs font-medium uppercase tracking-[0.14em] text-ink-3">
+                  <Key size={11} weight="light" /> API key
+                </span>
+                <input
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder={providerId === "groq" ? "gsk_…" : "sk-…"}
+                  autoComplete="off"
+                  className="w-full rounded-xl border border-black/[0.08] bg-white px-3 py-2 font-mono text-2xs text-ink placeholder:text-ink-4 focus:border-signal/40 focus:outline-none focus:ring-2 focus:ring-signal/15"
+                />
+              </label>
+            ) : (
+              <div className="flex flex-col justify-end">
+                <span className="mb-1.5 flex items-center gap-1 text-2xs font-medium uppercase tracking-[0.14em] text-ink-3">
+                  <Key size={11} weight="light" /> API key
+                </span>
+                <div className="rounded-xl border border-dashed border-black/[0.10] bg-black/[0.02] px-3 py-2 font-mono text-2xs text-ink-3">
+                  not required (local)
+                </div>
+              </div>
+            )}
 
             <label className="block">
               <span className="mb-1.5 block text-2xs font-medium uppercase tracking-[0.14em] text-ink-3">
@@ -226,13 +318,14 @@ export function System() {
                 type="text"
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
-                placeholder="gpt-4o-mini"
+                placeholder="llama-3.3-70b-versatile"
                 className="w-full rounded-xl border border-black/[0.08] bg-white px-3 py-2 font-mono text-2xs text-ink placeholder:text-ink-4 focus:border-signal/40 focus:outline-none focus:ring-2 focus:ring-signal/15"
               />
             </label>
           </div>
 
-          <p className="mt-2 font-mono text-2xs text-ink-3">
+          <p className="mt-2 font-mono text-2xs text-ink-3">{preset.hint}</p>
+          <p className="mt-1 font-mono text-2xs text-ink-3">
             The key is held only in this form to send with Test/Save — it is never echoed back or displayed.
             Current configured endpoint: <span className="text-ink-2">{llm.endpoint || "(none)"}</span>
           </p>
