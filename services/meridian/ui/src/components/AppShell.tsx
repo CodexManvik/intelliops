@@ -3,10 +3,8 @@ import type { View } from "../App";
 import StatusPill from "./StatusPill";
 
 const NAV_ITEMS: { id: View; label: string; hint: string }[] = [
-  { id: "dashboard", label: "Dashboard", hint: "Overview" },
-  { id: "submit", label: "Submit", hint: "New submission" },
-  { id: "reports", label: "Reports", hint: "Generated reports" },
-  { id: "operations", label: "Operations", hint: "SRE panel" },
+  { id: "dashboard", label: "Dashboard", hint: "System status" },
+  { id: "operations", label: "Operations", hint: "Break a service" },
 ];
 
 export default function AppShell({
