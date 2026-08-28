@@ -5,6 +5,7 @@ import StatusPill from "./StatusPill";
 const NAV_ITEMS: { id: View; label: string; hint: string }[] = [
   { id: "dashboard", label: "Dashboard", hint: "System status" },
   { id: "operations", label: "Operations", hint: "Break a service" },
+  { id: "metrics", label: "Metrics", hint: "Live telemetry" },
 ];
 
 export default function AppShell({

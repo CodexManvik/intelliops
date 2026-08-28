@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { LockKey, Scroll, ShieldCheck, UserCheck } from "@phosphor-icons/react";
 import { Bezel, Eyebrow, timeAgo } from "../components/primitives";
-import { loadAudit, loadPlaybooks } from "../data/source";
+import { loadAudit, loadOutcomes, loadPlaybooks } from "../data/source";
 import { useLiveData } from "../hooks/useLiveData";
 import { Reveal as Section } from "../hooks/useReveal";
-import type { AuditRow, Playbook } from "../data/types";
+import type { AuditRow, OutcomeRow, Playbook } from "../data/types";
 
 const gates = [
   {
@@ -31,8 +31,32 @@ export function Governance() {
   const PAGE = 25;
   const [shown, setShown] = useState(PAGE);
   const { data: audit } = useLiveData(loadAudit, [] as AuditRow[]);
+  const { data: outcomes } = useLiveData(loadOutcomes, [] as OutcomeRow[]);
   const { data: playbooks } = useLiveData(loadPlaybooks, [] as Playbook[]);
   const auditSorted = [...audit].sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime());
+
+  // Per-gate activity: `blocked` is the precise signal — outcomes whose reason
+  // matches the gate that stopped them. `passed` is the honest total of
+  // remediations that cleared every gate (reason === "healthy"); it is not
+  // attributable to a single gate from this data, so all three gates share it.
+  const gateStats = useMemo(() => {
+    const blockedReasons: Record<string, (r: OutcomeRow["reason"]) => boolean> = {
+      "denied:rbac": (r) => r === "denied:rbac",
+      "refused:not-reversible": (r) => r === "refused:not-reversible",
+      "aborted:timeout": (r) => r === "aborted:rejected" || r === "aborted:timeout",
+    };
+    const passed = outcomes.filter((o) => o.reason === "healthy").length;
+    const stats: Record<string, { passed: number; blocked: number; lastTs: number | null }> = {};
+    for (const g of gates) {
+      const match = blockedReasons[g.reason];
+      const blockedOutcomes = outcomes.filter((o) => match(o.reason));
+      const lastTs = blockedOutcomes.length
+        ? blockedOutcomes.reduce((max, o) => (o.ts > max ? o.ts : max), blockedOutcomes[0].ts)
+        : null;
+      stats[g.reason] = { passed, blocked: blockedOutcomes.length, lastTs };
+    }
+    return stats;
+  }, [outcomes]);
 
   return (
     <div className="space-y-6">
@@ -63,6 +87,15 @@ export function Governance() {
                 </div>
                 <p className="mt-2 text-sm leading-relaxed text-ink-2">{g.body}</p>
                 <div className={`mt-4 font-mono text-2xs ${g.tone}`}>→ {g.reason}</div>
+                <div className="mt-3 flex items-center gap-3 border-t border-black/[0.06] pt-3 font-mono text-2xs text-ink-3">
+                  <span className="text-sev-ok">✓ {gateStats[g.reason]?.passed ?? 0} passed</span>
+                  <span className={g.tone}>✗ {gateStats[g.reason]?.blocked ?? 0} blocked</span>
+                  {gateStats[g.reason]?.lastTs ? (
+                    <span className="ml-auto">last {timeAgo(gateStats[g.reason].lastTs!)}</span>
+                  ) : (
+                    <span className="ml-auto">no activity yet</span>
+                  )}
+                </div>
               </div>
             </div>
           </Section>

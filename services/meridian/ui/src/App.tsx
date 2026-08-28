@@ -2,11 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 import AppShell from "./components/AppShell";
 import Dashboard from "./views/Dashboard";
 import Operations from "./views/Operations";
+import Metrics from "./views/Metrics";
 import useBackgroundTraffic from "./data/useBackgroundTraffic";
 
-export type View = "dashboard" | "operations";
+export type View = "dashboard" | "operations" | "metrics";
 
-const VALID_VIEWS: View[] = ["dashboard", "operations"];
+const VALID_VIEWS: View[] = ["dashboard", "operations", "metrics"];
 
 function viewFromHash(): View {
   const raw = window.location.hash.replace(/^#\/?/, "") as View;
@@ -56,6 +57,7 @@ export default function App() {
 
       {view === "dashboard" && <Dashboard lastTick={lastTick} />}
       {view === "operations" && <Operations />}
+      {view === "metrics" && <Metrics />}
     </AppShell>
   );
 }

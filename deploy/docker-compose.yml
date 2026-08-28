@@ -279,6 +279,11 @@ services:
       SERVICE_MODULE: services.meridian.gateway.app:app
       PORT: "8000"
       INTELLIOPS_RCA_CONTEXT_PATH: /app/data/rca_context
+      # /api/ops/metrics (Task 2) queries Prometheus directly via httpx —
+      # without this the gateway falls back to the localhost:9090 default,
+      # which is unreachable from inside the container, and the route
+      # fails soft to {"scraped": false, "services": []}.
+      INTELLIOPS_PROMETHEUS_URL: http://prometheus:9090
     ports:
       - "8008:8000"
     volumes:

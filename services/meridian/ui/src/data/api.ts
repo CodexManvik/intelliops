@@ -73,3 +73,18 @@ export const clearFault = (service: MeridianService): Promise<{ status: number }
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ service }),
   }).then((r) => asJson<{ status: number }>(r));
+
+export interface ServiceMetric {
+  service: string;
+  cpu_usage: number | null;
+  error_rate: number | null;
+  healthy: boolean;
+}
+
+export interface MetricsResult {
+  scraped: boolean;
+  services: ServiceMetric[];
+}
+
+export const loadMetrics = (): Promise<MetricsResult> =>
+  fetch(`${API}/api/ops/metrics`).then((r) => asJson<MetricsResult>(r));
