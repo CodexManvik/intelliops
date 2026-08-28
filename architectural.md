@@ -1133,6 +1133,65 @@ so a change to them is one edit reviewed once rather than drift across services.
 default for a system with no API key configured — and turning it on is opt-in, either via the
 compose environment variables or live from the console's System view, never assumed.
 
+### ADR-022 — Slim per-service Docker images
+
+**Context.** All 13 compose services built from the same `Dockerfile`, so all 13 shipped the same
+dependency set — including `numpy`, `scikit-learn`, `river`, `joblib`, and the `kubernetes` client,
+libraries only `correlation` (trained/robust anomaly detection) and `action` (the k8s remediator
+adapter) actually import at runtime. Every other service — `ingestion`, `rca`, `governance`,
+`feedback`, `read`, `migrate`, and the four Meridian sample-system services — paid for ~270MB of
+ML and k8s dependencies it never used, pushing every image, base or not, to ~1.5GB. Worse, the
+bloat wasn't confined to a `pyproject.toml` line: `common/stores.py` unconditionally imported
+`adapters/__init__.py`, which eagerly imported the trained correlator module, which imported
+`numpy` and `river` at module scope — so even a service that only touched `common.stores` for its
+audit-log adapter pulled in the ML stack transitively, with no explicit import anywhere in that
+service's own code to point at. A per-service dependency split was impossible until that leak was
+closed, because the "boundary" it needed to respect didn't hold even in principle.
+
+**Decision.** Fix the leak, then split the dependency graph and the build to match it:
+
+- **Break the transitive leak.** `common/stores.py`'s adapter wiring no longer eagerly imports the
+  trained/robust correlator at module load. The correlator's own `numpy`/`river` imports move to
+  lazy, function-scope imports inside the adapters that actually construct a trained model — the
+  same lazy-import pattern the codebase already used elsewhere for optional heavy deps. A
+  subprocess-based `test_import_boundary.py` (Task 1) asserts `common.stores` can be imported in a
+  process with no `numpy`/`river` installed, so the boundary is a running test, not a convention.
+- **Split the dependency graph.** `pyproject.toml` moves `numpy`, `scikit-learn`, `river`, and
+  `joblib` into an `ml` extra and the `kubernetes` client into a `k8s` extra; `pyyaml` (previously
+  pulled in transitively) is pinned explicitly in the base dependency set since base no longer
+  guarantees it arrives as a side effect of the ML stack. `uv.lock` is regenerated so both `uv sync
+  --frozen` (base) and `uv sync --frozen --extra ml --extra k8s` (full) resolve from the same lock
+  file with no version drift.
+- **Multi-stage build, targeted per service.** `deploy/Dockerfile` gains a shared `builder-base`
+  stage and two leaves: `base` (`uv sync --frozen --no-dev --no-install-project`, no extras) and
+  `full` (the same, plus `--extra ml --extra k8s`). `deploy/docker-compose.yml`'s service anchor
+  builds `target: base`; only `correlation` and `action` override to `target: full`. Every other
+  service — including `migrate` and the four Meridian services, which inherit the anchor —
+  gets the slim image for free.
+- **Verification gate.** CI's `slim-boundary` job builds a base-only venv and imports all 11
+  base-target services plus `common.stores.make_stores`, asserting none of `numpy`/`scipy`/
+  `sklearn`/`river`/`joblib`/`kubernetes` land in `sys.modules`, plus two grep-lints guarding
+  against a regression (no heavy-dep references in `services/feedback/`; no module-scope
+  sklearn/joblib import in the trained correlator). The `compose-smoke` job builds all 13 images
+  and asserts `migrate` exits 0 and every service's `/ready` (7 core services) or `/health`
+  (5 Meridian/demo-app services) returns 200 — proof the split doesn't just build, it boots.
+
+**Why.** The measured result: base-target images are **619MB**, down from **~1.5GB** (a ~59%,
+~900MB drop), confirmed both by `docker images` after a full `docker compose build` and by a
+runtime check (`python -c "import services.rca.app"` inside the built image, then asserting
+`sklearn`/`kubernetes`/`numpy`/`river`/`joblib` are absent from `sys.modules`). `correlation` and
+`action` stay at ~1.5GB on the `full` target, which is correct — they need the libraries they
+carry. This is the same discipline as [ADR-012](#adr-012--config-switched-adapter-selection-with-test-safe-defaults):
+optional behavior (there, a live vs. test-safe adapter; here, ML/k8s dependencies) stays behind an
+explicit, test-verified boundary rather than an implicit one a future change could silently
+reopen — the difference is ADR-012's boundary is a runtime config switch, while this one is a
+build-time dependency graph, but both are enforced by a test that fails loudly if the boundary is
+crossed rather than a convention that quietly erodes. Fixing the import leak first, rather than
+just splitting `pyproject.toml` and hoping the Dockerfile stages sorted themselves out, was the
+load-bearing step: a dependency split on top of an unfixed transitive leak would have left every
+"slim" image still pulling in the full ML stack at import time, silently defeating the whole
+effort.
+
 ---
 
 ## 4. Cross-cutting concerns
