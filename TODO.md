@@ -4,9 +4,20 @@ Living backlog of features and fixes deliberately deferred. Each entry: what, wh
 
 ---
 
-## HIGH — Real remediation against Meridian (deploy Meridian into k8s)
+## DONE — Real remediation against Meridian (deploy Meridian into k8s)
 
-**What:** Today there are two disjoint demos: (1) **Meridian** on docker-compose — best detection/diagnosis story, but remediation is `dry_run` (logs steps, simulated healthy, never touches infra); (2) the **kind cluster** (`deploy/k8s/`) — real pod remediation via the Kubernetes API, but only against a single `demo-app`, not Meridian. The user wants **real remediation on Meridian** ("real performance, not simulated healthy").
+**Status:** DONE / shipped in `feat/meridian-k8s-remediation`. Approach: the 4
+Meridian services are deployed into the kind cluster as `meridian-<svc>`
+Deployments + NodePort Services, name-aligned to both the Prometheus scrape
+`service` label and the action service's `resolve_target` output; the compose
+gateway's ops-proxy is config-switched (`meridian_ops_target_mode`, default
+`compose`, tests/CI/base-demo unaffected) to route fault injection to the
+in-cluster NodePorts when the k8s overlay sets it to `k8s`; `restart-pod` is
+the clean-success path since Meridian's fault lives in per-process
+`MeridianState`, cleared by a pod recreate. Flow documented in
+`deploy/k8s/README.md` ("Real remediation on Meridian").
+
+**What it was:** Today there are two disjoint demos: (1) **Meridian** on docker-compose — best detection/diagnosis story, but remediation is `dry_run` (logs steps, simulated healthy, never touches infra); (2) the **kind cluster** (`deploy/k8s/`) — real pod remediation via the Kubernetes API, but only against a single `demo-app`, not Meridian. The user wants **real remediation on Meridian** ("real performance, not simulated healthy").
 
 **The gap:** the k8s remediator (`services/action/adapters/k8s_remediator.py`) drives Kubernetes deployments (scale/restart/rollback). Meridian is compose-only, so it has no k8s deployment to act on. To get real remediation *on Meridian*, Meridian must be **deployed into the kind cluster** with k8s manifests (Deployment + Service per meridian service), Prometheus scraping the in-cluster Meridian, and the action service in `k8s` mode targeting the meridian namespace.
 

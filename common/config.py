@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     remediator_mode: str = "dry_run"  # "dry_run" | "k8s"
     health_check_mode: str = "always"  # "always" | "k8s"
     k8s_namespace: str = "intelliops-demo"
+    meridian_ops_target_mode: str = "compose"  # "compose" | "k8s"
     store_backend: str = "file"  # "file" | "postgres"
     database_url: str = "postgresql+psycopg://intelliops:intelliops@localhost:5432/intelliops"
     baseline_snapshot_seconds: float = 30.0
