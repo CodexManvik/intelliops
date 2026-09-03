@@ -23,6 +23,7 @@ from common.envelope import decode_model, publish_model
 from services.action.adapters.governance_gate import InProcessGovernanceGate
 from services.action.adapters.health import FixedHealthChecker
 from services.action.adapters.remediator import RecordingRemediator
+from services.action.adapters.sandbox import NullSandbox
 from services.action.consumer import run_consumer
 from services.governance.adapters.audit_sink import InMemoryAuditSink
 from services.governance.adapters.playbook_store import InMemoryPlaybookStore
@@ -125,6 +126,7 @@ def test_hitl_approved_healthy_success_end_to_end():
         gate,
         remediator,
         FixedHealthChecker(True),
+        NullSandbox(),
         timeout_seconds=3.0,
         poll_interval_seconds=0.01,
         stop_event=threading.Event(),
@@ -161,6 +163,7 @@ def test_hitl_approved_unhealthy_rolls_back_end_to_end():
         gate,
         remediator,
         FixedHealthChecker(False),
+        NullSandbox(),
         timeout_seconds=3.0,
         poll_interval_seconds=0.01,
         stop_event=threading.Event(),

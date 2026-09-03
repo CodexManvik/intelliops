@@ -16,6 +16,7 @@ from common.contracts import (
     AuditRecord,
     HitlMode,
     Playbook,
+    PreflightResult,
     RemediationOutcome,
     RemediationPlan,
     RemediationResult,
@@ -33,6 +34,7 @@ def _outcome(
     health_after: str,
     steps: list[str] | None = None,
     mode: str = "dry_run",
+    preflight: PreflightResult | None = None,
 ) -> RemediationOutcome:
     return RemediationOutcome(
         situation_id=situation.id,
@@ -43,6 +45,7 @@ def _outcome(
         hitl_mode=playbook.hitl_mode,
         steps=steps or [],
         mode=mode,
+        preflight=preflight,
     )
 
 
@@ -78,6 +81,7 @@ def execute_remediation(
     gate,
     remediator,
     health,
+    sandbox,
     timeout_seconds: float,
     poll_interval_seconds: float,
 ) -> RemediationOutcome:
@@ -96,23 +100,7 @@ def execute_remediation(
         _audit(gate, situation, playbook, "deny")
         return _outcome(situation, playbook, RemediationResult.FAILURE, "denied:rbac")
 
-    # Gate 3: HITL — wait for an explicit human approval (ADR-008).
-    if playbook.hitl_mode == HitlMode.HITL:
-        request = gate.request_approval(
-            ApprovalRequest(
-                id=f"appr-{situation.id}",
-                situation_id=situation.id,
-                playbook_id=playbook.id,
-                requested_by=_ACTOR,
-            )
-        )
-        decided = gate.await_decision(request.id, timeout_seconds)
-        if decided.status != "approved":
-            reason = "aborted:rejected" if decided.status == "rejected" else "aborted:timeout"
-            _audit(gate, situation, playbook, "abort")
-            return _outcome(situation, playbook, RemediationResult.FAILURE, reason)
-
-    # Resolve the target once and build a typed plan.
+    # Resolve the target once and build a typed plan (needed by the sandbox below).
     target = resolve_target(situation, get_settings().k8s_namespace)
     plan = RemediationPlan(
         target=target, steps=playbook.steps, rollback_steps=playbook.rollback_steps
@@ -120,18 +108,67 @@ def execute_remediation(
     steps = _format_steps(plan)
     mode = get_settings().remediator_mode
 
+    # Pre-flight rehearsal: try the fix on an isolated clone before the human
+    # approves (and before an auto playbook executes). Fail-safe — the sandbox
+    # never raises; a failure is a PreflightResult(passed=False).
+    preflight = sandbox.rehearse(situation, plan)
+    if not preflight.passed and playbook.hitl_mode == HitlMode.AUTO:
+        # Auto has no human to advise — block.
+        _audit(gate, situation, playbook, "preflight-failed")
+        return _outcome(
+            situation,
+            playbook,
+            RemediationResult.FAILURE,
+            "preflight-failed",
+            steps=steps,
+            mode=mode,
+            preflight=preflight,
+        )
+
+    # Gate 3: HITL — wait for an explicit human approval (ADR-008). The human
+    # sees the pre-flight verdict on the request.
+    if playbook.hitl_mode == HitlMode.HITL:
+        request = gate.request_approval(
+            ApprovalRequest(
+                id=f"appr-{situation.id}",
+                situation_id=situation.id,
+                playbook_id=playbook.id,
+                requested_by=_ACTOR,
+                preflight=preflight,
+            )
+        )
+        decided = gate.await_decision(request.id, timeout_seconds)
+        if decided.status != "approved":
+            reason = "aborted:rejected" if decided.status == "rejected" else "aborted:timeout"
+            _audit(gate, situation, playbook, "abort")
+            return _outcome(
+                situation, playbook, RemediationResult.FAILURE, reason, preflight=preflight
+            )
+
     # Execute.
     if not remediator.execute(plan):
         _audit(gate, situation, playbook, "execute-failed")
         return _outcome(
-            situation, playbook, RemediationResult.FAILURE, "execute-failed", steps=steps, mode=mode
+            situation,
+            playbook,
+            RemediationResult.FAILURE,
+            "execute-failed",
+            steps=steps,
+            mode=mode,
+            preflight=preflight,
         )
 
     # Verify health; roll back if unhealthy.
     if health.check(situation, target):
         _audit(gate, situation, playbook, "allow")
         return _outcome(
-            situation, playbook, RemediationResult.SUCCESS, "healthy", steps=steps, mode=mode
+            situation,
+            playbook,
+            RemediationResult.SUCCESS,
+            "healthy",
+            steps=steps,
+            mode=mode,
+            preflight=preflight,
         )
 
     remediator.rollback(plan)
@@ -143,4 +180,5 @@ def execute_remediation(
         "unhealthy:rolled-back",
         steps=steps,
         mode=mode,
+        preflight=preflight,
     )
