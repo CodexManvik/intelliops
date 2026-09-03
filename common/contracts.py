@@ -93,6 +93,13 @@ class RemediationPlan(BaseModel):
     rollback_steps: list[RemediationStep] = Field(default_factory=list)
 
 
+class PreflightResult(BaseModel):
+    passed: bool
+    detail: str  # e.g. "sandbox: pod healthy in 8s" / "not rehearsed (sandbox off)"
+    mode: str  # "off" | "k8s"
+    sandbox_namespace: str | None = None  # the throwaway ns, for audit
+
+
 class Playbook(BaseModel):
     id: str
     name: str
@@ -110,6 +117,7 @@ class ApprovalRequest(BaseModel):
     requested_by: str
     status: str = "pending"
     decided_by: str | None = None
+    preflight: PreflightResult | None = None
 
 
 class RemediationOutcome(BaseModel):
@@ -121,6 +129,7 @@ class RemediationOutcome(BaseModel):
     hitl_mode: HitlMode = HitlMode.HITL
     steps: list[str] = Field(default_factory=list)
     mode: str = "dry_run"  # "dry_run" | "k8s"
+    preflight: PreflightResult | None = None
 
 
 class AuditRecord(BaseModel):
