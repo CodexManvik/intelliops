@@ -5,6 +5,7 @@ from common.contracts import (
     RemediationOutcome,
     RemediationPlan,
     RemediationResult,
+    RemediationStep,
     RemediationTarget,
     Situation,
     SituationStatus,
@@ -25,7 +26,10 @@ def _situation() -> Situation:
 
 
 def _plan() -> RemediationPlan:
-    return RemediationPlan(target=RemediationTarget(namespace="intelliops", deployment="demo-app"))
+    return RemediationPlan(
+        target=RemediationTarget(namespace="intelliops", deployment="demo-app"),
+        steps=[RemediationStep(action="restart")],
+    )
 
 
 def test_null_sandbox_passes_through():
@@ -46,3 +50,83 @@ def test_preflight_is_additive_and_optional():
         ts=datetime.now(UTC),
     )
     assert outcome.preflight is None
+
+
+# --- NamespaceCloneSandbox: fail-safety + teardown (the k8s rehearsal) --------
+#
+# The live happy path runs only on the user's kind cluster (a documented MANUAL
+# step, Task 5) and is NOT unit-tested end-to-end. The two properties that MUST
+# hold regardless of cluster state — and that are cheap to test with fakes — are
+# locked here: (1) rehearse never propagates an exception (always returns a
+# PreflightResult with passed=False on error), and (2) the throwaway namespace is
+# always torn down in the finally, even when the clone body fails partway.
+
+
+class _FakeApiRaises:
+    """Every read/create raises — proves the sandbox never propagates."""
+
+    def __getattr__(self, name):
+        def _boom(*a, **k):
+            raise RuntimeError("k8s down")
+
+        return _boom
+
+
+def test_namespace_clone_sandbox_is_fail_safe(monkeypatch):
+    from services.action.adapters import sandbox as sb
+
+    # Force the adapter's k8s client construction to yield a raising fake.
+    monkeypatch.setattr(
+        sb, "_load_k8s", lambda: (_FakeApiRaises(), _FakeApiRaises()), raising=False
+    )
+    s = sb.NamespaceCloneSandbox("intelliops")
+    result = s.rehearse(_situation(), _plan())
+    assert result.passed is False
+    assert result.mode == "k8s"
+    assert "error" in result.detail.lower()
+
+
+class _AppsV1ReadRaises:
+    """AppsV1 whose deployment read raises — models a mid-clone k8s failure.
+
+    Every other attribute is a no-op callable, so the ONLY failure comes from the
+    clone body's first real call (reading the target Deployment). That failure
+    must still leave the finally-block teardown intact.
+    """
+
+    def read_namespaced_deployment(self, *a, **k):
+        raise RuntimeError("read failed mid-clone")
+
+    def __getattr__(self, name):
+        return lambda *a, **k: None
+
+
+class _RecordingCoreV1:
+    """CoreV1 that records delete_namespace calls; everything else is a no-op."""
+
+    def __init__(self):
+        self.deleted = []
+
+    def delete_namespace(self, name, *a, **k):
+        self.deleted.append(name)
+
+    def __getattr__(self, name):
+        return lambda *a, **k: None
+
+
+def test_namespace_clone_sandbox_tears_down_on_failure_path(monkeypatch):
+    from services.action.adapters import sandbox as sb
+
+    core = _RecordingCoreV1()
+    # AppsV1 read raises (failure mid-clone); CoreV1 delete_namespace records.
+    monkeypatch.setattr(sb, "_load_k8s", lambda: (_AppsV1ReadRaises(), core), raising=False)
+    s = sb.NamespaceCloneSandbox("intelliops")
+    result = s.rehearse(_situation(), _plan())
+
+    assert result.passed is False
+    # The finally block must have attempted teardown of the throwaway namespace.
+    assert len(core.deleted) == 1
+    torn_down = core.deleted[0]
+    assert torn_down.startswith("intelliops-sandbox-")
+    # And the audited namespace on the result is the one that was torn down.
+    assert result.sandbox_namespace == torn_down
