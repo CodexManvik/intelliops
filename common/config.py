@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     # --- K8s remediation settings (test-safe defaults) ---
     remediator_mode: str = "dry_run"  # "dry_run" | "k8s"
     health_check_mode: str = "always"  # "always" | "k8s"
+    sandbox_mode: str = "off"  # "off" | "k8s"
     k8s_namespace: str = "intelliops-demo"
     meridian_ops_target_mode: str = "compose"  # "compose" | "k8s"
     store_backend: str = "file"  # "file" | "postgres"

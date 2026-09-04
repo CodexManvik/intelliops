@@ -14,6 +14,7 @@ from common.contracts import (
     AuditRecord,
     EnrichmentContext,
     Playbook,
+    PreflightResult,
     RemediationPlan,
     RemediationTarget,
     RootCauseHypothesis,
@@ -157,3 +158,10 @@ class ExplanationProvider(Protocol):
         context: EnrichmentContext,
         situation: Situation,
     ) -> tuple[str, str]: ...
+
+
+@runtime_checkable
+class Sandbox(Protocol):
+    """Rehearses a remediation plan on an isolated copy and reports a verdict."""
+
+    def rehearse(self, situation: Situation, plan: RemediationPlan) -> PreflightResult: ...

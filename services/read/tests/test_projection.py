@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 
 from common.contracts import (
     DiagnosedSituation,
+    PreflightResult,
     RemediationOutcome,
     RemediationResult,
     RootCauseHypothesis,
@@ -214,3 +215,38 @@ def test_projection_keeps_evidence_and_joins_outcome():
     assert s["outcome"]["steps"] == ["scale web +2 replicas"]
     assert s["stages"]["detected"] is not None
     assert s["stages"]["resolved"] is not None
+
+
+def test_apply_outcome_projects_preflight_into_drilldown():
+    rm = ReadModel()
+    rm.apply_detected(_sit())
+    rm.apply_outcome(
+        RemediationOutcome(
+            situation_id="sit-1",
+            playbook_id="pb-1",
+            result=RemediationResult.SUCCESS,
+            health_after="healthy",
+            ts=TS,
+            mode="k8s",
+            preflight=PreflightResult(passed=True, detail="sandbox: clone healthy", mode="k8s"),
+        )
+    )
+    s = next(x for x in rm.situations() if x["id"] == "sit-1")
+    assert s["outcome"]["preflight"]["passed"] is True
+    assert s["outcome"]["preflight"]["mode"] == "k8s"
+
+
+def test_apply_outcome_without_preflight_projects_none():
+    rm = ReadModel()
+    rm.apply_detected(_sit())
+    rm.apply_outcome(
+        RemediationOutcome(
+            situation_id="sit-1",
+            playbook_id="pb-1",
+            result=RemediationResult.SUCCESS,
+            health_after="healthy",
+            ts=TS,
+        )
+    )
+    s = next(x for x in rm.situations() if x["id"] == "sit-1")
+    assert s["outcome"]["preflight"] is None

@@ -22,6 +22,7 @@ def run_consumer(
     gate,
     remediator,
     health,
+    sandbox,
     timeout_seconds: float,
     poll_interval_seconds: float,
     stop_event: threading.Event,
@@ -46,6 +47,7 @@ def run_consumer(
                 gate,
                 remediator,
                 health,
+                sandbox,
                 timeout_seconds,
                 poll_interval_seconds,
             )

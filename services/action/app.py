@@ -42,6 +42,16 @@ def _make_remediator(settings):
     return DryRunRemediator()
 
 
+def _make_sandbox(settings):
+    if settings.sandbox_mode == "k8s":
+        from services.action.adapters.sandbox import NamespaceCloneSandbox
+
+        return NamespaceCloneSandbox(settings.k8s_namespace, prometheus_url=settings.prometheus_url)
+    from services.action.adapters.sandbox import NullSandbox
+
+    return NullSandbox()
+
+
 def _make_health_checker(settings):
     if settings.health_check_mode == "k8s":
         # metric_healthy re-queries Prometheus for the demo-app error rate; a low
@@ -80,6 +90,7 @@ async def lifespan(app: FastAPI):
             gate,
             _make_remediator(settings),
             _make_health_checker(settings),
+            _make_sandbox(settings),
             settings.hitl_poll_timeout_seconds,
             settings.hitl_poll_interval_seconds,
             stop_event,

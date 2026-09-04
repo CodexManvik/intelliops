@@ -43,6 +43,12 @@ export interface SituationOutcome {
   health_after: OutcomeReason;
   mode: "dry_run" | "k8s";
   steps: string[];
+  preflight?: {
+    passed: boolean;
+    detail: string;
+    mode: "off" | "k8s";
+    sandbox_namespace?: string | null;
+  } | null;
 }
 
 export interface Situation {

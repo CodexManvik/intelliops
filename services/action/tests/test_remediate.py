@@ -13,6 +13,7 @@ from common.contracts import (
 )
 from services.action.adapters.health import FixedHealthChecker
 from services.action.adapters.remediator import RecordingRemediator
+from services.action.adapters.sandbox import NullSandbox
 from services.action.remediate import execute_remediation
 
 NOW = datetime(2026, 8, 13, tzinfo=UTC)
@@ -87,6 +88,7 @@ def _run(playbook, gate, remediator, health):
         gate,
         remediator,
         health,
+        NullSandbox(),
         timeout_seconds=1.0,
         poll_interval_seconds=0.01,
     )

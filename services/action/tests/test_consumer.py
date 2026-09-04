@@ -16,6 +16,7 @@ from common.contracts import (
 from common.envelope import decode_model
 from services.action.adapters.health import AlwaysHealthyChecker
 from services.action.adapters.remediator import RecordingRemediator
+from services.action.adapters.sandbox import NullSandbox
 from services.action.consumer import run_consumer
 from services.governance.adapters.playbook_store import InMemoryPlaybookStore
 
@@ -94,6 +95,7 @@ def _run(bus):
         FakeGate(),
         RecordingRemediator(),
         AlwaysHealthyChecker(),
+        NullSandbox(),
         timeout_seconds=1.0,
         poll_interval_seconds=0.01,
         stop_event=threading.Event(),
@@ -138,6 +140,7 @@ def test_consumer_stops_on_stop_event():
         FakeGate(),
         RecordingRemediator(),
         AlwaysHealthyChecker(),
+        NullSandbox(),
         timeout_seconds=1.0,
         poll_interval_seconds=0.01,
         stop_event=stop,
