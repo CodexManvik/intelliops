@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import ClassVar
 
 from common.contracts import (
     PreflightResult,
@@ -201,3 +202,264 @@ def test_namespace_clone_sandbox_fails_when_apply_returns_false(monkeypatch):
     assert result.sandbox_namespace is not None
     assert len(health_checks) == 1
     assert core.deleted == [result.sandbox_namespace]
+
+
+# --- NamespaceCloneSandbox: revision history seeding --------------------------
+
+
+def test_seed_revision_history_copies_replicasets(monkeypatch):
+    from services.action.adapters import sandbox as sb
+
+    created_rs = []
+
+    class _Apps:
+        def read_namespaced_deployment(self, *a, **k):
+            class _Selector:
+                match_labels: ClassVar[dict] = {"app": "demo-app"}
+
+            class _Spec:
+                template = object()
+                selector = _Selector()
+
+            class _D:
+                metadata = type("M", (), {"uid": "clone-uid", "name": "demo-app"})()
+                spec = _Spec()
+
+            return _D()
+
+        def create_namespaced_deployment(self, *a, **k):
+            return None
+
+        def list_namespaced_replica_set(self, namespace, **k):
+            class _OwnerRef:
+                kind = "Deployment"
+                name = "demo-app"
+
+            class _RS:
+                metadata = type(
+                    "M",
+                    (),
+                    {
+                        "annotations": {"deployment.kubernetes.io/revision": "2"},
+                        "resource_version": "1",
+                        "uid": "u",
+                        "creation_timestamp": "t",
+                        "owner_references": [_OwnerRef()],
+                        "managed_fields": None,
+                        "self_link": None,
+                        "namespace": "intelliops",
+                        "name": "demo-app-rs2",
+                    },
+                )()
+                spec = type("S", (), {"template": object()})()
+                status = object()
+
+            return type("L", (), {"items": [_RS()]})()
+
+        def create_namespaced_replica_set(self, namespace, body, **k):
+            created_rs.append((namespace, body))
+
+        # health-check path used by rehearse (rollout wait + post-fix)
+        def read_namespaced_deployment_status(self, *a, **k):
+            class _St:
+                status = type("S", (), {"ready_replicas": 1, "replicas": 1})()
+
+            return _St()
+
+    class _Core:
+        def __init__(self):
+            self.deleted = []
+
+        def create_namespace(self, *a, **k):
+            return None
+
+        def delete_namespace(self, name, *a, **k):
+            self.deleted.append(name)
+
+    apps, core = _Apps(), _Core()
+    monkeypatch.setattr(sb, "_load_k8s", lambda: (apps, core), raising=False)
+    monkeypatch.setattr(sb, "_strip_deployment", lambda dep, ns: dep, raising=False)
+    monkeypatch.setattr(sb, "_namespace_body", lambda ns: object(), raising=False)
+    monkeypatch.setattr(sb, "_referenced_config_map_names", lambda dep: [], raising=False)
+    monkeypatch.setattr(
+        sb.NamespaceCloneSandbox,
+        "_clone_service_best_effort",
+        lambda self, c, d, n: None,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        sb.NamespaceCloneSandbox,
+        "_clone_config_maps_best_effort",
+        lambda self, c, s, n: None,
+        raising=False,
+    )
+
+    class _HealthChecker:
+        def __init__(self, *a, **k):
+            pass
+
+        def check(self, *a, **k):
+            return True
+
+    monkeypatch.setattr(sb, "KubernetesHealthChecker", _HealthChecker, raising=False)
+
+    class _Remediator:
+        def __init__(self, *a, **k):
+            pass
+
+        def execute(self, plan):
+            return True
+
+    monkeypatch.setattr(sb, "KubernetesRemediator", _Remediator, raising=False)
+
+    # a rollback_to_revision plan triggers history seeding
+    plan = RemediationPlan(
+        target=RemediationTarget(namespace="intelliops", deployment="demo-app"),
+        steps=[RemediationStep(action="rollback_to_revision", revision=2)],
+    )
+    result = sb.NamespaceCloneSandbox("intelliops").rehearse(_situation(), plan)
+    # the RS was read and re-created in the sandbox namespace
+    assert len(created_rs) == 1
+    sandbox_ns_used, _ = created_rs[0]
+    assert sandbox_ns_used.startswith("intelliops-sandbox-")  # created into the sandbox ns
+    assert result.mode == "k8s"  # completed without raising
+    assert core.deleted  # namespace torn down
+
+
+def test_seed_revision_history_failure_is_swallowed(monkeypatch):
+    from services.action.adapters import sandbox as sb
+
+    class _Apps:
+        def read_namespaced_deployment(self, *a, **k):
+            class _Selector:
+                match_labels: ClassVar[dict] = {"app": "demo-app"}
+
+            class _Spec:
+                template = object()
+                selector = _Selector()
+
+            class _D:
+                metadata = type("M", (), {"uid": "clone-uid", "name": "demo-app"})()
+                spec = _Spec()
+
+            return _D()
+
+        def create_namespaced_deployment(self, *a, **k):
+            return None
+
+        def list_namespaced_replica_set(self, *a, **k):
+            raise RuntimeError("history read boom")  # seeding-specific failure
+
+        def create_namespaced_replica_set(self, *a, **k):
+            return None
+
+        def read_namespaced_deployment_status(self, *a, **k):
+            class _St:
+                status = type("S", (), {"ready_replicas": 1, "replicas": 1})()
+
+            return _St()
+
+    class _Core:
+        def __init__(self):
+            self.deleted = []
+
+        def create_namespace(self, *a, **k):
+            return None
+
+        def delete_namespace(self, name, *a, **k):
+            self.deleted.append(name)
+
+    apps, core = _Apps(), _Core()
+    monkeypatch.setattr(sb, "_load_k8s", lambda: (apps, core), raising=False)
+    monkeypatch.setattr(sb, "_strip_deployment", lambda dep, ns: dep, raising=False)
+    monkeypatch.setattr(sb, "_namespace_body", lambda ns: object(), raising=False)
+    monkeypatch.setattr(sb, "_referenced_config_map_names", lambda dep: [], raising=False)
+    monkeypatch.setattr(
+        sb.NamespaceCloneSandbox,
+        "_clone_service_best_effort",
+        lambda self, c, d, n: None,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        sb.NamespaceCloneSandbox,
+        "_clone_config_maps_best_effort",
+        lambda self, c, s, n: None,
+        raising=False,
+    )
+
+    class _HealthChecker:
+        def __init__(self, *a, **k):
+            pass
+
+        def check(self, *a, **k):
+            return True
+
+    monkeypatch.setattr(sb, "KubernetesHealthChecker", _HealthChecker, raising=False)
+
+    class _Remediator:
+        def __init__(self, *a, **k):
+            pass
+
+        def execute(self, plan):
+            return True
+
+    monkeypatch.setattr(sb, "KubernetesRemediator", _Remediator, raising=False)
+
+    # a NON-rollback plan (patch_probe) must still rehearse fine despite the
+    # history-read failure — seeding is best-effort.
+    plan = RemediationPlan(
+        target=RemediationTarget(namespace="intelliops", deployment="demo-app"),
+        steps=[RemediationStep(action="patch_probe", probe="liveness", period_seconds=10)],
+    )
+    result = sb.NamespaceCloneSandbox("intelliops").rehearse(_situation(), plan)
+    assert isinstance(result, PreflightResult)  # never raised
+    assert result.mode == "k8s"
+    assert core.deleted  # torn down regardless
+
+
+# --- Serialization round-trip: V1OwnerReference must survive sanitize_for_serialization ----
+
+
+def test_strip_replica_set_owner_ref_is_serializable():
+    """_strip_replica_set must use V1OwnerReference (not an ad-hoc type()) so the
+    kubernetes client's sanitize_for_serialization can handle the output.
+    A plain type() object lacks openapi_types and would raise AttributeError."""
+    from kubernetes import client as k8s_client
+    from kubernetes.client import ApiClient
+
+    from services.action.adapters.sandbox import _strip_replica_set
+
+    # Build a minimal real RS object (use real k8s model objects so the client
+    # can serialize the whole graph — including the OwnerReference we inject).
+    rs = k8s_client.V1ReplicaSet(
+        metadata=k8s_client.V1ObjectMeta(
+            name="demo-app-abc",
+            namespace="intelliops",
+            resource_version="1",
+            uid="rs-uid",
+            annotations={"deployment.kubernetes.io/revision": "2"},
+        ),
+        spec=k8s_client.V1ReplicaSetSpec(
+            selector=k8s_client.V1LabelSelector(match_labels={"app": "demo-app"}),
+            template=k8s_client.V1PodTemplateSpec(
+                metadata=k8s_client.V1ObjectMeta(labels={"app": "demo-app"}),
+                spec=k8s_client.V1PodSpec(
+                    containers=[k8s_client.V1Container(name="app", image="demo:latest")]
+                ),
+            ),
+        ),
+        status=k8s_client.V1ReplicaSetStatus(replicas=1),
+    )
+
+    stripped = _strip_replica_set(rs, "intelliops-sandbox-abc", "clone-uid", "demo-app")
+
+    # Must not raise — this is the assertion
+    serialized = ApiClient().sanitize_for_serialization(stripped)
+
+    owner_refs = serialized["metadata"]["ownerReferences"]
+    assert len(owner_refs) == 1
+    ref = owner_refs[0]
+    assert ref["kind"] == "Deployment"
+    assert ref["name"] == "demo-app"
+    assert ref["uid"] == "clone-uid"
+    assert ref["controller"] is True

@@ -116,6 +116,86 @@ def _strip_config_map(cm, sandbox_ns: str):
     return cm
 
 
+def _strip_replica_set(rs, sandbox_ns: str, clone_uid: str, clone_name: str):
+    """Prepare a ReplicaSet read from the cluster for re-creation in sandbox_ns.
+
+    Strips server-assigned fields (resourceVersion/uid/creationTimestamp/status/
+    managedFields/selfLink), retargets the namespace, and re-owns the RS to the
+    clone Deployment so it appears in the clone's revision history.
+    The revision annotation (deployment.kubernetes.io/revision) is preserved so
+    rollback_to_revision can match it.
+    """
+    from kubernetes import client as k8s_client  # lazy — same rationale as _load_k8s
+
+    meta = rs.metadata
+    meta.namespace = sandbox_ns
+    meta.resource_version = None
+    meta.uid = None
+    meta.creation_timestamp = None
+    meta.managed_fields = None
+    meta.self_link = None
+    # Re-own the RS to the clone Deployment (controller=True so it appears in history).
+    # Use V1OwnerReference so sanitize_for_serialization can serialize it correctly.
+    meta.owner_references = [
+        k8s_client.V1OwnerReference(
+            api_version="apps/v1",
+            kind="Deployment",
+            name=clone_name,
+            uid=clone_uid,
+            controller=True,
+            block_owner_deletion=True,
+        )
+    ]
+    rs.status = None  # server-owned; must be absent on create
+    return rs
+
+
+def _seed_revision_history_best_effort(
+    apps_v1,
+    prod_ns: str,
+    sandbox_ns: str,
+    clone_name: str,
+    clone_uid: str,
+    source_dep=None,
+) -> None:
+    """Copy the source Deployment's owned ReplicaSets (with their revision
+    annotations) into sandbox_ns, re-owned by the clone Deployment, so a
+    ``rollback_to_revision`` step finds the revision on the clone. Best-effort:
+    a failure here just means rollback_to_revision can't rehearse — logged, not
+    raised (a non-rollback plan doesn't need history).
+
+    Reads from the PRODUCTION namespace (prod_ns), creates into sandbox_ns.
+    Filters by the source Deployment's selector labels and owner-ref so only its
+    own RSes are copied (not foreign Deployments sharing the namespace).
+    """
+    try:
+        # Build label_selector from the source Deployment's spec.selector.match_labels
+        # so we only fetch RSes the source Deployment selects (avoids copying foreign RSes).
+        label_selector = None
+        if source_dep is not None:
+            try:
+                match_labels = source_dep.spec.selector.match_labels or {}
+                if match_labels:
+                    label_selector = ",".join(f"{k}={v}" for k, v in match_labels.items())
+            except Exception:  # noqa: BLE001,S110 — if selector unreadable, fall back to unfiltered
+                pass
+        kwargs = {"label_selector": label_selector} if label_selector else {}
+        rs_list = apps_v1.list_namespaced_replica_set(prod_ns, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("revision-history read skipped: %s", exc)
+        return
+    for rs in getattr(rs_list, "items", []) or []:
+        try:
+            # Owner-ref check: only copy RSes owned by the source Deployment.
+            owners = (rs.metadata.owner_references or []) if rs.metadata else []
+            if not any(o.kind == "Deployment" and o.name == clone_name for o in owners):
+                continue
+            stripped = _strip_replica_set(rs, sandbox_ns, clone_uid, clone_name)
+            apps_v1.create_namespaced_replica_set(namespace=sandbox_ns, body=stripped)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("revision-history seed skipped for one RS: %s", exc)
+
+
 def _referenced_config_map_names(dep) -> list[str]:
     """Best-effort scan of the pod template for referenced ConfigMap names —
     volumes (configMap), envFrom (configMapRef) and env (configMapKeyRef). Any
@@ -174,6 +254,25 @@ class NamespaceCloneSandbox:
             # Create the namespace first, then the cloned Deployment into it.
             core_v1.create_namespace(_namespace_body(sandbox_ns))
             apps_v1.create_namespaced_deployment(namespace=sandbox_ns, body=clone_dep)
+
+            # --- seed (best-effort): copy the source Deployment's ReplicaSets
+            #     (with their revision annotations) into the sandbox so a
+            #     rollback_to_revision step can rehearse against real history.
+            #     The clone uid is read back defensively; if unavailable we pass
+            #     an empty string (the revision annotation is what matters). ---
+            try:
+                _clone_obj = apps_v1.read_namespaced_deployment(dep_name, sandbox_ns)
+                clone_uid = _clone_obj.metadata.uid or ""
+            except Exception:  # noqa: BLE001
+                clone_uid = ""
+            _seed_revision_history_best_effort(
+                apps_v1,
+                self._namespace,
+                sandbox_ns,
+                dep_name,
+                clone_uid,
+                source_dep=source_dep,
+            )
 
             # --- clone (best-effort): the Service selecting the deployment and
             #     any referenced ConfigMaps. If the target has no Service or no

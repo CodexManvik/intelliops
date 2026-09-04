@@ -26,6 +26,99 @@ from services.action.targets import resolve_target
 
 _ACTOR = "action-service"
 
+# Destructive-shape denylist floors. The closed action Literal already excludes
+# catastrophic *verbs*; these guard dangerous *shapes* of allowed verbs and are
+# the gate that will also protect AI-authored runbooks (PR C). Each floor is a
+# deliberate, documented safety minimum.
+_SCALE_TAKEDOWN_DELTA = -10  # a scale delta of -10 or beyond can zero any in-range
+# deployment (_MAX_REPLICAS is 10) → treated as a take-down
+_MIN_CPU_MILLICORES = 10  # reject cpu_limit below 10m (would throttle the pod to death)
+_MIN_MEM_MEBIBYTES = 16  # reject mem_limit below 16Mi (would OOM immediately)
+_MIN_FAILURE_THRESHOLD = 1  # a probe failureThreshold < 1 is invalid/defeats the probe
+_MIN_PROBE_PERIOD_SECONDS = 1  # non-positive probe periods are invalid
+
+
+def _cpu_millicores(v: str | None) -> float | None:
+    if v is None:
+        return None
+    try:
+        s = v.strip()
+        return float(s[:-1]) if s.endswith("m") else float(s) * 1000.0
+    except (ValueError, AttributeError):
+        return -1.0  # unparseable -> treat as below any floor (unsafe)
+
+
+def _mem_mebibytes(v: str | None) -> float | None:
+    if v is None:
+        return None
+    try:
+        s = v.strip()
+        if s.endswith("Gi"):
+            return float(s[:-2]) * 1024.0
+        if s.endswith("Mi"):
+            return float(s[:-2])
+        if s.endswith("Ki"):
+            return float(s[:-2]) / 1024.0
+        # decimal-SI suffixes (G=10^9, M=10^6, K=10^3)
+        if s.endswith("G"):
+            return float(s[:-1]) * 1000.0 * 1000.0 * 1000.0 / 1024.0 / 1024.0
+        if s.endswith("M"):
+            return float(s[:-1]) * 1000.0 * 1000.0 / 1024.0 / 1024.0
+        if s.endswith("K"):
+            return float(s[:-1]) * 1000.0 / 1024.0 / 1024.0
+        return float(s) / (1024.0 * 1024.0)  # bare bytes
+    except (ValueError, AttributeError):
+        return -1.0  # unparseable -> unsafe
+
+
+def _denylist_reason(playbook: Playbook) -> str | None:
+    for step in list(playbook.steps) + list(playbook.rollback_steps):
+        # We cannot know current replicas here, but a large negative delta is
+        # a disguised take-down; the dispatch clamps to >=1, but a playbook
+        # that *intends* to zero out a deployment must be refused, not
+        # silently clamped. _MAX_REPLICAS is 10, so a delta of -10 or beyond
+        # can zero any in-range deployment — refuse it.
+        if (
+            step.action == "scale"
+            and step.replicas is not None
+            and step.replicas <= _SCALE_TAKEDOWN_DELTA
+        ):
+            return "denied:unsafe-scale"
+        if step.action == "patch_resource_limits":
+            cpu = _cpu_millicores(step.cpu_limit)
+            mem = _mem_mebibytes(step.mem_limit)
+            if (cpu is not None and cpu < _MIN_CPU_MILLICORES) or (
+                mem is not None and mem < _MIN_MEM_MEBIBYTES
+            ):
+                return "denied:unsafe-limits"
+            # A no-op patch (no cpu_limit AND no mem_limit) is refused — the step
+            # would succeed silently while changing nothing, misleading the operator.
+            if step.cpu_limit is None and step.mem_limit is None:
+                return "denied:unsafe-limits"
+        if step.action == "patch_probe":
+            # probe=None is ambiguous — we cannot know which probe to target.
+            if step.probe is None:
+                return "denied:unsafe-probe"
+            if (
+                step.failure_threshold is not None
+                and step.failure_threshold < _MIN_FAILURE_THRESHOLD
+            ):
+                return "denied:unsafe-probe"
+            # period_seconds and timeout_seconds must be >= 1 if set (a zero/negative
+            # period is invalid k8s and defeats the probe).
+            for p in (step.period_seconds, step.timeout_seconds):
+                if p is not None and p < _MIN_PROBE_PERIOD_SECONDS:
+                    return "denied:unsafe-probe"
+            # initial_delay_seconds may be 0 (fine) but not negative.
+            if step.initial_delay_seconds is not None and step.initial_delay_seconds < 0:
+                return "denied:unsafe-probe"
+        if step.action == "rollback_to_revision" and step.revision is None:
+            # revision=None means "roll back to unknown revision" — would fail at
+            # dispatch time (ValueError); gate it here with its own honest reason
+            # (not the limits label — an operator must see this is a revision issue).
+            return "denied:unsafe-revision"
+    return None
+
 
 def _outcome(
     situation: Situation,
@@ -99,6 +192,14 @@ def execute_remediation(
     if not gate.check_rbac(_ACTOR, "execute", f"playbook:{playbook.id}"):
         _audit(gate, situation, playbook, "deny")
         return _outcome(situation, playbook, RemediationResult.FAILURE, "denied:rbac")
+
+    # Gate 2.5: destructive-shape denylist (fail closed). Runs before the plan
+    # build and the sandbox — a dangerous-but-valid-looking step could pass the
+    # rehearsal, so a hard gate must precede it. Also guards AI-authored runbooks.
+    reason = _denylist_reason(playbook)
+    if reason is not None:
+        _audit(gate, situation, playbook, "denied-unsafe")
+        return _outcome(situation, playbook, RemediationResult.FAILURE, reason)
 
     # Resolve the target once and build a typed plan (needed by the sandbox below).
     target = resolve_target(situation, get_settings().k8s_namespace)

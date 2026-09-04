@@ -77,9 +77,29 @@ class RootCauseHypothesis(BaseModel):
 
 
 class RemediationStep(BaseModel):
-    action: Literal["restart", "scale", "rollback_deploy", "wait"]
+    action: Literal[
+        "restart",
+        "scale",
+        "rollback_deploy",
+        "wait",
+        "patch_resource_limits",
+        "rollback_to_revision",
+        "patch_probe",
+    ]
     replicas: int | None = None  # for scale: a delta, e.g. +2 / -2
     note: str | None = None  # human-readable / wait annotation
+    # patch_resource_limits: new container resource ceilings (targeted change).
+    cpu_limit: str | None = None  # e.g. "500m"
+    mem_limit: str | None = None  # e.g. "512Mi"
+    container: str | None = None  # which container; None -> first/only
+    # rollback_to_revision: the Deployment revision to roll back to.
+    revision: int | None = None
+    # patch_probe: adjust a liveness/readiness probe's timing.
+    probe: Literal["liveness", "readiness"] | None = None
+    initial_delay_seconds: int | None = None
+    period_seconds: int | None = None
+    timeout_seconds: int | None = None  # probe timeout; NOT the remediation timeout
+    failure_threshold: int | None = None
 
 
 class RemediationTarget(BaseModel):

@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 from common.contracts import RemediationPlan, RemediationStep, RemediationTarget
 from services.action.adapters import k8s_remediator as k8s_remediator_module
 from services.action.adapters.k8s_remediator import KubernetesRemediator
@@ -8,10 +10,11 @@ class FakeApiException(Exception):
 
 
 class FakeAppsV1:
-    def __init__(self, replicas=1, fail_on=None):
+    def __init__(self, replicas=1, fail_on=None, deployment_name="demo-app"):
         self.calls = []
         self._replicas = replicas
         self._fail_on = fail_on  # method name to raise on
+        self._deployment_name = deployment_name
 
     def _maybe_fail(self, name):
         if self._fail_on == name:
@@ -21,10 +24,19 @@ class FakeAppsV1:
         self._maybe_fail("read")
         self.calls.append(("read", name, namespace))
 
-        class _Scale:
-            spec = type("S", (), {"replicas": self._replicas})()
+        dep_name = self._deployment_name
 
-        return _Scale()
+        class _Selector:
+            match_labels: ClassVar[dict] = {"app": dep_name}
+
+        class _Spec:
+            replicas = self._replicas
+            selector = _Selector()
+
+        class _Dep:
+            spec = _Spec()
+
+        return _Dep()
 
     def patch_namespaced_deployment(self, name, namespace, body):
         self._maybe_fail("patch")
@@ -33,6 +45,32 @@ class FakeAppsV1:
     def patch_namespaced_deployment_scale(self, name, namespace, body):
         self._maybe_fail("scale")
         self.calls.append(("scale", name, namespace, body))
+
+    def list_namespaced_replica_set(self, namespace, **kwargs):
+        self._maybe_fail("list_rs")
+        self.calls.append(("list_rs", namespace, kwargs))
+
+        dep_name = self._deployment_name
+
+        # one RS at revision 3 with a recognizable template, owned by the deployment
+        class _OwnerRef:
+            kind = "Deployment"
+            name = dep_name
+
+        class _Meta:
+            annotations: ClassVar[dict] = {"deployment.kubernetes.io/revision": "3"}
+            owner_references: ClassVar[list] = [_OwnerRef()]
+            name = f"{dep_name}-abc"
+
+        class _Tmpl:
+            metadata = type("M", (), {"labels": {"app": dep_name}})()
+            spec = "TEMPLATE-REV-3"
+
+        class _RS:
+            metadata = _Meta()
+            spec = type("S", (), {"template": _Tmpl()})()
+
+        return type("L", (), {"items": [_RS()]})()
 
 
 def _plan(*steps, rollback=()):
@@ -100,3 +138,84 @@ def test_client_acquisition_failure_returns_false_never_raises(monkeypatch):
     # which is exactly the code path that must be inside the guarded try/except.
     r = KubernetesRemediator("ns", apps_v1=None, exc_type=FakeApiException)
     assert r.execute(_plan(RemediationStep(action="restart"))) is False
+
+
+def test_patch_resource_limits_patches_container_resources():
+    api = FakeAppsV1()
+    r = KubernetesRemediator("ns", apps_v1=api, exc_type=FakeApiException)
+    step = RemediationStep(action="patch_resource_limits", cpu_limit="500m", mem_limit="512Mi")
+    assert r.execute(_plan(step)) is True
+    patch = next(c for c in api.calls if c[0] == "patch")
+    body = patch[3]
+    containers = body["spec"]["template"]["spec"]["containers"]
+    assert containers[0]["resources"]["limits"]["cpu"] == "500m"
+    assert containers[0]["resources"]["limits"]["memory"] == "512Mi"
+
+
+def test_patch_probe_patches_liveness_timing():
+    api = FakeAppsV1()
+    r = KubernetesRemediator("ns", apps_v1=api, exc_type=FakeApiException)
+    step = RemediationStep(
+        action="patch_probe", probe="liveness", initial_delay_seconds=30, period_seconds=10
+    )
+    assert r.execute(_plan(step)) is True
+    patch = next(c for c in api.calls if c[0] == "patch")
+    probe = patch[3]["spec"]["template"]["spec"]["containers"][0]["livenessProbe"]
+    assert probe["initialDelaySeconds"] == 30 and probe["periodSeconds"] == 10
+
+
+def test_rollback_to_revision_reads_rs_then_patches_template():
+    api = FakeAppsV1()
+    r = KubernetesRemediator("ns", apps_v1=api, exc_type=FakeApiException)
+    step = RemediationStep(action="rollback_to_revision", revision=3)
+    assert r.execute(_plan(step)) is True
+    assert any(c[0] == "list_rs" for c in api.calls)
+    patch = next(c for c in api.calls if c[0] == "patch")
+    # the deployment template is set to the revision-3 RS's template
+    assert patch[3]["spec"]["template"].spec == "TEMPLATE-REV-3"
+
+
+def test_new_actions_never_raise_on_api_error():
+    api = FakeAppsV1(fail_on="patch")
+    r = KubernetesRemediator("ns", apps_v1=api, exc_type=FakeApiException)
+    assert (
+        r.execute(_plan(RemediationStep(action="patch_resource_limits", cpu_limit="500m"))) is False
+    )
+
+
+def test_tier2_rollback_path_dispatches():
+    api = FakeAppsV1()
+    r = KubernetesRemediator("ns", apps_v1=api, exc_type=FakeApiException)
+    step = RemediationStep(action="patch_probe", probe="readiness", period_seconds=5)
+    assert r.rollback(_plan(rollback=[step])) is True
+    patch = next(c for c in api.calls if c[0] == "patch")
+    assert "readinessProbe" in patch[3]["spec"]["template"]["spec"]["containers"][0]
+
+
+def test_rollback_to_revision_ignores_foreign_deployment_rs():
+    """An RS in the namespace but owned by a different Deployment must be skipped."""
+
+    class _ForeignOwnerRef:
+        kind = "Deployment"
+        name = "other-app"  # different deployment — must be filtered out
+
+    class _ForeignMeta:
+        annotations: ClassVar[dict] = {"deployment.kubernetes.io/revision": "3"}
+        owner_references: ClassVar[list] = [_ForeignOwnerRef()]
+        name = "other-app-xyz"
+
+    class _ForeignRS:
+        metadata = _ForeignMeta()
+        spec = type("S", (), {"template": object()})()
+
+    class _FakeAppsV1WithForeignRS(FakeAppsV1):
+        def list_namespaced_replica_set(self, namespace, **kwargs):
+            self.calls.append(("list_rs", namespace, kwargs))
+            # Only a foreign RS — owned by "other-app", not "demo-app"
+            return type("L", (), {"items": [_ForeignRS()]})()
+
+    api = _FakeAppsV1WithForeignRS(deployment_name="demo-app")
+    r = KubernetesRemediator("ns", apps_v1=api, exc_type=FakeApiException)
+    step = RemediationStep(action="rollback_to_revision", revision=3)
+    # Should fail-safe (revision not found) rather than patching the wrong template
+    assert r.execute(_plan(step)) is False
