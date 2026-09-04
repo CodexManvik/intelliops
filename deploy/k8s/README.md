@@ -274,3 +274,117 @@ cluster you brought up yourself. The same is true of `SANDBOX_MODE=k8s` —
 CI and the default compose stack never set it, so `sandbox_mode` stays
 `"off"` (no-op, rehearses nothing) everywhere except this deliberate,
 by-hand path.
+
+## Real remediation on Meridian
+
+The same kind cluster also runs **Meridian** — the 4-service demo
+(`gateway`, `validation`, `aggregation`, `reporting`) that ships its own UI at
+`http://localhost:8008`. `./scripts/kind-up.sh` deploys all four Meridian
+services alongside `demo-app` and Prometheus, so the flow above extends
+directly to a real pod restart triggered from the Meridian Operations panel
+instead of `curl`-ing a demo-app endpoint.
+
+### 1. Bring up the cluster
+
+Same command as above — `kind-up.sh` now applies `deploy/k8s/meridian/` too
+and waits on all four rollouts:
+
+```bash
+./scripts/kind-up.sh
+```
+
+Each Meridian Deployment reuses the same `intelliops-demo-app:local` image as
+`demo-app` (`SERVICE_MODULE` picks the entrypoint — e.g.
+`services.meridian.aggregation.app:app`), so there's no separate image build
+step. When it's done you have four in-cluster Meridian pods, each fronted by
+a NodePort Service named to match the gateway's fault-routing target
+(`meridian-gateway`, `meridian-validation`, `meridian-aggregation`,
+`meridian-reporting`):
+
+| Service               | NodePort |
+| ---------------------- | -------- |
+| `meridian-gateway`     | 30808    |
+| `meridian-validation`  | 30811    |
+| `meridian-aggregation` | 30812    |
+| `meridian-reporting`   | 30813    |
+
+### 2. Export the kubeconfig
+
+Same step as §2 above — one kubeconfig, reused by both the demo-app and
+Meridian stories:
+
+```bash
+kind get kubeconfig --name intelliops \
+  | sed 's#https://127.0.0.1:[0-9]*#https://intelliops-control-plane:6443#' \
+  > deploy/.kubeconfig
+```
+
+### 3. Start the stack with the k8s overlay
+
+```bash
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.k8s.yml up --build
+```
+
+The overlay does everything from §3 above (action → real k8s API, ingestion →
+in-cluster Prometheus) **and** flips the Meridian gateway's fault-injection
+target: it sets `INTELLIOPS_MERIDIAN_OPS_TARGET_MODE=k8s` on
+`meridian-gateway` (plus `host.docker.internal:host-gateway`), so the
+compose-hosted gateway — still the one serving the Meridian UI at
+`http://localhost:8008` — proxies `/api/ops/fault` and `/api/ops/clear` to
+the in-cluster pods' NodePorts (`http://host.docker.internal:<nodeport>`)
+instead of compose service DNS. Nothing about the UI or the gateway's own
+container changes — only where its Operations panel's fault injection lands.
+
+### 4. Drive the incident
+
+Break a **Meridian** service. Either works — both land on the same in-cluster
+pod:
+
+**From the Meridian Operations UI** (`http://localhost:8008` → Operations):
+click the **"Aggregation saturated"** preset. In k8s mode this POSTs through
+the gateway's ops-proxy to the in-cluster `meridian-aggregation` pod via its
+NodePort (30812), not the compose container.
+
+**Or via kubectl**, hitting the pod directly:
+
+```bash
+kubectl -n intelliops-demo exec deploy/meridian-aggregation -- \
+  python -c "import urllib.request; urllib.request.urlopen(urllib.request.Request('http://localhost:8000/admin/fault', method='POST', data=b'{\"type\":\"saturation\"}', headers={'content-type':'application/json'}))"
+```
+
+Then:
+
+1. Watch the console (`http://localhost:5173`, `VITE_DATA_MODE=live`) as it
+   detects the anomaly and diagnoses it — same detect → diagnose → gate flow
+   as the demo-app story, now fed by real in-cluster Meridian metrics.
+2. The situation animates to the HITL gate and waits for a human.
+3. Click **Approve**. The action service calls the real Kubernetes API
+   against the `meridian-aggregation` Deployment.
+4. Watch the real pod act:
+   ```bash
+   kubectl -n intelliops-demo get pods -w
+   ```
+
+### What each playbook does to a Meridian pod
+
+The restart-heals invariant from §4 above holds for Meridian too, for the
+same reason: the fault lives in per-process state, not on disk or in an
+external store. Meridian's `MeridianState` (`services/meridian/common.py`) is
+held in-process by each service, so recreating the process clears it.
+
+- **`restart-pod`** is the clean-success path: `rollout restart` recreates
+  the `meridian-aggregation` pod, the fresh process starts with a clean
+  `MeridianState` (fault cleared), Prometheus scrapes healthy `cpu_usage` /
+  `meridian_error_rate` off the new pod, the health check passes, and the
+  outcome is `success / healthy`.
+- **`scale-service`** may still roll back — scaling out doesn't touch the
+  faulted pod's in-process state, so if the health check still sees it
+  degraded, the action service reverses the scale and reports `rolled_back`.
+  This is the same reversible-only, health-verified safety property (ADR-007)
+  as the demo-app story in §4 — it undoes its own action rather than
+  declaring a false success. Drive `restart-pod` for the clean-success demo.
+
+### 5. Tear down
+
+Same as §5 above — `./scripts/kind-down.sh` deletes the whole cluster,
+Meridian pods included.

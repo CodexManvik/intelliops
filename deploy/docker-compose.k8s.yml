@@ -37,6 +37,11 @@ services:
       INTELLIOPS_PROMETHEUS_URL: http://host.docker.internal:30090
     extra_hosts:
       - "host.docker.internal:host-gateway"
+  meridian-gateway:
+    environment:
+      INTELLIOPS_MERIDIAN_OPS_TARGET_MODE: k8s
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 networks:
   kind:
