@@ -99,4 +99,48 @@ class KubernetesRemediator:
             }
             api.patch_namespaced_deployment(deployment, ns, body)
             return
+        if step.action == "patch_resource_limits":
+            limits = {}
+            if step.cpu_limit is not None:
+                limits["cpu"] = step.cpu_limit
+            if step.mem_limit is not None:
+                limits["memory"] = step.mem_limit
+            container = {"resources": {"limits": limits}}
+            if step.container is not None:
+                container["name"] = step.container
+            body = {"spec": {"template": {"spec": {"containers": [container]}}}}
+            api.patch_namespaced_deployment(deployment, ns, body)
+            return
+        if step.action == "patch_probe":
+            probe_key = "livenessProbe" if step.probe == "liveness" else "readinessProbe"
+            probe_body = {}
+            if step.initial_delay_seconds is not None:
+                probe_body["initialDelaySeconds"] = step.initial_delay_seconds
+            if step.period_seconds is not None:
+                probe_body["periodSeconds"] = step.period_seconds
+            if step.timeout_seconds is not None:
+                probe_body["timeoutSeconds"] = step.timeout_seconds
+            if step.failure_threshold is not None:
+                probe_body["failureThreshold"] = step.failure_threshold
+            container = {probe_key: probe_body}
+            if step.container is not None:
+                container["name"] = step.container
+            body = {"spec": {"template": {"spec": {"containers": [container]}}}}
+            api.patch_namespaced_deployment(deployment, ns, body)
+            return
+        if step.action == "rollback_to_revision":
+            rs_list = api.list_namespaced_replica_set(ns)
+            target_template = None
+            for rs in rs_list.items:
+                ann = (rs.metadata.annotations or {}) if rs.metadata else {}
+                if ann.get("deployment.kubernetes.io/revision") == str(step.revision):
+                    target_template = rs.spec.template.spec
+                    break
+            if target_template is None:
+                # No such revision on this deployment — a real failure, surfaced
+                # via the caller's False path (raise a benign error caught by _run).
+                raise ValueError(f"revision {step.revision} not found for {deployment}")
+            body = {"spec": {"template": target_template}}
+            api.patch_namespaced_deployment(deployment, ns, body)
+            return
         logger.warning("unknown remediation action: %s", step.action)
