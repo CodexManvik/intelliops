@@ -4,6 +4,7 @@ import type {
   Metrics,
   OutcomeRow,
   Playbook,
+  ProposedPlaybook,
   ServiceHealth,
   Situation,
   SystemInfo,
@@ -107,9 +108,9 @@ export const situations: Situation[] = [
     memberCount: 41,
     first_seen: mins(2),
     hypotheses: [
-      { description: "Resource saturation across the affected service", confidence: 0.6, suggested_runbook_id: "scale-service" },
+      { description: "Resource saturation across the affected service, no rule matched confidently", confidence: 0.4, suggested_runbook_id: null },
     ],
-    suggested_runbook_id: "scale-service",
+    suggested_runbook_id: null, // the gap: RCA has no matching playbook — a human can draft one with AI
     hitl_mode: "hitl",
     reversible: true,
     reliability: 0.5,
@@ -140,6 +141,37 @@ export const playbooks: Playbook[] = [
   { id: "restart-pod", name: "Restart Pod", hitl_mode: "auto", reversible: true, successes: 12, rollbacks: 0, failures: 0, graduated: true },
   { id: "rollback-deploy", name: "Rollback Deployment", hitl_mode: "hitl", reversible: true, successes: 2, rollbacks: 0, failures: 1, graduated: false },
   { id: "scale-service", name: "Scale Service Horizontally", hitl_mode: "hitl", reversible: true, successes: 4, rollbacks: 1, failures: 0, graduated: false },
+];
+
+/**
+ * A demo value — this is what an AI-drafted proposal looks like before a
+ * human reviews it, not a claim that an LLM actually ran. In `live` mode
+ * this list is real (whatever `runbook-author` drafted); this seed exists
+ * so the queue renders without a configured LLM endpoint.
+ */
+export const proposals: ProposedPlaybook[] = [
+  {
+    id: "prop-demo0001",
+    playbook: {
+      id: "ai-c72d10b9-a1b2c3",
+      name: "Raise memory ceiling · payments-worker",
+      match_rule: "sit-c72d10b9",
+      steps: [
+        { action: "patch_resource_limits", cpu_limit: "500m", mem_limit: "768Mi", container: "payments-worker" },
+        { action: "wait", note: "settle after limits patch" },
+      ],
+      hitl_mode: "hitl",
+      reversible: true,
+      rollback_steps: [{ action: "patch_resource_limits", cpu_limit: "250m", mem_limit: "512Mi", container: "payments-worker" }],
+    },
+    status: "proposed",
+    proposed_by: "runbook-author",
+    rationale:
+      "Memory pressure on payments-worker matches an OOM-adjacent pattern seen before; raising the memory ceiling is reversible and sandbox-rehearsable, so it drafts as hitl rather than auto.",
+    source_situation_id: "sit-c72d10b9",
+    decided_by: null,
+    ts: mins(1),
+  },
 ];
 
 /** A sparkline series for the noise-reduction / MTTR cards. */

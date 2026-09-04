@@ -1,4 +1,14 @@
-import type { AuditRow, BaselineInfo, LlmProbe, Metrics, OutcomeRow, Playbook, Situation, SystemInfo } from "./types";
+import type {
+  AuditRow,
+  BaselineInfo,
+  LlmProbe,
+  Metrics,
+  OutcomeRow,
+  Playbook,
+  ProposedPlaybook,
+  Situation,
+  SystemInfo,
+} from "./types";
 
 const READ = import.meta.env.VITE_READ_URL ?? "http://localhost:8007";
 const GOV = import.meta.env.VITE_GOV_URL ?? "http://localhost:8005";
@@ -53,6 +63,17 @@ export async function decideApproval(
   });
   if (!r.ok) throw new Error(`decide → ${r.status}`);
 }
+
+export const loadProposals = () => getJSON<ProposedPlaybook[]>(`${GOV}/playbooks/proposed`);
+
+export const proposePlaybook = (situation: Situation, requestedBy: string) =>
+  postJSON<ProposedPlaybook>(`${GOV}/playbooks/proposed`, { situation, requested_by: requestedBy });
+
+export const approveProposal = (id: string, decidedBy: string) =>
+  postJSON<ProposedPlaybook>(`${GOV}/playbooks/proposed/${id}/approve`, { decided_by: decidedBy });
+
+export const rejectProposal = (id: string, decidedBy: string) =>
+  postJSON<ProposedPlaybook>(`${GOV}/playbooks/proposed/${id}/reject`, { decided_by: decidedBy });
 
 export function openStream(): EventSource {
   const url = new URL(`${READ}/stream`);

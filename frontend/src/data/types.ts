@@ -155,3 +155,47 @@ export interface LlmProbe {
   latency_ms?: number;
   error?: string;
 }
+
+/** One step of a playbook's remediation plan (common/contracts.py RemediationStep). */
+export interface RemediationStep {
+  action:
+    | "restart"
+    | "scale"
+    | "rollback_deploy"
+    | "wait"
+    | "patch_resource_limits"
+    | "rollback_to_revision"
+    | "patch_probe";
+  replicas?: number | null;
+  note?: string | null;
+  cpu_limit?: string | null;
+  mem_limit?: string | null;
+  container?: string | null;
+  revision?: number | null;
+  probe?: "liveness" | "readiness" | null;
+  initial_delay_seconds?: number | null;
+}
+
+/** The full playbook shape a proposal drafts (common/contracts.py Playbook). */
+export interface DraftedPlaybook {
+  id: string;
+  name: string;
+  match_rule: string;
+  steps: RemediationStep[];
+  hitl_mode: HitlMode;
+  reversible: boolean;
+  rollback_steps: RemediationStep[];
+}
+
+export type ProposedPlaybookStatus = "proposed" | "approved" | "rejected";
+
+export interface ProposedPlaybook {
+  id: string;
+  playbook: DraftedPlaybook;
+  status: ProposedPlaybookStatus;
+  proposed_by: string;
+  rationale?: string | null;
+  source_situation_id?: string | null;
+  decided_by?: string | null;
+  ts: number | string;
+}
