@@ -130,6 +130,23 @@ class Playbook(BaseModel):
     rollback_steps: list[RemediationStep] = Field(default_factory=list)
 
 
+class ProposedPlaybookStatus(str, Enum):
+    PROPOSED = "proposed"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class ProposedPlaybook(BaseModel):
+    id: str  # server-assigned
+    playbook: Playbook  # the typed draft — steps validate via the closed Literal
+    status: ProposedPlaybookStatus = ProposedPlaybookStatus.PROPOSED
+    proposed_by: str
+    rationale: str | None = None
+    source_situation_id: str | None = None
+    decided_by: str | None = None
+    ts: datetime
+
+
 class ApprovalRequest(BaseModel):
     id: str
     situation_id: str
