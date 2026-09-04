@@ -129,9 +129,15 @@ class KubernetesRemediator:
             api.patch_namespaced_deployment(deployment, ns, body)
             return
         if step.action == "rollback_to_revision":
-            rs_list = api.list_namespaced_replica_set(ns)
+            dep_obj = api.read_namespaced_deployment(deployment, ns)
+            sel = dep_obj.spec.selector.match_labels or {}
+            label_selector = ",".join(f"{k}={v}" for k, v in sel.items())
+            rs_list = api.list_namespaced_replica_set(ns, label_selector=label_selector)
             target_template = None
             for rs in rs_list.items:
+                owners = (rs.metadata.owner_references or []) if rs.metadata else []
+                if not any(o.kind == "Deployment" and o.name == deployment for o in owners):
+                    continue
                 ann = (rs.metadata.annotations or {}) if rs.metadata else {}
                 if ann.get("deployment.kubernetes.io/revision") == str(step.revision):
                     target_template = rs.spec.template

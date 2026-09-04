@@ -125,6 +125,8 @@ def _strip_replica_set(rs, sandbox_ns: str, clone_uid: str, clone_name: str):
     The revision annotation (deployment.kubernetes.io/revision) is preserved so
     rollback_to_revision can match it.
     """
+    from kubernetes import client as k8s_client  # lazy — same rationale as _load_k8s
+
     meta = rs.metadata
     meta.namespace = sandbox_ns
     meta.resource_version = None
@@ -133,26 +135,28 @@ def _strip_replica_set(rs, sandbox_ns: str, clone_uid: str, clone_name: str):
     meta.managed_fields = None
     meta.self_link = None
     # Re-own the RS to the clone Deployment (controller=True so it appears in history).
+    # Use V1OwnerReference so sanitize_for_serialization can serialize it correctly.
     meta.owner_references = [
-        type(
-            "OwnerRef",
-            (),
-            {
-                "api_version": "apps/v1",
-                "kind": "Deployment",
-                "name": clone_name,
-                "uid": clone_uid,
-                "controller": True,
-                "block_owner_deletion": True,
-            },
-        )()
+        k8s_client.V1OwnerReference(
+            api_version="apps/v1",
+            kind="Deployment",
+            name=clone_name,
+            uid=clone_uid,
+            controller=True,
+            block_owner_deletion=True,
+        )
     ]
     rs.status = None  # server-owned; must be absent on create
     return rs
 
 
 def _seed_revision_history_best_effort(
-    apps_v1, prod_ns: str, sandbox_ns: str, clone_name: str, clone_uid: str
+    apps_v1,
+    prod_ns: str,
+    sandbox_ns: str,
+    clone_name: str,
+    clone_uid: str,
+    source_dep=None,
 ) -> None:
     """Copy the source Deployment's owned ReplicaSets (with their revision
     annotations) into sandbox_ns, re-owned by the clone Deployment, so a
@@ -161,14 +165,31 @@ def _seed_revision_history_best_effort(
     raised (a non-rollback plan doesn't need history).
 
     Reads from the PRODUCTION namespace (prod_ns), creates into sandbox_ns.
+    Filters by the source Deployment's selector labels and owner-ref so only its
+    own RSes are copied (not foreign Deployments sharing the namespace).
     """
     try:
-        rs_list = apps_v1.list_namespaced_replica_set(prod_ns)
+        # Build label_selector from the source Deployment's spec.selector.match_labels
+        # so we only fetch RSes the source Deployment selects (avoids copying foreign RSes).
+        label_selector = None
+        if source_dep is not None:
+            try:
+                match_labels = source_dep.spec.selector.match_labels or {}
+                if match_labels:
+                    label_selector = ",".join(f"{k}={v}" for k, v in match_labels.items())
+            except Exception:  # noqa: BLE001,S110 — if selector unreadable, fall back to unfiltered
+                pass
+        kwargs = {"label_selector": label_selector} if label_selector else {}
+        rs_list = apps_v1.list_namespaced_replica_set(prod_ns, **kwargs)
     except Exception as exc:  # noqa: BLE001
         logger.debug("revision-history read skipped: %s", exc)
         return
     for rs in getattr(rs_list, "items", []) or []:
         try:
+            # Owner-ref check: only copy RSes owned by the source Deployment.
+            owners = (rs.metadata.owner_references or []) if rs.metadata else []
+            if not any(o.kind == "Deployment" and o.name == clone_name for o in owners):
+                continue
             stripped = _strip_replica_set(rs, sandbox_ns, clone_uid, clone_name)
             apps_v1.create_namespaced_replica_set(namespace=sandbox_ns, body=stripped)
         except Exception as exc:  # noqa: BLE001
@@ -245,7 +266,12 @@ class NamespaceCloneSandbox:
             except Exception:  # noqa: BLE001
                 clone_uid = ""
             _seed_revision_history_best_effort(
-                apps_v1, self._namespace, sandbox_ns, dep_name, clone_uid
+                apps_v1,
+                self._namespace,
+                sandbox_ns,
+                dep_name,
+                clone_uid,
+                source_dep=source_dep,
             )
 
             # --- clone (best-effort): the Service selecting the deployment and

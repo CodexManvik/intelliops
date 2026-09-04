@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import ClassVar
 
 from common.contracts import (
     PreflightResult,
@@ -213,9 +214,16 @@ def test_seed_revision_history_copies_replicasets(monkeypatch):
 
     class _Apps:
         def read_namespaced_deployment(self, *a, **k):
+            class _Selector:
+                match_labels: ClassVar[dict] = {"app": "demo-app"}
+
+            class _Spec:
+                template = object()
+                selector = _Selector()
+
             class _D:
                 metadata = type("M", (), {"uid": "clone-uid", "name": "demo-app"})()
-                spec = type("S", (), {"template": object()})()
+                spec = _Spec()
 
             return _D()
 
@@ -223,6 +231,10 @@ def test_seed_revision_history_copies_replicasets(monkeypatch):
             return None
 
         def list_namespaced_replica_set(self, namespace, **k):
+            class _OwnerRef:
+                kind = "Deployment"
+                name = "demo-app"
+
             class _RS:
                 metadata = type(
                     "M",
@@ -232,7 +244,7 @@ def test_seed_revision_history_copies_replicasets(monkeypatch):
                         "resource_version": "1",
                         "uid": "u",
                         "creation_timestamp": "t",
-                        "owner_references": None,
+                        "owner_references": [_OwnerRef()],
                         "managed_fields": None,
                         "self_link": None,
                         "namespace": "intelliops",
@@ -308,6 +320,8 @@ def test_seed_revision_history_copies_replicasets(monkeypatch):
     result = sb.NamespaceCloneSandbox("intelliops").rehearse(_situation(), plan)
     # the RS was read and re-created in the sandbox namespace
     assert len(created_rs) == 1
+    sandbox_ns_used, _ = created_rs[0]
+    assert sandbox_ns_used.startswith("intelliops-sandbox-")  # created into the sandbox ns
     assert result.mode == "k8s"  # completed without raising
     assert core.deleted  # namespace torn down
 
@@ -317,9 +331,16 @@ def test_seed_revision_history_failure_is_swallowed(monkeypatch):
 
     class _Apps:
         def read_namespaced_deployment(self, *a, **k):
+            class _Selector:
+                match_labels: ClassVar[dict] = {"app": "demo-app"}
+
+            class _Spec:
+                template = object()
+                selector = _Selector()
+
             class _D:
                 metadata = type("M", (), {"uid": "clone-uid", "name": "demo-app"})()
-                spec = type("S", (), {"template": object()})()
+                spec = _Spec()
 
             return _D()
 
@@ -394,3 +415,51 @@ def test_seed_revision_history_failure_is_swallowed(monkeypatch):
     assert isinstance(result, PreflightResult)  # never raised
     assert result.mode == "k8s"
     assert core.deleted  # torn down regardless
+
+
+# --- Serialization round-trip: V1OwnerReference must survive sanitize_for_serialization ----
+
+
+def test_strip_replica_set_owner_ref_is_serializable():
+    """_strip_replica_set must use V1OwnerReference (not an ad-hoc type()) so the
+    kubernetes client's sanitize_for_serialization can handle the output.
+    A plain type() object lacks openapi_types and would raise AttributeError."""
+    from kubernetes import client as k8s_client
+    from kubernetes.client import ApiClient
+
+    from services.action.adapters.sandbox import _strip_replica_set
+
+    # Build a minimal real RS object (use real k8s model objects so the client
+    # can serialize the whole graph — including the OwnerReference we inject).
+    rs = k8s_client.V1ReplicaSet(
+        metadata=k8s_client.V1ObjectMeta(
+            name="demo-app-abc",
+            namespace="intelliops",
+            resource_version="1",
+            uid="rs-uid",
+            annotations={"deployment.kubernetes.io/revision": "2"},
+        ),
+        spec=k8s_client.V1ReplicaSetSpec(
+            selector=k8s_client.V1LabelSelector(match_labels={"app": "demo-app"}),
+            template=k8s_client.V1PodTemplateSpec(
+                metadata=k8s_client.V1ObjectMeta(labels={"app": "demo-app"}),
+                spec=k8s_client.V1PodSpec(
+                    containers=[k8s_client.V1Container(name="app", image="demo:latest")]
+                ),
+            ),
+        ),
+        status=k8s_client.V1ReplicaSetStatus(replicas=1),
+    )
+
+    stripped = _strip_replica_set(rs, "intelliops-sandbox-abc", "clone-uid", "demo-app")
+
+    # Must not raise — this is the assertion
+    serialized = ApiClient().sanitize_for_serialization(stripped)
+
+    owner_refs = serialized["metadata"]["ownerReferences"]
+    assert len(owner_refs) == 1
+    ref = owner_refs[0]
+    assert ref["kind"] == "Deployment"
+    assert ref["name"] == "demo-app"
+    assert ref["uid"] == "clone-uid"
+    assert ref["controller"] is True

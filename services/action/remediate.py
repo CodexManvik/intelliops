@@ -59,6 +59,13 @@ def _mem_mebibytes(v: str | None) -> float | None:
             return float(s[:-2])
         if s.endswith("Ki"):
             return float(s[:-2]) / 1024.0
+        # decimal-SI suffixes (G=10^9, M=10^6, K=10^3)
+        if s.endswith("G"):
+            return float(s[:-1]) * 1000.0 * 1000.0 / 1024.0 / 1024.0
+        if s.endswith("M"):
+            return float(s[:-1]) * 1000.0 * 1000.0 / 1024.0 / 1024.0
+        if s.endswith("K"):
+            return float(s[:-1]) * 1000.0 / 1024.0 / 1024.0
         return float(s) / (1024.0 * 1024.0)  # bare bytes
     except (ValueError, AttributeError):
         return -1.0  # unparseable -> unsafe
@@ -84,7 +91,14 @@ def _denylist_reason(playbook: Playbook) -> str | None:
                 mem is not None and mem < _MIN_MEM_MEBIBYTES
             ):
                 return "denied:unsafe-limits"
+            # A no-op patch (no cpu_limit AND no mem_limit) is refused — the step
+            # would succeed silently while changing nothing, misleading the operator.
+            if step.cpu_limit is None and step.mem_limit is None:
+                return "denied:unsafe-limits"
         if step.action == "patch_probe":
+            # probe=None is ambiguous — we cannot know which probe to target.
+            if step.probe is None:
+                return "denied:unsafe-probe"
             if (
                 step.failure_threshold is not None
                 and step.failure_threshold < _MIN_FAILURE_THRESHOLD
@@ -98,6 +112,10 @@ def _denylist_reason(playbook: Playbook) -> str | None:
             # initial_delay_seconds may be 0 (fine) but not negative.
             if step.initial_delay_seconds is not None and step.initial_delay_seconds < 0:
                 return "denied:unsafe-probe"
+        if step.action == "rollback_to_revision" and step.revision is None:
+            # revision=None means "roll back to unknown revision" — would fail at
+            # dispatch time (ValueError); gate it here for clarity.
+            return "denied:unsafe-limits"
     return None
 
 

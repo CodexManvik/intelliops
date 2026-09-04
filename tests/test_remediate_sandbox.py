@@ -195,3 +195,33 @@ def test_denylist_allows_safe_tier2_and_reaches_sandbox():
     execute_remediation(_situation(), pb, gate, remediator, health, sandbox, 1.0, 0.01)
     assert sandbox.rehearsed is True  # safe step passed the gate → sandbox ran
     assert remediator.executed is True
+
+
+def test_denylist_blocks_patch_probe_with_no_probe_field():
+    gate, remediator, health, sandbox = _Gate(), _Remediator(), _Health(), _SpySandbox()
+    # probe=None is the default — we can't know which probe to target
+    pb = _pb([RemediationStep(action="patch_probe", period_seconds=10)])
+    outcome = execute_remediation(_situation(), pb, gate, remediator, health, sandbox, 1.0, 0.01)
+    assert outcome.health_after == "denied:unsafe-probe"
+    assert sandbox.rehearsed is False
+    assert remediator.executed is False
+
+
+def test_denylist_blocks_patch_resource_limits_with_no_limits():
+    gate, remediator, health, sandbox = _Gate(), _Remediator(), _Health(), _SpySandbox()
+    # neither cpu_limit nor mem_limit set — a no-op step
+    pb = _pb([RemediationStep(action="patch_resource_limits")])
+    outcome = execute_remediation(_situation(), pb, gate, remediator, health, sandbox, 1.0, 0.01)
+    assert outcome.health_after == "denied:unsafe-limits"
+    assert sandbox.rehearsed is False
+    assert remediator.executed is False
+
+
+def test_denylist_blocks_rollback_to_revision_with_no_revision():
+    gate, remediator, health, sandbox = _Gate(), _Remediator(), _Health(), _SpySandbox()
+    # revision=None — indeterminate rollback target
+    pb = _pb([RemediationStep(action="rollback_to_revision")])
+    outcome = execute_remediation(_situation(), pb, gate, remediator, health, sandbox, 1.0, 0.01)
+    assert outcome.health_after == "denied:unsafe-limits"
+    assert sandbox.rehearsed is False
+    assert remediator.executed is False

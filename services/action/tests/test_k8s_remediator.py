@@ -10,10 +10,11 @@ class FakeApiException(Exception):
 
 
 class FakeAppsV1:
-    def __init__(self, replicas=1, fail_on=None):
+    def __init__(self, replicas=1, fail_on=None, deployment_name="demo-app"):
         self.calls = []
         self._replicas = replicas
         self._fail_on = fail_on  # method name to raise on
+        self._deployment_name = deployment_name
 
     def _maybe_fail(self, name):
         if self._fail_on == name:
@@ -23,10 +24,19 @@ class FakeAppsV1:
         self._maybe_fail("read")
         self.calls.append(("read", name, namespace))
 
-        class _Scale:
-            spec = type("S", (), {"replicas": self._replicas})()
+        dep_name = self._deployment_name
 
-        return _Scale()
+        class _Selector:
+            match_labels: ClassVar[dict] = {"app": dep_name}
+
+        class _Spec:
+            replicas = self._replicas
+            selector = _Selector()
+
+        class _Dep:
+            spec = _Spec()
+
+        return _Dep()
 
     def patch_namespaced_deployment(self, name, namespace, body):
         self._maybe_fail("patch")
@@ -40,14 +50,20 @@ class FakeAppsV1:
         self._maybe_fail("list_rs")
         self.calls.append(("list_rs", namespace, kwargs))
 
-        # one RS at revision 3 with a recognizable template
+        dep_name = self._deployment_name
+
+        # one RS at revision 3 with a recognizable template, owned by the deployment
+        class _OwnerRef:
+            kind = "Deployment"
+            name = dep_name
+
         class _Meta:
             annotations: ClassVar[dict] = {"deployment.kubernetes.io/revision": "3"}
-            owner_references = None
-            name = "demo-app-abc"
+            owner_references: ClassVar[list] = [_OwnerRef()]
+            name = f"{dep_name}-abc"
 
         class _Tmpl:
-            metadata = type("M", (), {"labels": {"app": "demo-app"}})()
+            metadata = type("M", (), {"labels": {"app": dep_name}})()
             spec = "TEMPLATE-REV-3"
 
         class _RS:
@@ -174,3 +190,32 @@ def test_tier2_rollback_path_dispatches():
     assert r.rollback(_plan(rollback=[step])) is True
     patch = next(c for c in api.calls if c[0] == "patch")
     assert "readinessProbe" in patch[3]["spec"]["template"]["spec"]["containers"][0]
+
+
+def test_rollback_to_revision_ignores_foreign_deployment_rs():
+    """An RS in the namespace but owned by a different Deployment must be skipped."""
+
+    class _ForeignOwnerRef:
+        kind = "Deployment"
+        name = "other-app"  # different deployment — must be filtered out
+
+    class _ForeignMeta:
+        annotations: ClassVar[dict] = {"deployment.kubernetes.io/revision": "3"}
+        owner_references: ClassVar[list] = [_ForeignOwnerRef()]
+        name = "other-app-xyz"
+
+    class _ForeignRS:
+        metadata = _ForeignMeta()
+        spec = type("S", (), {"template": object()})()
+
+    class _FakeAppsV1WithForeignRS(FakeAppsV1):
+        def list_namespaced_replica_set(self, namespace, **kwargs):
+            self.calls.append(("list_rs", namespace, kwargs))
+            # Only a foreign RS — owned by "other-app", not "demo-app"
+            return type("L", (), {"items": [_ForeignRS()]})()
+
+    api = _FakeAppsV1WithForeignRS(deployment_name="demo-app")
+    r = KubernetesRemediator("ns", apps_v1=api, exc_type=FakeApiException)
+    step = RemediationStep(action="rollback_to_revision", revision=3)
+    # Should fail-safe (revision not found) rather than patching the wrong template
+    assert r.execute(_plan(step)) is False
