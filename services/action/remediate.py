@@ -61,7 +61,7 @@ def _mem_mebibytes(v: str | None) -> float | None:
             return float(s[:-2]) / 1024.0
         # decimal-SI suffixes (G=10^9, M=10^6, K=10^3)
         if s.endswith("G"):
-            return float(s[:-1]) * 1000.0 * 1000.0 / 1024.0 / 1024.0
+            return float(s[:-1]) * 1000.0 * 1000.0 * 1000.0 / 1024.0 / 1024.0
         if s.endswith("M"):
             return float(s[:-1]) * 1000.0 * 1000.0 / 1024.0 / 1024.0
         if s.endswith("K"):
