@@ -204,7 +204,14 @@ class NamespaceCloneSandbox:
             #     injecting the AppsV1 client we already hold, with the plan
             #     retargeted at the clone (same steps, sandbox namespace) ---
             clone_plan = plan.model_copy(update={"target": clone_target})
-            KubernetesRemediator(sandbox_ns, apps_v1=apps_v1).execute(clone_plan)
+            applied = KubernetesRemediator(sandbox_ns, apps_v1=apps_v1).execute(clone_plan)
+            if not applied:
+                return PreflightResult(
+                    passed=False,
+                    detail=f"sandbox: clone {dep_name} remediation apply failed",
+                    mode="k8s",
+                    sandbox_namespace=sandbox_ns,
+                )
 
             # --- health: post-fix, poll the clone to ready==desired (bounded).
             #     This is the PRIMARY pass signal for PR A ---

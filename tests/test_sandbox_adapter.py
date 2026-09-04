@@ -130,3 +130,74 @@ def test_namespace_clone_sandbox_tears_down_on_failure_path(monkeypatch):
     assert torn_down.startswith("intelliops-sandbox-")
     # And the audited namespace on the result is the one that was torn down.
     assert result.sandbox_namespace == torn_down
+
+
+class _AppsV1HappyPath:
+    def read_namespaced_deployment(self, *a, **k):
+        return object()
+
+    def create_namespaced_deployment(self, *a, **k):
+        return None
+
+
+class _CoreV1HappyPath:
+    def __init__(self):
+        self.deleted = []
+
+    def create_namespace(self, *a, **k):
+        return None
+
+    def delete_namespace(self, name, *a, **k):
+        self.deleted.append(name)
+
+
+def test_namespace_clone_sandbox_fails_when_apply_returns_false(monkeypatch):
+    from services.action.adapters import sandbox as sb
+
+    apps = _AppsV1HappyPath()
+    core = _CoreV1HappyPath()
+    monkeypatch.setattr(sb, "_load_k8s", lambda: (apps, core), raising=False)
+    monkeypatch.setattr(sb, "_strip_deployment", lambda dep, ns: dep, raising=False)
+    monkeypatch.setattr(sb, "_namespace_body", lambda ns: object(), raising=False)
+    monkeypatch.setattr(sb, "_referenced_config_map_names", lambda dep: [], raising=False)
+    monkeypatch.setattr(
+        sb.NamespaceCloneSandbox,
+        "_clone_service_best_effort",
+        lambda self, core_v1, dep_name, sandbox_ns: None,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        sb.NamespaceCloneSandbox,
+        "_clone_config_maps_best_effort",
+        lambda self, core_v1, source_dep, sandbox_ns: None,
+        raising=False,
+    )
+
+    health_checks = []
+
+    class _HealthChecker:
+        def __init__(self, *a, **k):
+            pass
+
+        def check(self, *a, **k):
+            health_checks.append("check")
+            return True
+
+    monkeypatch.setattr(sb, "KubernetesHealthChecker", _HealthChecker, raising=False)
+
+    class _Remediator:
+        def __init__(self, *a, **k):
+            pass
+
+        def execute(self, plan):
+            return False
+
+    monkeypatch.setattr(sb, "KubernetesRemediator", _Remediator, raising=False)
+
+    result = sb.NamespaceCloneSandbox("intelliops").rehearse(_situation(), _plan())
+    assert result.passed is False
+    assert result.detail == "sandbox: clone demo-app remediation apply failed"
+    assert result.mode == "k8s"
+    assert result.sandbox_namespace is not None
+    assert len(health_checks) == 1
+    assert core.deleted == [result.sandbox_namespace]

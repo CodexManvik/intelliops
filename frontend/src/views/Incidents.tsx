@@ -409,6 +409,16 @@ export function Incidents() {
                         <div className="text-sm font-medium text-ink">
                           No action taken · <span className="font-mono text-sev-warn">{shown.outcome?.health_after ?? "aborted"}</span>
                         </div>
+                        {shown.outcome?.preflight && shown.outcome.preflight.mode !== "off" && (
+                          <div className="mt-1 font-mono text-2xs text-ink-3">
+                            🧪 pre-flight:{" "}
+                            {shown.outcome.preflight.passed ? (
+                              <span className="text-sev-ok">rehearsed in sandbox — passed</span>
+                            ) : (
+                              <span className="text-sev-warn">failed — {shown.outcome.preflight.detail}</span>
+                            )}
+                          </div>
+                        )}
                         <div className="font-mono text-2xs text-ink-3">gate failed closed — nothing executed</div>
                       </div>
                     </div>
