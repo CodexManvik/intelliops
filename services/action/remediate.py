@@ -114,8 +114,9 @@ def _denylist_reason(playbook: Playbook) -> str | None:
                 return "denied:unsafe-probe"
         if step.action == "rollback_to_revision" and step.revision is None:
             # revision=None means "roll back to unknown revision" — would fail at
-            # dispatch time (ValueError); gate it here for clarity.
-            return "denied:unsafe-limits"
+            # dispatch time (ValueError); gate it here with its own honest reason
+            # (not the limits label — an operator must see this is a revision issue).
+            return "denied:unsafe-revision"
     return None
 
 

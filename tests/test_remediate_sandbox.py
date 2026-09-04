@@ -222,6 +222,6 @@ def test_denylist_blocks_rollback_to_revision_with_no_revision():
     # revision=None — indeterminate rollback target
     pb = _pb([RemediationStep(action="rollback_to_revision")])
     outcome = execute_remediation(_situation(), pb, gate, remediator, health, sandbox, 1.0, 0.01)
-    assert outcome.health_after == "denied:unsafe-limits"
+    assert outcome.health_after == "denied:unsafe-revision"
     assert sandbox.rehearsed is False
     assert remediator.executed is False

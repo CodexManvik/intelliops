@@ -283,10 +283,14 @@ this against (the default kind setup grants this).
     counts, but this is intentional: if a playbook intends a large negative
     delta, it is flagged regardless of the actual resulting replica count).
   - `denied:unsafe-limits` — CPU limit < 10m or memory limit < 16Mi (resource
-    ceilings too small to sustain any meaningful workload).
-  - `denied:unsafe-probe` — failure threshold < 1, or probe period/timeout ≤ 0,
-    or initial delay < 0 (malformed probe timing that would cause immediate or
-    permanent pod restart loops).
+    ceilings too small to sustain any meaningful workload), or a
+    `patch_resource_limits` step with no limits at all (a silent no-op).
+  - `denied:unsafe-probe` — probe unset (`probe=None`, ambiguous target),
+    failure threshold < 1, probe period/timeout ≤ 0, or initial delay < 0
+    (malformed probe timing that would cause immediate or permanent pod
+    restart loops).
+  - `denied:unsafe-revision` — a `rollback_to_revision` step with no `revision`
+    (an indeterminate rollback target).
   A denied step is blocked outright; it never enters plan-build or sandbox.
 - **Revision history seeding is honest-limited to specs, not runtime state.**
   When rehearsing a `rollback_to_revision` step, the sandbox pre-populates the
