@@ -155,6 +155,68 @@ scrapes `cpu_usage`, so the "resource saturation" rule fires and
   rather than declaring a false success. To force the clean-success story, drive
   the `restart-pod` path.
 
+### Tier-2 extended-vocabulary actions
+
+In addition to the base playbooks, the action vocabulary includes three **tier-2
+remediation actions** that are sandbox-rehearsable and reversible:
+
+- **`patch_resource_limits`** — retunes a container's CPU and memory resource
+  ceilings. Applied as a targeted patch to the Deployment's pod spec, not a full
+  spec rewrite. The sandbox detects failure modes like OOMKill (out-of-memory
+  kill) by observing whether the clone pod reaches `Ready`. Pre-flight runs before
+  the human sees an approval prompt.
+- **`rollback_to_revision`** — rolls a Deployment's pod template back to a
+  specific prior revision, distinct from `rollback_deploy` (which is a
+  `rollout restart`). The sandbox validates that the revision exists in the
+  Deployment's ReplicaSet history and that the rolled-back clone pod becomes
+  `Ready` — this is possible because the sandbox pre-seeds the clone's revision
+  history from the production Deployment's ReplicaSets.
+- **`patch_probe`** — adjusts a pod's liveness or readiness probe timing:
+  failure threshold, initial delay, period, or timeout. A common and effective
+  fix for over-aggressive probes killing slow-starting or slow-recovering pods.
+  The sandbox rehearsal confirms the probe settings allow the clone pod to
+  stabilize and reach `Ready`.
+
+### Actions permanently excluded
+
+The following actions are **never added to the AI-authored vocabulary** because
+their failure modes are not observable by pod-readiness checking or their blast
+radius is uncontrollable:
+
+- **`delete` (namespace, Deployment, PVC, Secret, or any resource)** — a deleted
+  resource cannot be recovered by health-checking the survivors; "no pods running"
+  is indistinguishable to the sandbox from a successful scale-down, but it is
+  catastrophic in production.
+- **`scale_to(N)` / unbounded absolute scale** — similar to delete: scaling to
+  zero has the same observable-passing / actually-destructive trap. (Existing
+  delta-based scale `+N/-N` remains; absolute `scale_to` is not added.)
+- **`exec` or arbitrary command in a pod** — reintroduces the untyped-string
+  surface that ADR-008 was written to reject. Sandboxing a command proves only
+  that it ran without error in the copy; it says nothing about side effects
+  (external API calls, database writes, secrets access).
+- **Secret create/patch/read** — either the copy shares real production
+  credentials (undermining isolation) or it uses fake ones (the rehearsal proves
+  nothing). Secrets require direct human authorization, never AI-authored
+  playbooks.
+- **Cluster-scoped mutations** (ClusterRole, CRD, admission webhook, or
+  namespace-lifecycle operations) — a same-cluster namespace copy cannot
+  replicate cluster-scoped state, so rehearsal tests only a fragment of the
+  actual blast radius.
+
+### Deferred actions
+
+Two action families are acknowledged as valuable but deferred to a follow-up PR
+because they cannot be honestly sandbox-rehearsed in their current form:
+
+- **Node operations (`cordon_node`, `uncordon_node`)** — a node cannot be cloned
+  (it is cluster-global state); testing node cordon in a sandbox namespace proves
+  nothing about whether pods actually reschedule on a real cluster.
+- **HPA patch (`patch_hpa`)** — patching an HPA's min/max/target is partially
+  rehearsable (the sandbox can apply the patch), but a single clone pod under
+  load *in the sandbox* does not tell you whether the HPA's scaling thresholds
+  will react correctly under production's concurrent load. A second PR will
+  define a better rehearsal story for HPA patches.
+
 ## 5. Tear down
 
 ```bash
@@ -213,6 +275,32 @@ this against (the default kind setup grants this).
 
 ### The honest limits
 
+- **Denylist gate runs before the sandbox.** Before any remediation plan is
+  built or sandboxed, a static denylist gate checks whether a step's shape is
+  dangerously misconfigured, independent of runtime outcome. It refuses:
+  - `denied:unsafe-scale` — scale delta ≤ -10 (take-down intent heuristic; the
+    gate uses this coarse guard because it has no access to current replica
+    counts, but this is intentional: if a playbook intends a large negative
+    delta, it is flagged regardless of the actual resulting replica count).
+  - `denied:unsafe-limits` — CPU limit < 10m or memory limit < 16Mi (resource
+    ceilings too small to sustain any meaningful workload).
+  - `denied:unsafe-probe` — failure threshold < 1, or probe period/timeout ≤ 0,
+    or initial delay < 0 (malformed probe timing that would cause immediate or
+    permanent pod restart loops).
+  A denied step is blocked outright; it never enters plan-build or sandbox.
+- **Revision history seeding is honest-limited to specs, not runtime state.**
+  When rehearsing a `rollback_to_revision` step, the sandbox pre-populates the
+  clone Deployment with ReplicaSet copies from the production Deployment,
+  including their `deployment.kubernetes.io/revision` annotations. This allows
+  the Deployment rollback-to-revision machinery to find the target revision. The
+  limit: we seed the ReplicaSet *specs* (pod template + revision annotation),
+  not the historical pods' runtime state (logs, in-process memory, metric
+  timeseries). The pass signal is still pod-readiness of the rolled-back clone
+  — the same data-independent signal as other sandbox passes — so the rehearsal
+  is honest: it proves *"does the rollback succeed and produce a Ready pod"*, not
+  *"does it recover the exact same state the production pod had."* See
+  [docs/sandbox-and-ai-runbooks-design-note.md](../../docs/sandbox-and-ai-runbooks-design-note.md)
+  for the full rationale.
 - **Shared node, not production-isolated.** The clone runs in the *same*
   kind cluster, on the *same* node, as everything else. It proves the fix
   produces a healthy pod under real scheduling and real probes — it does
@@ -231,8 +319,8 @@ this against (the default kind setup grants this).
   that never becomes ready) — it does not catch *is this the right fix* or
   *is this action's blast radius acceptable*. A destructive action that
   completes without error reads as a pass. The sandbox is one gate among
-  several (typed action vocabulary, human approval), never a substitute for
-  the others.
+  several (typed action vocabulary, human approval, denylist), never a
+  substitute for the others.
 - **Not exercised by CI or the test suite.** Like the rest of this page,
   the live `NamespaceCloneSandbox` path only runs against a real kind
   cluster you bring up yourself. `sandbox_mode` defaults to `"off"`
