@@ -164,6 +164,105 @@ scrapes `cpu_usage`, so the "resource saturation" rule fires and
 Deletes the kind cluster (same `CLUSTER` env var override as `kind-up.sh`).
 Stop the compose stack separately with `docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.k8s.yml down`.
 
+## 6. Pre-flight sandbox rehearsal (`SANDBOX_MODE=k8s`)
+
+On top of real remediation, the action service can **rehearse a fix before
+anyone approves it**. When `sandbox_mode` is `"k8s"`, every remediation —
+before the human sees the approval prompt, and before an `auto` playbook is
+allowed to execute — clones the target Deployment (plus, best-effort, its
+Service and any referenced ConfigMaps) into a throwaway namespace named
+`intelliops-sandbox-<8 hex chars>`, waits for that clone's initial rollout,
+applies the *exact same* fix to the clone, polls the clone's pod back to
+`ready == desired`, tears the namespace down, and attaches a pass/fail
+verdict to the outcome. The verdict rides along everywhere the outcome does
+and shows up in the incident panel as a `🧪 pre-flight:` row — "rehearsed in
+sandbox — passed" or "failed — `<detail>`" — visible **before** the approval
+decision is made.
+
+The verdict changes what happens next differently depending on the
+playbook's mode:
+
+- **`auto` playbooks:** a failed rehearsal **blocks** — the remediation
+  never executes and the outcome comes back `preflight-failed`.
+- **`hitl` playbooks:** a failed rehearsal **advises** — it's attached to the
+  `ApprovalRequest` so the human sees it, but the human still decides.
+
+When `sandbox_mode` is `"off"` (the default everywhere — base compose,
+tests, CI), the sandbox is a no-op (`NullSandbox`): it rehearses nothing and
+reports an honest `"not rehearsed (sandbox off)"` verdict, so the base demo
+and the existing suite are unaffected.
+
+### Enabling it
+
+`sandbox_mode` is a config-switched setting sourced from the environment the
+same way `remediator_mode` is (`common/config.py`, `Settings` with
+`env_prefix="INTELLIOPS_"`), so the corresponding environment variable is
+`INTELLIOPS_SANDBOX_MODE=k8s`. The overlay (`deploy/docker-compose.k8s.yml`)
+sets it on the `action` service alongside `INTELLIOPS_REMEDIATOR_MODE=k8s`
+and `INTELLIOPS_HEALTH_CHECK_MODE=k8s` (see step 3 above), so bringing the
+overlay up turns rehearsal on for that run. To rehearse without executing the
+real fix, drop `INTELLIOPS_REMEDIATOR_MODE`/`INTELLIOPS_HEALTH_CHECK_MODE`
+back to their defaults and keep `INTELLIOPS_SANDBOX_MODE=k8s`.
+
+The sandbox needs nothing beyond what real remediation already needs: the
+same kubeconfig, the same `kind` docker-network membership, the same RBAC
+the action service already has to read/create/delete Deployments — it
+additionally creates and deletes its own `intelliops-sandbox-*` namespaces,
+so the service account needs namespace create/delete in the cluster you run
+this against (the default kind setup grants this).
+
+### The honest limits
+
+- **Shared node, not production-isolated.** The clone runs in the *same*
+  kind cluster, on the *same* node, as everything else. It proves the fix
+  produces a healthy pod under real scheduling and real probes — it does
+  **not** prove the fix is safe under production's concurrent load, and it
+  cannot catch noisy-neighbor contention between the clone and the real
+  workload.
+- **Pod readiness is the pass signal, not a metric.** For this PR, `passed`
+  is driven entirely by the clone pod reaching `ready == desired` after the
+  fix is applied. The health checker's metric predicate is left at its
+  default (`lambda: True`) rather than wired to Prometheus, because the
+  demo's `cpu_usage` series is keyed per metric name, not per namespace — a
+  clone's series isn't reliably distinguishable from production's without a
+  per-namespace query, which is deferred to a later PR.
+- **A clean-but-wrong action still passes.** The rehearsal catches *does
+  the fix work* (crash, OOMKill, a rollback target that doesn't exist, a pod
+  that never becomes ready) — it does not catch *is this the right fix* or
+  *is this action's blast radius acceptable*. A destructive action that
+  completes without error reads as a pass. The sandbox is one gate among
+  several (typed action vocabulary, human approval), never a substitute for
+  the others.
+- **Not exercised by CI or the test suite.** Like the rest of this page,
+  the live `NamespaceCloneSandbox` path only runs against a real kind
+  cluster you bring up yourself. `sandbox_mode` defaults to `"off"`
+  everywhere else, so CI, the base compose stack, and the ~440-test suite
+  never touch a real cluster.
+
+See
+[`docs/sandbox-and-ai-runbooks-design-note.md`](../../docs/sandbox-and-ai-runbooks-design-note.md)
+for the full rationale — why k8s server-side dry-run doesn't count as a
+rehearsal, why a same-cluster namespace clone was chosen over a second
+cluster or a dedicated sandbox platform, and what a sandboxed action-pass
+does and doesn't tell you.
+
+### Driving it manually
+
+With `INTELLIOPS_SANDBOX_MODE=k8s` set alongside `INTELLIOPS_REMEDIATOR_MODE=k8s`
+and the stack up (steps 1–3 above), repeat the incident from step 4 with one
+extra thing to watch for between diagnosis and approval:
+
+```bash
+kubectl get ns -w
+```
+
+After RCA picks a playbook but **before** you click Approve, you should see
+an `intelliops-sandbox-<8 hex chars>` namespace appear, hold briefly while
+the clone rolls out and the fix is rehearsed against it, and then disappear
+again — all while the incident panel already shows the `🧪 pre-flight:` row
+with its verdict. Only after that has settled does the approval decision
+apply the fix to the real `intelliops-demo` namespace, exactly as in step 4.
+
 ## The honest note
 
 Real pod remediation only happens on this path, against a real kind cluster,
@@ -171,4 +270,7 @@ started by hand. It is the demo/PPO story, not a CI-covered path — CI and the
 default compose stack never set `INTELLIOPS_REMEDIATOR_MODE=k8s`, so
 `REMEDIATOR_MODE` stays `dry_run` (log-only, never touches infrastructure)
 everywhere except when you deliberately layer this overlay on top of a
-cluster you brought up yourself.
+cluster you brought up yourself. The same is true of `SANDBOX_MODE=k8s` —
+CI and the default compose stack never set it, so `sandbox_mode` stays
+`"off"` (no-op, rehearses nothing) everywhere except this deliberate,
+by-hand path.

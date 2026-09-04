@@ -14,6 +14,7 @@ services:
     environment:
       INTELLIOPS_REMEDIATOR_MODE: k8s
       INTELLIOPS_HEALTH_CHECK_MODE: k8s
+      INTELLIOPS_SANDBOX_MODE: k8s
       INTELLIOPS_PROMETHEUS_URL: http://host.docker.internal:30090
       KUBECONFIG: /kubeconfig
     volumes:
