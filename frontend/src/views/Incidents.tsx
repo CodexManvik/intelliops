@@ -155,7 +155,13 @@ export function Incidents() {
           () =>
             update(sel.id, {
               status: "resolved",
-              outcome: { result: "success", health_after: "healthy", mode: "dry_run", steps: [] },
+              outcome: {
+                result: "success",
+                health_after: "healthy",
+                mode: "dry_run",
+                steps: [],
+                preflight: { passed: true, detail: "sandbox: clone healthy in 8s", mode: "k8s" },
+              },
             }),
           1400,
         );
@@ -382,6 +388,16 @@ export function Incidents() {
                         </div>
                         {shown.outcome?.steps && shown.outcome.steps.length > 0 && (
                           <div className="mt-1 font-mono text-2xs text-ink-3">steps: {shown.outcome.steps.join(" → ")}</div>
+                        )}
+                        {shown.outcome?.preflight && shown.outcome.preflight.mode !== "off" && (
+                          <div className="mt-1 font-mono text-2xs text-ink-3">
+                            🧪 pre-flight:{" "}
+                            {shown.outcome.preflight.passed ? (
+                              <span className="text-sev-ok">rehearsed in sandbox — passed</span>
+                            ) : (
+                              <span className="text-sev-warn">failed — {shown.outcome.preflight.detail}</span>
+                            )}
+                          </div>
                         )}
                         <div className="font-mono text-2xs text-ink-3">outcome labeled → reliability rising → next matching storm may be suppressed</div>
                       </div>

@@ -180,6 +180,9 @@ class ReadModel:
                 "health_after": o.health_after,
                 "mode": getattr(o, "mode", "dry_run"),
                 "steps": list(getattr(o, "steps", [])),
+                "preflight": (
+                    p.model_dump() if (p := getattr(o, "preflight", None)) is not None else None
+                ),
             }
         result = o.result.value if isinstance(o.result, RemediationResult) else str(o.result)
         sit = self._sits.get(o.situation_id, {})
