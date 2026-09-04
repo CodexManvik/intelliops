@@ -177,6 +177,7 @@ def test_denylist_blocks_unsafe_limits():
     outcome = execute_remediation(_situation(), pb, gate, remediator, health, sandbox, 1.0, 0.01)
     assert outcome.health_after == "denied:unsafe-limits"
     assert sandbox.rehearsed is False
+    assert remediator.executed is False
 
 
 def test_denylist_blocks_unsafe_probe():
@@ -185,6 +186,7 @@ def test_denylist_blocks_unsafe_probe():
     outcome = execute_remediation(_situation(), pb, gate, remediator, health, sandbox, 1.0, 0.01)
     assert outcome.health_after == "denied:unsafe-probe"
     assert sandbox.rehearsed is False
+    assert remediator.executed is False
 
 
 def test_denylist_allows_safe_tier2_and_reaches_sandbox():
