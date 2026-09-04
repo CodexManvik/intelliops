@@ -156,7 +156,7 @@ def test_rollback_to_revision_reads_rs_then_patches_template():
     assert any(c[0] == "list_rs" for c in api.calls)
     patch = next(c for c in api.calls if c[0] == "patch")
     # the deployment template is set to the revision-3 RS's template
-    assert patch[3]["spec"]["template"] == "TEMPLATE-REV-3"
+    assert patch[3]["spec"]["template"].spec == "TEMPLATE-REV-3"
 
 
 def test_new_actions_never_raise_on_api_error():

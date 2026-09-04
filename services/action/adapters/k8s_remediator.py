@@ -134,7 +134,7 @@ class KubernetesRemediator:
             for rs in rs_list.items:
                 ann = (rs.metadata.annotations or {}) if rs.metadata else {}
                 if ann.get("deployment.kubernetes.io/revision") == str(step.revision):
-                    target_template = rs.spec.template.spec
+                    target_template = rs.spec.template
                     break
             if target_template is None:
                 # No such revision on this deployment — a real failure, surfaced
