@@ -7,3 +7,4 @@ steps:
 hitl_mode: hitl
 reversible: true
 rollback_steps: []
+symptoms: "error spikes in logs, crash loops, wedged or hung process, elevated 5xx errors, stuck workers"

@@ -79,6 +79,11 @@ class Settings(BaseSettings):
     llm_runbook_timeout_seconds: float = 10.0
     llm_runbook_api_key: str = ""
 
+    # --- Semantic runbook selection (off by default; keyword matching unaffected) ---
+    runbook_selector_mode: str = "off"  # "off" | "embedding"
+    runbook_selector_model: str = "all-MiniLM-L6-v2"
+    runbook_selector_threshold: float = 0.45  # min cosine similarity to accept a match
+
 
 @lru_cache
 def get_settings() -> Settings:
