@@ -23,8 +23,9 @@ from common.contracts import (
 )
 from common.envelope import iter_models, publish_model
 from common.interfaces import AuditSink, ContextProvider, ExplanationProvider, PlaybookStore
+from services.rca.adapters.runbook_selector import NullRunbookSelector
 from services.rca.enrich import enrich
-from services.rca.rank import rank_hypotheses, surface_runbook
+from services.rca.rank import rank_hypotheses, select_runbook
 
 
 def diagnose(
@@ -33,10 +34,23 @@ def diagnose(
     store: PlaybookStore,
     explainer: ExplanationProvider,
     reliability_provider=None,
+    selector=None,
 ) -> DiagnosedSituation:
     context = enrich(situation, provider)
     hypotheses = rank_hypotheses(situation, context, reliability_provider)
-    runbook = surface_runbook(hypotheses, store)
+    sel = selector or NullRunbookSelector()
+    runbook, score, runbook_source = select_runbook(hypotheses, situation, store, sel)
+    if runbook_source == "semantic" and hypotheses and runbook is not None:
+        top0 = hypotheses[0]
+        hypotheses = [
+            top0.model_copy(
+                update={
+                    "suggested_runbook_id": runbook.id,
+                    "evidence": [*top0.evidence, f"semantic match: {runbook.id} ({score:.2f})"],
+                }
+            ),
+            *hypotheses[1:],
+        ]
     if hypotheses:
         top = hypotheses[0]
         advisory, source = explainer.explain_with_source(top, context, situation)
@@ -62,11 +76,14 @@ def run_consumer(
     explainer_source,  # zero-arg callable -> ExplanationProvider (live-swappable)
     stop_event: threading.Event,
     reliability_provider=None,
+    selector=None,
 ) -> None:
     for situation in iter_models(bus, "situations.detected", "rca", Situation):
         if stop_event.is_set():
             break
-        diagnosed = diagnose(situation, provider, store, explainer_source(), reliability_provider)
+        diagnosed = diagnose(
+            situation, provider, store, explainer_source(), reliability_provider, selector
+        )
         publish_model(bus, "situations.diagnosed", diagnosed)
         audit_sink.write(
             AuditRecord(

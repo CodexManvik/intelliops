@@ -9,3 +9,4 @@ reversible: true
 rollback_steps:
   - action: rollback_deploy
     note: "kubectl rollout undo deploy/{service} --to-revision={prev}"
+symptoms: "regression immediately following a recent deployment or release, new version misbehaving, errors starting right after a rollout"

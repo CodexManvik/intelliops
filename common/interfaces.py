@@ -175,3 +175,14 @@ class RunbookAuthor(Protocol):
     def draft(
         self, situation: Situation, hint: str | None = None
     ) -> tuple[Playbook, str | None] | None: ...
+
+
+@runtime_checkable
+class RunbookSelector(Protocol):
+    """Selects a runbook for a situation by semantic similarity among the
+    registered playbooks. Returns (playbook_id, score) or None. Ranks only
+    existing playbooks — never fabricates an id. Never raises."""
+
+    def select(
+        self, situation: Situation, hypothesis: RootCauseHypothesis, store: PlaybookStore
+    ) -> tuple[str, float] | None: ...

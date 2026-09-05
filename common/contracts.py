@@ -128,6 +128,7 @@ class Playbook(BaseModel):
     hitl_mode: HitlMode
     reversible: bool = False
     rollback_steps: list[RemediationStep] = Field(default_factory=list)
+    symptoms: str | None = None  # human-written "when this applies" — the semantic match target
 
 
 class ProposedPlaybookStatus(str, Enum):

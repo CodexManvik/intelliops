@@ -126,3 +126,24 @@ def surface_runbook(hypotheses: list[RootCauseHypothesis], store: PlaybookStore)
     if runbook_id is None:
         return None
     return store.get(runbook_id)
+
+
+def select_runbook(
+    hypotheses: list[RootCauseHypothesis],
+    situation: Situation,
+    store: PlaybookStore,
+    selector,
+) -> tuple[Playbook | None, float | None, str]:
+    """Rules-first runbook selection, semantic fallback. Returns
+    (playbook, score, source) with source in {"rule","semantic","none"}."""
+    rule_runbook = surface_runbook(hypotheses, store)
+    if rule_runbook is not None:
+        return rule_runbook, None, "rule"
+    if hypotheses:
+        hit = selector.select(situation, hypotheses[0], store)
+        if hit is not None:
+            pid, score = hit
+            pb = store.get(pid)
+            if pb is not None:  # closed catalog: only a registered id is honored
+                return pb, score, "semantic"
+    return None, None, "none"
