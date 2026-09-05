@@ -1194,6 +1194,154 @@ effort.
 
 ---
 
+### ADR-023 — Pre-flight sandbox rehearsal before remediation
+
+**Context.** [ADR-007](#adr-007--reversible-only-health-verified-remediation) makes remediation
+reversible and health-verified, but the first time a fix touched a real pod was still
+**production**: `execute_remediation` ran the gates, then executed on the live target, then
+health-checked, then rolled back if unhealthy. There was no *trial* step. `dry_run` mode
+rehearses nothing — `DryRunRemediator.execute` literally logs and returns `True`. Kubernetes
+server-side dry-run is admission-only (it validates the manifest against the API server; it
+never schedules a pod, so it produces no health signal). Neither answers the question a human
+approver actually has: *will this fix work?*
+
+**Decision.** Add a **pre-flight rehearsal** that runs on an isolated copy **before** the human
+approves (and before an `auto` playbook executes). A `Sandbox` interface has two config-switched
+adapters ([ADR-012](#adr-012--config-switched-adapter-selection-with-test-safe-defaults)):
+`NullSandbox` (default, `SANDBOX_MODE=off`, passes through — base demo/tests byte-identical) and
+`NamespaceCloneSandbox` (`SANDBOX_MODE=k8s`). The clone sandbox copies the target Deployment
+(plus, best-effort, its Service and referenced ConfigMaps) into a throwaway
+`intelliops-sandbox-<id>` namespace, waits for the clone's rollout, applies the **same typed
+`RemediationPlan`** to the clone via a reused `KubernetesRemediator`, watches the clone's pod
+recover via the reused `KubernetesHealthChecker`, tears the namespace down, and returns a
+`PreflightResult` (passed / detail / mode / sandbox_namespace). The gate is inserted **before**
+the HITL approval wait: a failed rehearsal **blocks** an `auto` playbook (returns a
+`preflight-failed` outcome, never executes); for `hitl` it **advises** — the verdict rides onto
+the `ApprovalRequest` so the human decides with it in hand. The verdict is additive on every
+`RemediationOutcome` and surfaces in the incident timeline.
+
+**Why.** The rehearsal converts "trust the fix" into "try the fix safely, then trust it." It is
+**fail-safe by construction** — the sandbox never raises out of `execute_remediation`; any error
+is a `PreflightResult(passed=False)`, and the throwaway namespace is always torn down in a
+`finally` — mirroring the never-raise discipline of the k8s remediator/health adapters. The
+honest limit, documented rather than hidden: the clone shares the same kind node (it is *isolated*,
+not *production-grade isolated*), and pod-readiness is the primary pass signal (the demo's
+`cpu_usage` series is per-metric-name, not per-namespace, so a clone's metric series isn't
+reliably distinguishable — a per-namespace metric query is deferred). The live path runs only on
+a real kind cluster and is a documented manual step; everything else (the gate logic, the
+`NullSandbox` path, the contract/projection/UI plumbing, fail-safety, teardown) is unit-tested.
+Critically, the sandbox catches an action's **effect, not its blast radius** — a clean `delete`
+would pass a rehearsal and then destroy production — which is exactly why the vocabulary widening
+in [ADR-024](#adr-024--tier-2-remediation-vocabulary--a-destructive-action-denylist) needs a
+denylist too, not just the sandbox.
+
+---
+
+### ADR-024 — Tier-2 remediation vocabulary + a destructive-action denylist
+
+**Context.** [ADR-013](#adr-013--structured-remediationplan-is-what-made-real-k8s-remediation-safe)
+made `RemediationStep.action` a **closed `Literal`** — the core safety property: an AI or a
+misconfigured playbook literally cannot express an action outside the set, because
+`model_validate` rejects it. But the set was only four verbs (`restart` / `scale` /
+`rollback_deploy` / `wait`), thin for a credible remediation catalog. Widening it naïvely would
+either reintroduce unsafe actions or break the "every action is typed and rehearsable" guarantee
+[ADR-023](#adr-023--pre-flight-sandbox-rehearsal-before-remediation) just established.
+
+**Decision.** Widen the `Literal` to **seven** Deployment-scoped, sandbox-rehearsable verbs (add
+`patch_resource_limits`, `rollback_to_revision`, `patch_probe`) — each one typed
+(`AppsV1Api`-only), each with a same-shape rollback so [ADR-007](#adr-007--reversible-only-health-verified-remediation)
+still holds, each fully rehearsable by the ADR-023 clone (the sandbox was extended to seed the
+clone's ReplicaSet history so `rollback_to_revision` can rehearse truthfully). **Node** actions
+(`cordon`/`uncordon`) and **HPA** actions are deliberately **excluded** — a node is cluster-scoped
+and can't be cloned into a sandbox (the widest blast radius in tier-2, and the sandbox guarantee
+wouldn't hold); an HPA needs a different API and only partially rehearses. Catastrophic actions
+(`delete`, `exec`, scale-to-zero, secret access, any cluster-scoped mutation) stay **permanently**
+out of the `Literal`. Alongside the widening, add a **defense-in-depth denylist gate** in
+`execute_remediation` that runs **before the sandbox** and refuses dangerous *shapes* of allowed
+verbs: `denied:unsafe-scale` (a delta that would zero a deployment), `denied:unsafe-limits`
+(implausibly small ceilings, or a no-op patch), `denied:unsafe-probe` (a defeated/malformed
+probe), `denied:unsafe-revision` (an indeterminate rollback target).
+
+**Why.** The `Literal` is the primary guard and the denylist is belt-and-suspenders — for tier-2
+verbs a name-blocklist would be redundant (the `Literal` already excludes bad *names*), so the
+gate's real value is guarding dangerous *shapes*, and it is positioned where it will also guard
+the AI-authored runbooks of [ADR-025](#adr-025--ai-authored-runbooks-propose--approve) and any
+future open field. It runs before the sandbox on purpose: the sandbox catches *effect*, not
+*blast radius* (ADR-023), so a dangerous-but-valid-looking step must be refused by a hard gate
+*before* a rehearsal could lull an operator into approving it. The safety invariant survives the
+widening intact: still a closed `Literal` (grown by exactly three vetted verbs), still one typed
+API call + a same-shape rollback per action, still every action sandbox-rehearsable, and the
+default path unchanged.
+
+---
+
+### ADR-025 — AI-authored runbooks (propose → approve)
+
+**Context.** Every playbook in the registry was human-authored and seeded. When RCA diagnosed a
+situation with no matching playbook, the incident simply had no suggested remediation — a **gap**.
+Closing that gap with an LLM is tempting, but letting a model *choose or execute* an action would
+throw away the entire safety story ([ADR-007](#adr-007--reversible-only-health-verified-remediation),
+[ADR-013](#adr-013--structured-remediationplan-is-what-made-real-k8s-remediation-safe)) — a
+model must never be the thing that acts.
+
+**Decision.** Add a **propose → approve lifecycle**, entirely human-initiated: a human on a gap
+incident requests an AI draft; governance calls a `RunbookAuthor` (a `NullRunbookAuthor` default
+plus an `OpenAICompatibleRunbookAuthor`, mirroring the LLM-explanation adapter pattern of
+[ADR-019](#adr-019--pluggable-detectors-the-finetuning-loop-and-llm-assisted-rca)) that returns a
+**typed `Playbook`** parsed via `model_validate`; the draft is stored as a `ProposedPlaybook`
+(status `proposed`) — **not** the live registry; a human with `approve` RBAC reviews it and
+approves (→ the inner `Playbook` is `register()`-ed into the live `PlaybookStore`) or rejects,
+both RBAC-gated and audited exactly like the existing decide/graduate flows. On propose,
+`hitl_mode` is **forced to HITL** and the `id` is **server-assigned** — an AI can neither grant
+itself auto-execution nor overwrite an existing playbook.
+
+**Why.** *The AI proposes, a human disposes, and the type system guards.* The load-bearing
+guarantee is inherited for free from [ADR-024](#adr-024--tier-2-remediation-vocabulary--a-destructive-action-denylist)'s
+closed `Literal`: the AI's output is text, and the *only* path from that text to the store or the
+registry runs through `Playbook.model_validate`, which rejects any out-of-set action — so an
+unsafe draft can never even become a proposal. The author is **fail-to-nothing** (any LLM failure
+— unreachable, non-JSON, invalid Playbook — returns `None`, never raises), off by default
+(`RUNBOOK_AUTHOR_MODE=off` → base suite/CI never hit an endpoint), and the **only** route that
+reaches the live registry is the RBAC-gated approve route. Crucially there is **no execution-path
+change** — an approved AI-authored playbook enters the same registry and is thereafter subject to
+every existing gate: the denylist, the ADR-023 sandbox, and the HITL approval it is forced into.
+
+---
+
+### ADR-026 — Semantic runbook selection (embedding fallback)
+
+**Context.** Runbook *selection* was pure keyword matching in `rca/rank.py`: `if "cpu" in
+metric_name` → `scale-service`, and so on. That is brittle — a metric named
+`container_memory_working_set_bytes`, or a hypothesis worded "the service is thrashing under
+load," shares no literal token with the saturation rule, so a perfectly good runbook is missed
+and the incident falls into the gap. Real AIOps needs *semantic* matching — but, per the same
+principle as [ADR-025](#adr-025--ai-authored-runbooks-propose--approve), an LLM must not be the
+thing that picks the action.
+
+**Decision.** Make selection **rules-first, semantic-fallback**. The keyword rules stay primary
+(fast, high-precision, fully auditable); when no rule fires, an `EmbeddingRunbookSelector` (a
+local `sentence-transformers` `all-MiniLM-L6-v2` model, cosine similarity) ranks the
+**registered** playbooks by embedding their new curated `symptoms` field against the incident's
+symptoms + hypothesis, and picks the best match above a threshold (default 0.45); below → the gap
+→ the ADR-025 authoring flow. A `RunbookSelector` interface with a `NullRunbookSelector` default
+(`RUNBOOK_SELECTOR_MODE=off`) keeps selection byte-identical to the keyword-only behavior; the
+embedding model is opt-in via the `ml` extra, imported **lazily** so the slim-image boundary of
+[ADR-022](#adr-022--slim-per-service-docker-images) holds.
+
+**Why.** This is **retrieval — semantic matching among human-vetted playbooks — not an LLM
+choosing the fix.** It can only ever return the id of a *registered* playbook (it ranks
+`store.list()`) or `None`; it never fabricates a runbook or an action, and a plain threshold
+comparison (not a model) makes the binding decision — so it is deterministic given the vectors
+and adds genuine semantic reach with no hallucination risk. It is **fail-safe** (any model/encode
+error → `None`, never raises out of `diagnose`), the rules stay primary (the selector isn't
+consulted when a rule fires), and a semantic match records its provenance
+(`semantic match: <id> (<score>)`) on the hypothesis evidence so the operator sees *why* — the
+same honesty as the LLM/template explanation provenance. Together with ADR-025, this closes the
+gap from both sides: match an existing runbook when one fits semantically, or draft a new one for
+human approval when none does.
+
+---
+
 ## 4. Cross-cutting concerns
 
 **Traceability.** A `correlation_id` is threaded through every `AuditRecord`, so one
