@@ -29,13 +29,40 @@ would operate on a client's behalf, with IntelliOps as the AIOps layer keeping i
 
 All four are built from one shared factory, `make_meridian_service()` in
 `services/meridian/common.py` — the same pattern `services/demo_app` established: `create_app()`
-(free `/health`, `/ready`, CORS, auth) plus a `cpu_usage` gauge and a `meridian_error_rate` gauge,
-an `/admin/fault` + `/admin/clear` pair gated by `common.auth.require_token`, and `/metrics`. Only
-the gateway currently has real domain routes wired in (`POST /api/submissions`, `GET /api/reports`)
+(free `/health`, `/ready`, CORS, auth) plus a full **USE+RED metric set** (11 gauges — see §1a
+below), an `/admin/fault` + `/admin/clear` pair gated by `common.auth.require_token`, and
+`/metrics`. Only the gateway currently has real domain routes wired in (`POST /api/submissions`,
+`GET /api/reports`)
 — the other three exist as genuine, independently-faultable services with the full scaffold, ready
 for their own domain endpoints in a later pass. Two tables (`meridian_submissions`,
 `meridian_reports`) live on `common.db.METADATA` and are created by Alembic migration
 `0004_meridian.py` — no second Postgres, no second Redis; Meridian shares IntelliOps' infra.
+
+### 1a. Metrics — the USE+RED set
+
+Every Meridian service's `/metrics` exposes the same 11 bare `Gauge`s (no `service` label — the
+Prometheus scrape job injects it at scrape time). These are **simulated values on a synthetic
+system**, held in `MeridianState` and moved only by `/admin/fault` — not real CPU, memory, or
+database readings.
+
+| Metric | Family | Meaning |
+|---|---|---|
+| `cpu_usage` | USE (utilization) | Simulated CPU utilization percent |
+| `memory_usage_mb` | USE (utilization) | Simulated resident memory usage, MB |
+| `disk_usage_percent` | USE (utilization) | Simulated disk utilization percent |
+| `saturation` | USE (saturation) | Simulated saturation index, 0..1 (run-queue / thread-pool pressure) |
+| `queue_depth` | USE (saturation) | Simulated pending work-queue depth |
+| `db_pool_in_use` | USE (saturation) | Simulated database connections currently checked out |
+| `db_pool_max` | USE (saturation) | Simulated database connection pool size |
+| `request_rate` | RED (rate) | Simulated requests per second |
+| `meridian_error_rate` | RED (errors) | Simulated request error rate, 0..1 |
+| `latency_p50_ms` | RED (duration) | Simulated p50 request latency, ms |
+| `latency_p99_ms` | RED (duration) | Simulated p99 request latency, ms |
+
+`cpu_usage` and `meridian_error_rate` are the original pair from the first Meridian design — kept
+exactly as-is (no rename) so every existing scrape/ingestion/gateway/test wiring keeps working; the
+other nine are additive. §4 below covers how fault scenarios move these metrics in realistic
+clusters.
 
 The gateway additionally exposes:
 - `POST /api/ops/fault` / `POST /api/ops/clear` — a server-side proxy that forwards to the target
@@ -59,7 +86,7 @@ Four views:
 - **Dashboard** — submissions/reporting-period status, service health at a glance.
 - **Submit** — a form that posts a real financial submission through the gateway.
 - **Reports** — the reports list.
-- **Operations** — the demo driver: the 4 scenario presets, the custom-fault composer, a live
+- **Operations** — the demo driver: the 8 scenario presets, the custom-fault composer, a live
   service-status strip, and the sequential-injection guard (§4).
 
 ## 3. How Meridian is wired to IntelliOps (additive only)
@@ -86,11 +113,13 @@ The pre-existing `demo-app` job is untouched.
 **b. The ingestion query, broadened only in compose.** Ingestion polls one fixed PromQL query.
 Every Meridian service already emits a `cpu_usage` gauge with the same *name* as `demo-app`'s, so
 `scale-service`-flavored faults (a `cpu_usage` spike) are picked up with **zero** query change. To
-also see `meridian_error_rate` (needed for the `restart-pod` scenario), the ingestion service's
-compose environment sets the query to an instant-vector **selector**:
+also see the rest of the USE+RED set (§1a) — `meridian_error_rate`, `request_rate`,
+`latency_p50_ms`, `latency_p99_ms`, `memory_usage_mb`, `saturation`, `queue_depth`,
+`db_pool_in_use`, `db_pool_max`, `disk_usage_percent` — the ingestion service's compose environment
+sets the query to an instant-vector **selector** naming all 11 metrics:
 
 ```yaml
-INTELLIOPS_PROMETHEUS_QUERY: '{__name__=~"cpu_usage|meridian_error_rate"}'
+INTELLIOPS_PROMETHEUS_QUERY: '{__name__=~"cpu_usage|meridian_error_rate|request_rate|latency_p50_ms|latency_p99_ms|memory_usage_mb|saturation|queue_depth|db_pool_in_use|db_pool_max|disk_usage_percent"}'
 ```
 
 `common/config.py`'s default stays `cpu_usage` — this override lives only in the `ingestion`
@@ -98,7 +127,12 @@ service's block in `deploy/docker-compose.yml`, so the default build, the test s
 see it. **This was the single riskiest unknown in the design and was verified live**: the regex
 selector against a real Prometheus returns `resultType: vector` (an instant vector, exactly what
 `PrometheusSource` expects), with each Meridian service appearing as its own series carrying its
-`service` label. See §5 for the full verified run.
+`service` label. See §5 for the full verified run (that run predates the Metrics Phase 1 metric
+broadening and used the original 2-name selector; the mechanism — and its verified correctness — is
+unchanged by adding more names to the same regex). The gateway's `/api/ops/metrics` panel
+(`services/meridian/gateway/app.py`) uses the identical 11-name selector server-side and folds every
+known metric name into its service's row generically (`row[name] = val`), so unknown/future series
+are ignored rather than crashing the fold.
 
 **c. The `deploys.json` volume (the rollback-deploy path).** Before this work, `rca-service` had
 no mount for its on-disk deploy-context file, so `recent_deploys()` was always empty and
@@ -117,42 +151,60 @@ Meridian throws at them — no Meridian-specific playbook was needed.
 ## 4. Fault injection: the mechanism, the scenarios, and why they must run one at a time
 
 Each Meridian service accepts `POST /admin/fault` with `{type, magnitude, duration_seconds?}`
-(`services/meridian/common.py`):
+(`services/meridian/common.py`). As of Metrics Phase 1, `type` is one of **8 typed scenarios**,
+each moving a realistic *cluster* of the USE+RED metrics from §1a rather than a single gauge:
 
-| Fault type | Effect | Diagnosis it drives |
-|---|---|---|
-| `saturation` | `cpu_usage` gauge jumps 18.0 → 92.0 × magnitude | `scale-service` |
-| `error` | `meridian_error_rate` rises; `cpu_usage` is deliberately **held at 18.0** | `restart-pod` |
-| `latency` | real `time.sleep()` injected on domain routes; also drives `cpu_usage` up | `scale-service` |
-| `crash` | `/ready` starts returning 503 | no dedicated RCA rule today — detection-only (see §6) |
-
-The `error` fault's baseline-hold is deliberate and load-bearing: RCA's `rank_hypotheses`
-(`services/rca/rank.py`) scores a saturation-token match at confidence 0.6 and an error/log match
-at 0.5 — if a fault spiked *both* signals, `scale-service` would always win and `restart-pod` would
-never fire. Keeping `cpu_usage` at baseline during an `error` fault is what makes the diagnosis
-diverse rather than defaulting to the same playbook every time.
-
-### The 4 scripted scenarios
-
-| Preset | Service | Injected | Expected diagnosis |
+| Scenario | Metric profile (what moves) | The incident it models | Diagnosis it drives |
 |---|---|---|---|
-| Aggregation saturated | aggregation | saturation | `scale-service` |
-| Report generation slow | reporting | latency (+ cpu) | `scale-service` |
-| Validation errors spiking | validation | error (magnitude 0.5) | `restart-pod` |
-| Bad gateway deploy | gateway | deploy marker (v2.3.1) then saturation | `rollback-deploy` |
+| `saturation` | `cpu_usage` ↑, `saturation` ↑, `queue_depth` ↑ (step) | local capacity exhaustion | `scale-service` |
+| `latency` | `latency_p50_ms`/`latency_p99_ms` ↑, `queue_depth` ↑, `cpu_usage` mildly ↑ (step) | slow downstream call / lock contention | `scale-service` |
+| `error` | `meridian_error_rate` ↑ only; **`cpu_usage` + latency held at baseline** | a failing dependency or bad code path inside this service | `restart-pod` |
+| `memory_leak` | `memory_usage_mb` **ramps** linearly toward a target over `duration_seconds`; nothing else moves | a leak trending toward OOM | no dedicated RCA rule today — detection-only (see below) |
+| `traffic_surge` | `request_rate` ↑, `cpu_usage` ↑, `saturation` ↑, `queue_depth` ↑ (step) | more legitimate load than the service has capacity for | `scale-service` |
+| `dependency_outage` | `meridian_error_rate` ↑, `latency_p99_ms` ↑; **`cpu_usage` held at baseline** | an upstream dependency this service calls is down | `restart-pod` (or, ideally, a dependency-specific runbook once RCA gains one — Phase 3) |
+| `db_exhaustion` | `db_pool_in_use` → `db_pool_max`, `latency_p99_ms` ↑ (step); cpu/error stay baseline | database connection-pool starvation | no dedicated RCA rule today — detection-only (see below) |
+| `crash` | `/ready` starts returning 503 (`unhealthy=True`); no metric moves | a wedged process | no dedicated RCA rule today — detection-only (see below) |
+
+**The load-bearing cross-metric invariant.** `error` and `dependency_outage` are the two scenarios
+that deliberately **hold `cpu_usage` at its 18.0 baseline** while they move: RCA's
+`rank_hypotheses` (`services/rca/rank.py`) scores a saturation-token match at confidence 0.6 and an
+error/log match at 0.5 — if either fault also spiked `cpu_usage`, `scale-service` would always
+outrank `restart-pod` and the error/outage incident would be misdiagnosed as a capacity problem.
+Keeping `cpu_usage` flat during both faults is what lets `restart-pod` fire at all; the same
+discipline is documented in `services/meridian/common.py`'s module docstring and enforced by
+`services/meridian/tests/` (`test_error_keeps_cpu_at_baseline`,
+`test_dependency_outage_moves_errors_and_latency_not_cpu`). More generally, every one of the 8
+profiles moves *only* the metrics that incident would realistically move — the shape of the
+anomaly cluster is itself part of the (eventual, Phase-3) diagnosis, not noise.
+
+### The 8 scripted scenarios (Operations view presets)
+
+| Preset label | Service | Injected | Expected diagnosis |
+|---|---|---|---|
+| Aggregation saturated | aggregation | `saturation` | `scale-service` |
+| Report slow | reporting | `latency` (+ cpu) | `scale-service` |
+| Validation errors | validation | `error` (magnitude 0.5) | `restart-pod` |
+| Bad gateway deploy | gateway | deploy marker (v2.3.1) then `saturation` | `rollback-deploy` |
+| Memory leak (gradual) | aggregation | `memory_leak` | detection-only — no dedicated rule today |
+| Traffic surge | gateway | `traffic_surge` | `scale-service` |
+| Dependency outage | validation | `dependency_outage` | `restart-pod` |
+| DB pool exhaustion | reporting | `db_exhaustion` | detection-only — no dedicated rule today |
 
 ### The custom-fault builder
 
-The Operations view also has a composer: pick a target service, a fault type, a magnitude
-(0.1–2.0), a duration, and an optional "mark as deploy" checkbox, then fire it through the same
-`/api/ops/fault` proxy the presets use — the identical real mechanism, not a separate code path.
-**Honest note on coverage:** only three of the four fault types map to a playbook RCA actually
-ranks above the low-confidence fallback (`saturation`/`latency` → `scale-service`,
-`error` → `restart-pod`, and a deploy marker → `rollback-deploy`). `crash` (a `/ready` 503) has no
-dedicated RCA rule in `rank_hypotheses` — unless it happens to co-occur with a saturation-token
-metric, it lands in the generic "root cause undetermined" fallback (confidence 0.2, no suggested
-runbook). That is a genuine, current gap in RCA's rule coverage, not a UI bug — the composer will
-happily let you inject it, and IntelliOps will detect the anomaly but may not diagnose it richly.
+The Operations view also has a composer: pick a target service, a fault type (all 8 scenarios), a
+magnitude (0.1–2.0), a duration, and an optional "mark as deploy" checkbox, then fire it through
+the same `/api/ops/fault` proxy the presets use — the identical real mechanism, not a separate code
+path. **Honest note on coverage:** only some of the 8 scenarios map to a playbook RCA actually
+ranks above the low-confidence fallback today (`saturation`/`latency`/`traffic_surge` →
+`scale-service`; `error`/`dependency_outage` → `restart-pod`; a deploy marker → `rollback-deploy`).
+`memory_leak`, `db_exhaustion`, and `crash` have **no dedicated RCA rule** in `rank_hypotheses` as
+of Metrics Phase 1 — unless one happens to co-occur with a saturation- or error-token metric, it
+lands in the generic "root cause undetermined" fallback (confidence 0.2, no suggested runbook).
+That is a genuine, current gap in RCA's rule coverage (closing it for the new metric families is
+explicitly **Phase 3** of this metrics arc — see the design spec), not a UI bug: the composer will
+happily let you inject any of the 8, and IntelliOps will detect the anomaly but may not diagnose it
+richly until Phase 3 lands.
 
 ### Why sequential injection is required
 
@@ -251,9 +303,13 @@ the demo script below insists on it.
 - **Faults must be injected one at a time.** Correlation groups by time window, not by service
   (§4) — this is a real constraint of the current detector, confirmed live (§5), not just a UI
   restriction. Concurrent faults on different services will merge into one Situation.
-- **Not every fault type has a dedicated playbook.** `crash` has no RCA rule of its own today (§4)
-  — it is detection-capable but not richly diagnosable, and the custom-fault composer does not
-  currently flag this distinction in its own UI text (it is documented here instead).
+- **Not every fault scenario has a dedicated playbook.** `crash`, `memory_leak`, and
+  `db_exhaustion` have no RCA rule of their own today (§4) — Metrics Phase 1 adds the *metric
+  signals* for these incident shapes, but mapping the new metric families to runbooks is
+  explicitly deferred to Phase 3 of the metrics arc (see the design spec at
+  `docs/superpowers/specs/2026-09-06-rich-metrics-phase1-design.md`). They are detection-capable
+  but not richly diagnosable today, and the custom-fault composer does not currently flag this
+  distinction in its own UI text (it is documented here instead).
 - **Only the gateway has real domain routes today.** `validation`, `aggregation`, and `reporting`
   are fully faultable, independently-observed services with the complete scaffold, but their
   `/validate`, `/aggregate`, and `/report` domain endpoints are not yet wired to real business

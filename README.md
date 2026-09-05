@@ -34,9 +34,11 @@ it, and it is **open-source-first** to avoid vendor lock-in.
 > **A real sample system now feeds the pipeline**: **Meridian**, a four-service Deloitte-style
 > financial/audit platform with its own client-portal UI, runs alongside IntelliOps in
 > `docker compose up`, wired in through additive-only Prometheus scrape jobs, a broadened
-> ingestion query, and a shared deploy-context volume — no IntelliOps code changed. Three fault
-> scenarios were verified live end-to-end in real Docker, each producing a genuinely different,
-> correct diagnosis (`scale-service` / `restart-pod` / `rollback-deploy`); see
+> ingestion query, and a shared deploy-context volume — no IntelliOps code changed. Each service
+> now emits a **USE+RED metric set with 8 typed fault scenarios** (up from the original
+> cpu/error-only pair), each scenario moving a realistic metric cluster rather than one gauge.
+> Three fault scenarios were verified live end-to-end in real Docker, each producing a genuinely
+> different, correct diagnosis (`scale-service` / `restart-pod` / `rollback-deploy`); see
 > [docs/MERIDIAN.md](docs/MERIDIAN.md) and
 > [ADR-020](architectural.md#adr-020--meridian-sample-production-system).
 > **Remediation got safer and more capable, without loosening the safety model.** A fix is now
@@ -288,7 +290,7 @@ work builds on top of them.
 | Platform | Kafka bus binding, whole-stack Helm deploy, load/chaos testing | 🚧 in review |
 | Intelligence | Pluggable detectors (`robust`/`trained`), persisted retrain loop, reliability-weighted + LLM-explained RCA, CI-enforced benchmark | ✅ done |
 | Frontend | Real-time console over SSE, a live incident-pipeline view, an audit explorer, Apple-light repaint | ✅ done |
-| Sample production system | **Meridian** — a 4-service financial platform + portal UI, wired to the pipeline, verified live | ✅ done |
+| Sample production system | **Meridian** — a 4-service financial platform + portal UI, emitting a USE+RED metric set across 8 typed fault scenarios, wired to the pipeline, verified live | ✅ done |
 | Pre-flight sandbox | Fixes are **rehearsed on an isolated namespace clone** before approval — block auto / advise human on the verdict (`SANDBOX_MODE=k8s`); [ADR-023](architectural.md#adr-023--pre-flight-sandbox-rehearsal-before-remediation) | ✅ done |
 | Wider, still-safe actions | Vocabulary widened 4→**7 typed** Deployment-scoped actions + a **destructive-shape denylist** gate; the action `Literal` stays closed (catastrophic actions permanently out); [ADR-024](architectural.md#adr-024--tier-2-remediation-vocabulary--a-destructive-action-denylist) | ✅ done |
 | AI-authored runbooks | The AI **drafts** a typed runbook for a gap; a human approves before it joins the registry (`RUNBOOK_AUTHOR_MODE`); the type system rejects unsafe drafts; [ADR-025](architectural.md#adr-025--ai-authored-runbooks-propose--approve) | ✅ done |
@@ -302,9 +304,16 @@ four backend services (gateway, validation, aggregation, reporting) plus its own
 ops-panel UI — that runs alongside IntelliOps in the same `docker compose up` and gives it something
 genuinely production-shaped to watch.
 
+Each service emits a **USE+RED metric set** (11 gauges — CPU, memory, disk, saturation, queue
+depth, DB-pool utilization, request rate, error rate, p50/p99 latency) and accepts **8 typed fault
+scenarios** (`saturation`, `latency`, `error`, `memory_leak`, `traffic_surge`,
+`dependency_outage`, `db_exhaustion`, `crash`), each moving a realistic *cluster* of those metrics
+rather than a single gauge — see [docs/MERIDIAN.md](docs/MERIDIAN.md) for the full metric table and
+per-scenario profiles.
+
 Meridian is wired into the pipeline through **additive-only** changes: a Prometheus scrape job per
-service, the ingestion query broadened to a regex selector in the compose environment only (the
-`common/config.py` default stays `cpu_usage`), and a shared volume that finally lets the
+service, the ingestion query broadened to an 11-name regex selector in the compose environment only
+(the `common/config.py` default stays `cpu_usage`), and a shared volume that finally lets the
 `rollback-deploy` playbook see real deploy markers. No IntelliOps service code changed. Three fault
 scenarios were run **sequentially** against real Docker and each produced the expected, genuinely
 different diagnosis:
