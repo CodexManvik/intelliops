@@ -23,7 +23,15 @@ export interface ReportsResult {
   reports: unknown[];
 }
 
-export type FaultType = "saturation" | "error" | "latency" | "crash";
+export type FaultType =
+  | "saturation"
+  | "error"
+  | "latency"
+  | "crash"
+  | "memory_leak"
+  | "traffic_surge"
+  | "dependency_outage"
+  | "db_exhaustion";
 
 export interface FaultSpec {
   type: FaultType;

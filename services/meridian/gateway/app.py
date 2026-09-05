@@ -31,6 +31,24 @@ from services.meridian.gateway.ops_target import ops_target_url
 # the compose naming convention.
 _MERIDIAN_SERVICES = {"gateway", "validation", "aggregation", "reporting"}
 
+# The full pinned USE+RED metric set (Metrics Phase 1 Task 1). `ops_metrics`
+# below scrapes exactly these names and folds each into its service's row
+# generically; any other __name__ in the Prometheus result is ignored
+# (fail-soft against future/unknown series).
+_KNOWN_METRIC_NAMES = {
+    "cpu_usage",
+    "meridian_error_rate",
+    "request_rate",
+    "latency_p50_ms",
+    "latency_p99_ms",
+    "memory_usage_mb",
+    "saturation",
+    "queue_depth",
+    "db_pool_in_use",
+    "db_pool_max",
+    "disk_usage_percent",
+}
+
 # Where /admin/deploy writes deploys.json. Defaults to a repo-relative path
 # for local/test runs; the compose gateway service overrides this to the
 # mounted rca-context volume path so the rca service (Task 2) can read the
@@ -113,7 +131,14 @@ def _routes(app, state) -> None:
         UI stays same-origin (no CORS) and never holds the Prometheus URL.
         Fail-soft: any Prometheus error yields an empty payload, never a 5xx."""
         prom = get_settings().prometheus_url.rstrip("/")
-        query = '{__name__=~"cpu_usage|meridian_error_rate"}'
+        # Metrics Phase 1 Task 4: broadened from cpu_usage|meridian_error_rate
+        # to the full pinned USE+RED metric set (Task 1) so the ops panel can
+        # surface every metric a fault scenario (Task 2) might move.
+        query = (
+            '{__name__=~"cpu_usage|meridian_error_rate|request_rate|'
+            "latency_p50_ms|latency_p99_ms|memory_usage_mb|saturation|"
+            'queue_depth|db_pool_in_use|db_pool_max|disk_usage_percent"}'
+        )
         try:
             with httpx.Client(timeout=5.0) as c:
                 resp = c.get(f"{prom}/api/v1/query", params={"query": query})
@@ -127,7 +152,12 @@ def _routes(app, state) -> None:
             return {"scraped": False, "services": []}
         if not isinstance(body, dict) or body.get("status") != "success":
             return {"scraped": False, "services": []}
-        # Fold the flat result vector into per-service {cpu_usage, error_rate}.
+        # Fold the flat result vector into per-service rows. Every known
+        # metric name is carried generically (row[name] = val) so the ops
+        # panel gets the full USE+RED set, not just cpu/error; cpu_usage and
+        # meridian_error_rate are additionally mirrored onto the legacy
+        # cpu_usage/error_rate keys the `healthy` heuristic below reads.
+        # Unknown metric names are silently ignored (fail-soft).
         by_service: dict[str, dict] = {}
         for entry in body.get("data", {}).get("result", []):
             metric = entry.get("metric", {})
@@ -140,9 +170,12 @@ def _routes(app, state) -> None:
                 val = float(value_pair[1])
             except (TypeError, ValueError):
                 continue
+            if name not in _KNOWN_METRIC_NAMES:
+                continue
             row = by_service.setdefault(
                 svc, {"service": svc, "cpu_usage": None, "error_rate": None}
             )
+            row[name] = val
             if name == "cpu_usage":
                 row["cpu_usage"] = val
             elif name == "meridian_error_rate":
