@@ -18,8 +18,9 @@ and why**. Read it alongside:
 > **A sample production system now feeds real faults into this pipeline.** **Meridian**
 > (`services/meridian/`) — a four-service financial/audit platform with its own portal UI — runs
 > alongside IntelliOps, scraped by the same Prometheus, ingested by the same ingestion service
-> (query broadened additively), and diagnosed by the same unmodified RCA rules. See
-> [docs/MERIDIAN.md](docs/MERIDIAN.md) and
+> (query broadened additively), and diagnosed by the same unmodified RCA rules. Each service emits
+> a **USE+RED metric set with 8 typed fault scenarios**, each moving a realistic metric cluster.
+> See [docs/MERIDIAN.md](docs/MERIDIAN.md) and
 > [ADR-020](architectural.md#adr-020--meridian-sample-production-system).
 >
 > **The remediation path gained a rehearsal, a wider-but-still-safe vocabulary, and bounded
@@ -370,16 +371,23 @@ comparison CI-enforced.
 
 **A real sample system now drives the pipeline.** **Meridian** (`services/meridian/`) — four
 backend services plus a client-portal/ops-panel UI, built on the same `services.base.create_app`
-scaffold — runs alongside IntelliOps in `docker compose up`. It is wired in additively: a
-Prometheus scrape job per service, the ingestion query broadened to a regex selector in the
-compose environment only (the code default is unchanged), and a shared volume that lets
-`rca-service` see Meridian's deploy markers for the first time. Three fault scenarios were run
-sequentially against real Docker and each produced the expected, distinct diagnosis —
-`scale-service`, `restart-pod`, `rollback-deploy` — through the unmodified detection/RCA/action
-path. Faults must be injected one at a time: `correlation-service` groups anomalies by time
-window, not by service, so concurrent faults on two Meridian services would merge into a single
-Situation — a real constraint, confirmed live, that the Meridian UI enforces with a
-sequential-injection guard. See [docs/MERIDIAN.md](docs/MERIDIAN.md) and
+scaffold — runs alongside IntelliOps in `docker compose up`. Each service emits a **USE+RED metric
+set** (11 gauges — CPU, memory, disk, saturation, queue depth, DB-pool utilization, request rate,
+error rate, p50/p99 latency) and accepts **8 typed fault scenarios** (`saturation`, `latency`,
+`error`, `memory_leak`, `traffic_surge`, `dependency_outage`, `db_exhaustion`, `crash`), each
+moving a realistic metric cluster rather than a single gauge — `error`/`dependency_outage`
+deliberately hold `cpu_usage` at baseline so RCA doesn't misdiagnose an error incident as capacity.
+It is wired in additively: a Prometheus scrape job per service, the ingestion query broadened to an
+11-name regex selector in the compose environment only (the code default is unchanged), and a
+shared volume that lets `rca-service` see Meridian's deploy markers for the first time. Three fault
+scenarios were run sequentially against real Docker and each produced the expected, distinct
+diagnosis — `scale-service`, `restart-pod`, `rollback-deploy` — through the unmodified
+detection/RCA/action path; the newer scenarios' metric families don't yet have dedicated RCA rules
+(that mapping is Phase 3 of the metrics arc), so they detect but may not richly diagnose today.
+Faults must be injected one at a time: `correlation-service` groups anomalies by time window, not
+by service, so concurrent faults on two Meridian services would merge into a single Situation — a
+real constraint, confirmed live, that the Meridian UI enforces with a sequential-injection guard.
+See [docs/MERIDIAN.md](docs/MERIDIAN.md) and
 [ADR-020](architectural.md#adr-020--meridian-sample-production-system).
 
 **What is still deliberately simulated / deferred:**
