@@ -24,6 +24,24 @@ from services.rca.provider_holder import ProviderHolder
 logger = logging.getLogger("intelliops.rca.app")
 
 
+def _make_runbook_selector(settings):
+    """Selects the embedding-backed RunbookSelector IFF runbook_selector_mode
+    is "embedding"; NullRunbookSelector (no semantic fallback, today's
+    behavior) otherwise. Mirrors make_explanation_provider's opt-in-via-config
+    shape. Lazy-imports EmbeddingRunbookSelector so importing this module
+    never requires the embedding dependency/model when the mode is off."""
+    from services.rca.adapters.runbook_selector import NullRunbookSelector
+
+    if settings.runbook_selector_mode == "embedding":
+        from services.rca.adapters.runbook_selector import EmbeddingRunbookSelector
+
+        return EmbeddingRunbookSelector(
+            model_name=settings.runbook_selector_model,
+            threshold=settings.runbook_selector_threshold,
+        )
+    return NullRunbookSelector()
+
+
 def _build_reliability_provider(training_store):
     """Best-effort: per-signature worked/total from training records, same
     math as RiverCorrelator/BaseCorrelator.retrain. Returns None if the read
@@ -61,10 +79,11 @@ async def lifespan(app: FastAPI):
     holder = ProviderHolder(make_explanation_provider(settings))
     app.state.provider_holder = holder
     reliability_provider = _build_reliability_provider(stores.training_store)
+    selector = _make_runbook_selector(settings)
     thread = threading.Thread(
         target=run_consumer,
         args=(app.state.bus, provider, store, audit_sink, holder.get, stop_event),
-        kwargs={"reliability_provider": reliability_provider},
+        kwargs={"reliability_provider": reliability_provider, "selector": selector},
         daemon=True,
     )
     thread.start()
