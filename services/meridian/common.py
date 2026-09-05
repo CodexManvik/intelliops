@@ -18,6 +18,7 @@ as a capacity problem. Only "saturation" and "latency" faults touch cpu.
 from __future__ import annotations
 
 import asyncio
+import time
 
 from fastapi import Depends, Request, Response
 from prometheus_client import (
@@ -35,9 +36,22 @@ from services.base import create_app
 CPU_HEALTHY = 18.0
 CPU_BROKEN = 92.0
 
+# USE+RED metric set healthy baselines. Task 2 adds the fault profiles that
+# move these away from baseline; Task 1 only establishes the field + gauge
+# for each metric at a plausible steady-state value.
+REQUEST_RATE_HEALTHY = 50.0
+LATENCY_P50_MS_HEALTHY = 20.0
+LATENCY_P99_MS_HEALTHY = 80.0
+MEMORY_USAGE_MB_HEALTHY = 256.0
+SATURATION_HEALTHY = 0.1
+QUEUE_DEPTH_HEALTHY = 2.0
+DB_POOL_IN_USE_HEALTHY = 3.0
+DB_POOL_MAX_HEALTHY = 20.0
+DISK_USAGE_PERCENT_HEALTHY = 35.0
+
 
 class FaultSpec(BaseModel):
-    type: str  # "saturation" | "error" | "latency" | "crash"
+    type: str  # "saturation" | "error" | "latency" | "crash" | "memory_leak"
     magnitude: float = 1.0
     duration_seconds: float | None = None
 
@@ -48,6 +62,25 @@ class MeridianState:
         self.error_rate = 0.0
         self.latency_ms = 0.0
         self.unhealthy = False
+
+        # USE+RED metric set (Metrics Phase 1). Purely additive alongside the
+        # original cpu/error_rate/latency_ms/unhealthy fields above.
+        self.request_rate = REQUEST_RATE_HEALTHY
+        self.latency_p50_ms = LATENCY_P50_MS_HEALTHY
+        self.latency_p99_ms = LATENCY_P99_MS_HEALTHY
+        self.memory_usage_mb = MEMORY_USAGE_MB_HEALTHY
+        self.saturation = SATURATION_HEALTHY
+        self.queue_depth = QUEUE_DEPTH_HEALTHY
+        self.db_pool_in_use = DB_POOL_IN_USE_HEALTHY
+        self.db_pool_max = DB_POOL_MAX_HEALTHY
+        self.disk_usage_percent = DISK_USAGE_PERCENT_HEALTHY
+
+        # Gradual-ramp bookkeeping: a fault (e.g. a future `memory_leak`
+        # profile) can populate this with a descriptor and `sample(now)` will
+        # advance the named metric linearly from start_value to target_value
+        # over duration seconds, measured from start_time. None means no
+        # ramp is active and `sample` is a no-op read.
+        self._ramp: dict | None = None
 
     def apply(self, spec: FaultSpec) -> None:
         if spec.type == "saturation":
@@ -62,12 +95,57 @@ class MeridianState:
             self.cpu = CPU_BROKEN  # latency also drives cpu -> scale-service
         elif spec.type == "crash":
             self.unhealthy = True
+        elif spec.type == "memory_leak":
+            # Minimal ramp wiring for Task 1's sample() machinery: start a
+            # linear climb from the current memory_usage_mb toward a target
+            # scaled by magnitude, over duration_seconds (default 300s if
+            # unspecified). Task 2 owns the full fault-profile tuning (target
+            # formula, interaction with other metrics, etc.) — this only
+            # proves the ramp descriptor + sample() advance it correctly.
+            duration = spec.duration_seconds if spec.duration_seconds is not None else 300.0
+            self._ramp = {
+                "metric": "memory_usage_mb",
+                "start_value": self.memory_usage_mb,
+                "target_value": self.memory_usage_mb + 512.0 * spec.magnitude,
+                "start_time": time.monotonic(),
+                "duration": duration,
+            }
+
+    def sample(self, now: float) -> None:
+        """Advance any active gradual ramp to the given monotonic time.
+
+        For all non-ramp state this is a no-op read: with no ramp active,
+        calling sample() does not change any field. When a ramp is active,
+        the named metric is set to
+        `start + (target - start) * min(1.0, (now - start_time) / duration)`,
+        so it climbs linearly and holds at target_value once elapsed time
+        reaches duration.
+        """
+        if self._ramp is None:
+            return
+        ramp = self._ramp
+        elapsed = now - ramp["start_time"]
+        duration = ramp["duration"]
+        fraction = 1.0 if duration <= 0 else min(1.0, elapsed / duration)
+        value = ramp["start_value"] + (ramp["target_value"] - ramp["start_value"]) * fraction
+        setattr(self, ramp["metric"], value)
 
     def clear(self) -> None:
         self.cpu = CPU_HEALTHY
         self.error_rate = 0.0
         self.latency_ms = 0.0
         self.unhealthy = False
+
+        self.request_rate = REQUEST_RATE_HEALTHY
+        self.latency_p50_ms = LATENCY_P50_MS_HEALTHY
+        self.latency_p99_ms = LATENCY_P99_MS_HEALTHY
+        self.memory_usage_mb = MEMORY_USAGE_MB_HEALTHY
+        self.saturation = SATURATION_HEALTHY
+        self.queue_depth = QUEUE_DEPTH_HEALTHY
+        self.db_pool_in_use = DB_POOL_IN_USE_HEALTHY
+        self.db_pool_max = DB_POOL_MAX_HEALTHY
+        self.disk_usage_percent = DISK_USAGE_PERCENT_HEALTHY
+        self._ramp = None
 
 
 def make_meridian_service(name: str, domain_routes=None, registry: CollectorRegistry | None = None):
@@ -97,10 +175,58 @@ def make_meridian_service(name: str, domain_routes=None, registry: CollectorRegi
         "meridian_error_rate", "Simulated request error rate 0..1", registry=effective_registry
     )
 
+    # USE+RED metric set (Metrics Phase 1) — same bare-gauge convention as
+    # cpu_gauge/error_gauge above.
+    request_rate_gauge = Gauge(
+        "request_rate", "Simulated requests per second", registry=effective_registry
+    )
+    latency_p50_gauge = Gauge(
+        "latency_p50_ms",
+        "Simulated p50 request latency in milliseconds",
+        registry=effective_registry,
+    )
+    latency_p99_gauge = Gauge(
+        "latency_p99_ms",
+        "Simulated p99 request latency in milliseconds",
+        registry=effective_registry,
+    )
+    memory_usage_gauge = Gauge(
+        "memory_usage_mb",
+        "Simulated resident memory usage in megabytes",
+        registry=effective_registry,
+    )
+    saturation_gauge = Gauge(
+        "saturation", "Simulated USE saturation fraction 0..1", registry=effective_registry
+    )
+    queue_depth_gauge = Gauge(
+        "queue_depth", "Simulated pending work-queue depth", registry=effective_registry
+    )
+    db_pool_in_use_gauge = Gauge(
+        "db_pool_in_use",
+        "Simulated database connections currently checked out",
+        registry=effective_registry,
+    )
+    db_pool_max_gauge = Gauge(
+        "db_pool_max", "Simulated database connection pool size", registry=effective_registry
+    )
+    disk_usage_gauge = Gauge(
+        "disk_usage_percent", "Simulated disk utilization percent", registry=effective_registry
+    )
+
     @app.get("/metrics")
     def metrics() -> Response:
+        state.sample(time.monotonic())
         cpu_gauge.set(state.cpu)
         error_gauge.set(state.error_rate)
+        request_rate_gauge.set(state.request_rate)
+        latency_p50_gauge.set(state.latency_p50_ms)
+        latency_p99_gauge.set(state.latency_p99_ms)
+        memory_usage_gauge.set(state.memory_usage_mb)
+        saturation_gauge.set(state.saturation)
+        queue_depth_gauge.set(state.queue_depth)
+        db_pool_in_use_gauge.set(state.db_pool_in_use)
+        db_pool_max_gauge.set(state.db_pool_max)
+        disk_usage_gauge.set(state.disk_usage_percent)
         return Response(generate_latest(effective_registry), media_type=CONTENT_TYPE_LATEST)
 
     @app.post("/admin/fault", dependencies=[Depends(require_token)])

@@ -96,6 +96,42 @@ def test_latency_fault_sets_cpu_to_92_too():
     assert _metric_value(body, "cpu_usage") == 92.0
 
 
+def test_fresh_state_exposes_full_metric_set_at_baseline():
+    from prometheus_client import CollectorRegistry
+
+    from services.meridian.common import make_meridian_service
+
+    app = make_meridian_service("meridian-test", registry=CollectorRegistry())
+    client = TestClient(app)
+    body = client.get("/metrics").text
+    for name in (
+        "cpu_usage",
+        "meridian_error_rate",
+        "request_rate",
+        "latency_p50_ms",
+        "latency_p99_ms",
+        "memory_usage_mb",
+        "saturation",
+        "queue_depth",
+        "db_pool_in_use",
+        "db_pool_max",
+        "disk_usage_percent",
+    ):
+        assert name in body, f"missing metric: {name}"
+
+
+def test_sample_advances_memory_leak_ramp():
+    from services.meridian.common import FaultSpec, MeridianState
+
+    st = MeridianState()
+    st.apply(FaultSpec(type="memory_leak", magnitude=1.0, duration_seconds=100.0))
+    st.sample(now=0.0)
+    m0 = st.memory_usage_mb
+    st.sample(now=50.0)
+    m50 = st.memory_usage_mb
+    assert m50 > m0  # the ramp climbed with elapsed time
+
+
 def test_admin_fault_gated_in_token_mode(monkeypatch):
     # get_settings() is @lru_cache'd (see common/config.py), so the cache
     # must be cleared once after setting the env vars (to pick up token
