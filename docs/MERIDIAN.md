@@ -172,7 +172,7 @@ error/log match at 0.5 — if either fault also spiked `cpu_usage`, `scale-servi
 outrank `restart-pod` and the error/outage incident would be misdiagnosed as a capacity problem.
 Keeping `cpu_usage` flat during both faults is what lets `restart-pod` fire at all; the same
 discipline is documented in `services/meridian/common.py`'s module docstring and enforced by
-`services/meridian/tests/` (`test_error_keeps_cpu_at_baseline`,
+`services/meridian/tests/` (`test_error_keeps_cpu_and_latency_at_baseline`,
 `test_dependency_outage_moves_errors_and_latency_not_cpu`). More generally, every one of the 8
 profiles moves *only* the metrics that incident would realistically move — the shape of the
 anomaly cluster is itself part of the (eventual, Phase-3) diagnosis, not noise.
