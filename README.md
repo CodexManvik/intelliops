@@ -39,6 +39,18 @@ it, and it is **open-source-first** to avoid vendor lock-in.
 > correct diagnosis (`scale-service` / `restart-pod` / `rollback-deploy`); see
 > [docs/MERIDIAN.md](docs/MERIDIAN.md) and
 > [ADR-020](architectural.md#adr-020--meridian-sample-production-system).
+> **Remediation got safer and more capable, without loosening the safety model.** A fix is now
+> **rehearsed on an isolated namespace clone before it is approved** — a failed rehearsal blocks
+> an auto-remediation and advises a human on a HITL one ([ADR-023](architectural.md#adr-023--pre-flight-sandbox-rehearsal-before-remediation)).
+> The typed action vocabulary widened 4→7 Deployment-scoped verbs behind a **destructive-shape
+> denylist**, with the action `Literal` still closed so catastrophic actions remain impossible to
+> express ([ADR-024](architectural.md#adr-024--tier-2-remediation-vocabulary--a-destructive-action-denylist)).
+> And selection got *some* real intelligence, carefully bounded: the AI can **draft a new runbook
+> for a gap that a human must approve** before it joins the registry ([ADR-025](architectural.md#adr-025--ai-authored-runbooks-propose--approve)),
+> and when the keyword rules don't fire, **embedding similarity** ranks the existing human-vetted
+> playbooks ([ADR-026](architectural.md#adr-026--semantic-runbook-selection-embedding-fallback)) —
+> retrieval among vetted options, never an LLM choosing the fix. All four are config-switched
+> **off by default** (the demo/CI path is byte-identical) and opt-in.
 > Next up: the Kafka bus binding and a whole-stack Helm deploy (in review).
 > See [WORKPLAN.md](WORKPLAN.md).
 
@@ -50,7 +62,7 @@ IntelliOps is and how it works:
 | Read this | To understand |
 |-----------|---------------|
 | **[flow.md](flow.md)** | **How a signal flows through the system** — the one-incident journey, every bus topic and data contract, a function-by-function reference for each of the seven services, and the current status (what's real vs. simulated). |
-| **[architectural.md](architectural.md)** | **Why the system is shaped this way** — the layer model and twenty-one ADRs (Architecture Decision Records), each with the context, the decision, the trade-offs, and the alternatives rejected. |
+| **[architectural.md](architectural.md)** | **Why the system is shaped this way** — the layer model and twenty-six ADRs (Architecture Decision Records), each with the context, the decision, the trade-offs, and the alternatives rejected. |
 
 Then, for the team: **[WORKPLAN.md](WORKPLAN.md)** divides the remaining work into four
 owned streams with acceptance criteria. The full original design spec is at
@@ -277,6 +289,10 @@ work builds on top of them.
 | Intelligence | Pluggable detectors (`robust`/`trained`), persisted retrain loop, reliability-weighted + LLM-explained RCA, CI-enforced benchmark | ✅ done |
 | Frontend | Real-time console over SSE, a live incident-pipeline view, an audit explorer, Apple-light repaint | ✅ done |
 | Sample production system | **Meridian** — a 4-service financial platform + portal UI, wired to the pipeline, verified live | ✅ done |
+| Pre-flight sandbox | Fixes are **rehearsed on an isolated namespace clone** before approval — block auto / advise human on the verdict (`SANDBOX_MODE=k8s`); [ADR-023](architectural.md#adr-023--pre-flight-sandbox-rehearsal-before-remediation) | ✅ done |
+| Wider, still-safe actions | Vocabulary widened 4→**7 typed** Deployment-scoped actions + a **destructive-shape denylist** gate; the action `Literal` stays closed (catastrophic actions permanently out); [ADR-024](architectural.md#adr-024--tier-2-remediation-vocabulary--a-destructive-action-denylist) | ✅ done |
+| AI-authored runbooks | The AI **drafts** a typed runbook for a gap; a human approves before it joins the registry (`RUNBOOK_AUTHOR_MODE`); the type system rejects unsafe drafts; [ADR-025](architectural.md#adr-025--ai-authored-runbooks-propose--approve) | ✅ done |
+| Semantic runbook selection | Keyword rules first, then **embedding similarity** (`sentence-transformers`) ranks vetted playbooks when no rule fires (`RUNBOOK_SELECTOR_MODE=embedding`); retrieval, not an LLM deciding; [ADR-026](architectural.md#adr-026--semantic-runbook-selection-embedding-fallback) | ✅ done |
 
 ## Meridian — a real sample system for IntelliOps to operate
 
@@ -321,7 +337,7 @@ and honest limits (synthetic data, toggle-based faults, dry-run remediation) in
 ## Documentation map
 
 - **[architectural.md](architectural.md)** — design principles, the 5→6 layer mapping,
-  twenty-one ADRs, cross-cutting concerns, compliance mapping.
+  twenty-six ADRs, cross-cutting concerns, compliance mapping.
 - **[docs/DEMO.md](docs/DEMO.md)** — the guided two-act demo walkthrough: the live dry-run loop,
   then real remediation on a kind cluster.
 - **[flow.md](flow.md)** — the one-incident journey, bus topics, data contracts, and a

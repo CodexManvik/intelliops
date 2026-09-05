@@ -73,7 +73,7 @@ jobs:
             VIRTUAL_ENV=.slim .slim/bin/python -c "
           import importlib, sys
           importlib.import_module('services.${svc}.app')
-          leaked = {'numpy','scipy','sklearn','river','joblib','kubernetes'} & set(sys.modules)
+          leaked = {'numpy','scipy','sklearn','river','joblib','kubernetes','sentence_transformers','torch','transformers'} & set(sys.modules)
           assert not leaked, f'${svc} leaked: {leaked}'
           print('OK ${svc}')" || exit 1
           done
