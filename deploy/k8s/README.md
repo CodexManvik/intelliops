@@ -442,6 +442,145 @@ for the fuller rationale behind the typed-vocabulary boundary and why a
 sandboxed "pass" is deliberately never treated as a substitute for the
 human decision described here.
 
+## 8. Semantic runbook selection (embedding fallback)
+
+RCA's "which playbook fits this incident" decision runs in two stages: fast
+deterministic rules first, then an optional semantic fallback when no rule
+fires. Both stages can only ever hand back a runbook that is already
+registered — neither one writes a new playbook or invents an action.
+
+### Rules first (the primary path, always on)
+
+`rank_hypotheses` (`services/rca/rank.py`) matches on literal keyword
+substrings in the situation's metric/event names and the deploy log:
+
+- a recent deploy touching one of the affected services → `rollback-deploy`
+- a saturation token (`cpu`, `mem`, `memory`, `disk`, `saturation`) in a
+  metric name → `scale-service`
+- a `log`-kind event, or `error` in an event name → `restart-pod`
+
+This is the path that runs on every diagnosis, with or without the semantic
+selector enabled. It's fast (string matching, no model), high-precision when
+it fires, and fully auditable — the evidence line names the exact metric or
+log signal that triggered the match. If a rule fires, its runbook is used
+and the semantic selector is **never consulted** — the rules are not a
+"best guess to be second-guessed," they're the primary, trusted path.
+
+### Semantic fallback (opt-in, only runs when no rule fires)
+
+Keyword matching misses paraphrases: a metric named
+`container_memory_working_set_bytes`, or a hypothesis worded "the service is
+thrashing under sustained load," shares no literal token with the saturation
+rule's token list, so today it falls straight into the gap even though
+`scale-service` is the right runbook. `select_runbook` (`services/rca/rank.py`)
+closes part of that gap:
+
+1. It calls the existing rule path (`surface_runbook`) first. If a rule
+   produced a runbook, that's the answer — `source="rule"`, done.
+2. Only if no rule fired does it hand the situation to a `RunbookSelector`
+   (`common/interfaces.py`). The shipped implementation,
+   `EmbeddingRunbookSelector` (`services/rca/adapters/runbook_selector.py`),
+   embeds a query built from the top hypothesis's description plus the
+   situation's signal names, embeds every **registered** playbook's curated
+   `symptoms` field (a human-written "when this applies" description — see
+   the `symptoms:` line in `playbooks/*.yaml` / `deploy/playbooks/*.yaml`),
+   and ranks the playbooks by cosine similarity.
+3. If the best match scores **at or above the threshold**
+   (`runbook_selector_threshold`, default `0.45`), that playbook is returned
+   — `source="semantic"` — along with its score. Below threshold, or if no
+   playbook has a `symptoms` field to compare against, it returns nothing —
+   `source="none"`, the same gap as today.
+
+The selector can only ever **rank the playbooks already in the store**: it
+calls `store.get(pid)` on its own top pick and only returns it if that
+lookup succeeds, so it structurally cannot hand back a fabricated or
+misspelled id. This is **retrieval among vetted options, not generation** —
+the set of possible answers is exactly the human-approved playbook catalog
+(including anything approved through the AI-authoring flow in §7 above,
+once it's registered), and the model's only job is picking the closest
+existing match, deterministically, given the embeddings. **No LLM
+participates in this decision** — an LLM is used elsewhere in this system
+(explaining a hypothesis, drafting a runbook *candidate* for human review),
+but never to choose which runbook executes.
+
+When a semantic match is used, the top hypothesis's evidence gains a line —
+`semantic match: {playbook_id} ({score:.2f})` — so the provenance is visible
+next to the ordinary evidence lines in the incident panel; it is never
+presented as if a keyword rule had fired.
+
+### The gap, unchanged
+
+Below the threshold, the outcome is exactly what it is today: no runbook,
+`source="none"`, visible in the console as "No matching playbook." That gap
+is still where the AI-authored-runbook flow (§7 above) is meant to help — a
+human can ask an LLM to draft a *candidate* playbook for review, rather than
+have anything auto-select an unvetted action.
+
+### Enabling it
+
+Off by default everywhere — base compose, tests, CI — via
+`runbook_selector_mode: str = "off"` in `common/config.py`
+(`Settings`, `env_prefix="INTELLIOPS_"`), which wires in `NullRunbookSelector`:
+a selector that always returns nothing, so `select_runbook` collapses to
+exactly the rule-only behavior described above, byte-for-byte. To turn the
+fallback on:
+
+```bash
+uv sync --extra ml
+INTELLIOPS_RUNBOOK_SELECTOR_MODE=embedding
+```
+
+on the `rca` service. `INTELLIOPS_RUNBOOK_SELECTOR_MODE=embedding` selects
+`EmbeddingRunbookSelector` in the `_make_runbook_selector` factory
+(`services/rca/app.py`); the `ml` extra pulls in `sentence-transformers`,
+which downloads the ~80MB `all-MiniLM-L6-v2` model on first use and then
+runs entirely offline (no API calls, no per-request cost). Two more knobs,
+both optional:
+
+- `INTELLIOPS_RUNBOOK_SELECTOR_MODEL` — a different sentence-transformers
+  model name (default `all-MiniLM-L6-v2`).
+- `INTELLIOPS_RUNBOOK_SELECTOR_THRESHOLD` — the minimum cosine similarity to
+  accept a match (default `0.45`). Raise it to demand a closer match before
+  the fallback fires; lower it to close more of the gap at the cost of more
+  speculative matches.
+
+### The honest limits
+
+- **This is similarity search, not judgment.** The selector's entire
+  intelligence is "which existing symptom description is numerically
+  closest to this situation" — it has no model of correctness, no
+  understanding of blast radius, and no way to know if the closest playbook
+  is actually the *right* fix versus merely the closest-worded one. The
+  threshold is a blunt numeric cutoff, not a confidence estimate in any
+  calibrated sense.
+- **Quality is bounded by the curated `symptoms` text.** A playbook with no
+  `symptoms` (or a vague one) is either skipped as a candidate or ranked
+  poorly — the match is only as good as the human-written description, the
+  same way the keyword rules are only as good as their token list.
+- **Fail-safe, not fail-loud.** `EmbeddingRunbookSelector.select` catches
+  every internal exception (model load failure, encode error, an empty
+  store) and returns `None` rather than raising — a broken embedding path
+  degrades silently to "no semantic match," never to a crash, and never to
+  a fabricated answer. This is deliberate (mirrors the never-raise
+  discipline in the LLM adapters), but it also means a misconfigured model
+  fails quietly; check the `rca` service logs
+  (`intelliops.rca.runbook_selector`) if matches you expect aren't showing
+  up.
+- **Slim-boundary preserved.** `sentence-transformers` lives in the `ml`
+  optional-dependency group only, and both it and `numpy` are imported
+  lazily inside `EmbeddingRunbookSelector` — never at module load time. The
+  `action`, `governance`, and `feedback` services (and the RCA module itself,
+  at import time) never gain a `sentence_transformers` import merely by
+  existing in the same process; it only loads if `runbook_selector_mode`
+  is actually set to `"embedding"` and the selector is used.
+- **No test in the default suite loads a real model.** The augment-logic
+  (rule-wins / semantic-fallback / gap) and the embedding selector's
+  cosine/threshold/fail-safe behavior are all tested with a deterministic
+  fake encoder — no network access, no model download, no GPU. The base
+  suite and CI never exercise a real `sentence-transformers` model; this
+  path, like the k8s and sandbox paths above, is verified manually against a
+  real model as an opt-in, by-hand step.
+
 ## The honest note
 
 Real pod remediation only happens on this path, against a real kind cluster,
