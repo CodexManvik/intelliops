@@ -3,16 +3,33 @@
 Meridian is a small Deloitte-style financial-reporting platform (gateway,
 validation, aggregation, reporting) whose only purpose is to be a realistic
 target for IntelliOps to monitor. Each service exposes /metrics with a
-cpu_usage + meridian_error_rate gauge pair, and an /admin/fault endpoint
-(gated by common.auth.require_token) that toggles a simulated incident —
-mirroring services/demo_app/app.py's /break /fix but generalized to four
-fault types and four services.
+cpu_usage + meridian_error_rate gauge pair (plus the full USE+RED metric set
+below), and an /admin/fault endpoint (gated by common.auth.require_token)
+that toggles a simulated incident — mirroring services/demo_app/app.py's
+/break /fix but generalized to eight fault types and four services.
 
-CRITICAL: an "error" fault must set meridian_error_rate high while KEEPING
-cpu_usage at baseline. If cpu also spiked, the z-score correlator would see
-two anomalous signals and RCA's scale-service playbook (weight 0.6) would
-outrank restart-pod (weight 0.5) — misdiagnosing a pure error-rate incident
-as a capacity problem. Only "saturation" and "latency" faults touch cpu.
+CRITICAL — THE load-bearing invariant of the fault mechanism (Metrics Phase 1
+Task 2): each scenario moves ONLY the metric cluster that incident would
+realistically move; every other metric stays at its healthy baseline. If an
+incident lit up metrics outside its realistic cluster, the z-score correlator
+would see extra anomalous signals and RCA's weighted playbook selection could
+misdiagnose the incident (e.g. scale-service, weight 0.6, outranking
+restart-pod, weight 0.5, for what is really a pure error-rate problem). The
+8 pinned profiles, and which cluster each moves:
+
+  - saturation:         cpu UP, saturation UP, queue_depth UP
+  - latency:             latency_p50/p99 UP, queue_depth UP, cpu mildly UP
+  - error:               error_rate UP only — cpu and latency stay baseline
+  - memory_leak:         memory_usage_mb RAMPS linearly over duration_seconds
+  - traffic_surge:       request_rate UP, cpu UP, saturation UP, queue_depth UP
+  - dependency_outage:   error_rate UP, latency_p99 UP — cpu stays baseline
+  - db_exhaustion:       db_pool_in_use -> db_pool_max, latency UP
+  - crash:               unhealthy=True only (detection fault, no metric moves)
+
+"error" and "dependency_outage" are the two scenarios that MUST leave cpu at
+CPU_HEALTHY: both are request-level failures (a bug in this service / a
+downstream dependency down), not a local capacity problem, so cpu must not
+also read as anomalous.
 """
 
 from __future__ import annotations
@@ -49,9 +66,23 @@ DB_POOL_IN_USE_HEALTHY = 3.0
 DB_POOL_MAX_HEALTHY = 20.0
 DISK_USAGE_PERCENT_HEALTHY = 35.0
 
+# Broken/target constants per metric (Task 2 fault profiles). Each is a
+# plausible "fully incident" value for that metric; `spec.magnitude` scales
+# it in `apply()` below, same convention as the pre-existing
+# CPU_HEALTHY/CPU_BROKEN pair.
+SATURATION_BROKEN = 0.95
+QUEUE_DEPTH_BROKEN = 250.0
+LATENCY_P50_MS_BROKEN = 350.0
+LATENCY_P99_MS_BROKEN = 1200.0
+REQUEST_RATE_SURGE = 400.0
+MEMORY_LEAK_TARGET_MB = 768.0  # ramp target added on top of current memory_usage_mb
+DB_LATENCY_P99_MS_BROKEN = 900.0  # db_exhaustion's latency lift (its own cluster, not "latency")
+
 
 class FaultSpec(BaseModel):
-    type: str  # "saturation" | "error" | "latency" | "crash" | "memory_leak"
+    # "saturation" | "error" | "latency" | "crash" | "memory_leak" |
+    # "traffic_surge" | "dependency_outage" | "db_exhaustion"
+    type: str
     magnitude: float = 1.0
     duration_seconds: float | None = None
 
@@ -83,33 +114,86 @@ class MeridianState:
         self._ramp: dict | None = None
 
     def apply(self, spec: FaultSpec) -> None:
+        """Move ONE scenario's metric cluster to a broken value; leave the rest
+        of MeridianState's fields at their healthy baseline (set in __init__).
+
+        Each branch below is one of the 8 pinned Metrics-Phase-1 profiles (see
+        the module docstring for the full table + the WHY). "error" and
+        "dependency_outage" are the two branches that deliberately do NOT
+        touch self.cpu — that omission is the load-bearing invariant, not an
+        oversight.
+        """
         if spec.type == "saturation":
+            # cpu UP, saturation UP, queue_depth UP — a local capacity incident.
             self.cpu = min(100.0, CPU_BROKEN * spec.magnitude)
+            self.saturation = min(1.0, SATURATION_BROKEN * spec.magnitude)
+            self.queue_depth = QUEUE_DEPTH_BROKEN * spec.magnitude
         elif spec.type == "error":
+            # error_rate UP only. cpu (and latency) stay baseline: see the
+            # module docstring's CRITICAL note — this is THE load-bearing
+            # invariant of the whole fault mechanism.
             self.error_rate = min(1.0, spec.magnitude)
             self.cpu = (
                 CPU_HEALTHY  # keep cpu at baseline so RCA maps to restart-pod, NOT scale-service
             )
         elif spec.type == "latency":
+            # latency UP, queue_depth UP, cpu mildly UP. NOTE: the pre-Task-2
+            # legacy "latency" fault (test_fault.py::test_latency_fault_sets_latency_and_cpu,
+            # test_metrics.py::test_latency_fault_sets_cpu_to_92_too) hard-asserts
+            # cpu == CPU_BROKEN exactly at magnitude=1.0 — preserved verbatim
+            # here per the "legacy types keep working" contract; the new
+            # latency_p50/p99_ms + queue_depth cluster is added alongside it.
             self.latency_ms = 200.0 * spec.magnitude
-            self.cpu = CPU_BROKEN  # latency also drives cpu -> scale-service
+            self.latency_p50_ms = min(
+                LATENCY_P50_MS_BROKEN, LATENCY_P50_MS_HEALTHY + 200.0 * spec.magnitude
+            )
+            self.latency_p99_ms = min(
+                LATENCY_P99_MS_BROKEN, LATENCY_P99_MS_HEALTHY + 700.0 * spec.magnitude
+            )
+            self.queue_depth = min(QUEUE_DEPTH_BROKEN, QUEUE_DEPTH_HEALTHY + 40.0 * spec.magnitude)
+            self.cpu = CPU_BROKEN  # legacy: latency also drives cpu -> scale-service
         elif spec.type == "crash":
+            # Detection-only: no metric moves, the service is just down.
             self.unhealthy = True
         elif spec.type == "memory_leak":
-            # Minimal ramp wiring for Task 1's sample() machinery: start a
-            # linear climb from the current memory_usage_mb toward a target
-            # scaled by magnitude, over duration_seconds (default 300s if
-            # unspecified). Task 2 owns the full fault-profile tuning (target
-            # formula, interaction with other metrics, etc.) — this only
-            # proves the ramp descriptor + sample() advance it correctly.
+            # memory_usage_mb RAMPS linearly toward a target over
+            # duration_seconds (default 300s if unspecified) — a leak climbs
+            # gradually, unlike every other scenario's instant step. No other
+            # field moves.
             duration = spec.duration_seconds if spec.duration_seconds is not None else 300.0
             self._ramp = {
                 "metric": "memory_usage_mb",
                 "start_value": self.memory_usage_mb,
-                "target_value": self.memory_usage_mb + 512.0 * spec.magnitude,
+                "target_value": self.memory_usage_mb
+                + (MEMORY_LEAK_TARGET_MB - MEMORY_USAGE_MB_HEALTHY) * spec.magnitude,
                 "start_time": time.monotonic(),
                 "duration": duration,
             }
+        elif spec.type == "traffic_surge":
+            # request_rate UP, cpu UP, saturation UP, queue_depth UP — more
+            # legitimate traffic than the service has capacity for.
+            self.request_rate = REQUEST_RATE_SURGE * spec.magnitude
+            self.cpu = min(100.0, CPU_BROKEN * spec.magnitude)
+            self.saturation = min(1.0, SATURATION_BROKEN * spec.magnitude)
+            self.queue_depth = QUEUE_DEPTH_BROKEN * spec.magnitude
+        elif spec.type == "dependency_outage":
+            # error_rate UP, latency_p99 UP — cpu stays baseline. A downstream
+            # dependency being down looks like failed/slow calls FROM this
+            # service, not local capacity pressure (same reasoning as
+            # "error" above — this is the invariant's second scenario).
+            self.error_rate = min(1.0, spec.magnitude)
+            self.latency_p99_ms = min(
+                LATENCY_P99_MS_BROKEN, LATENCY_P99_MS_HEALTHY + 700.0 * spec.magnitude
+            )
+            self.cpu = CPU_HEALTHY  # keep cpu at baseline — see module docstring
+        elif spec.type == "db_exhaustion":
+            # db_pool_in_use -> db_pool_max, latency UP. cpu/error stay
+            # baseline: requests queue waiting on a connection, they don't
+            # fail outright and the service itself isn't CPU-bound.
+            self.db_pool_in_use = self.db_pool_max * spec.magnitude
+            self.latency_p99_ms = min(
+                DB_LATENCY_P99_MS_BROKEN, LATENCY_P99_MS_HEALTHY + 500.0 * spec.magnitude
+            )
 
     def sample(self, now: float) -> None:
         """Advance any active gradual ramp to the given monotonic time.
