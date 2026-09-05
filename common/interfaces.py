@@ -165,3 +165,13 @@ class Sandbox(Protocol):
     """Rehearses a remediation plan on an isolated copy and reports a verdict."""
 
     def rehearse(self, situation: Situation, plan: RemediationPlan) -> PreflightResult: ...
+
+
+@runtime_checkable
+class RunbookAuthor(Protocol):
+    """Drafts a typed Playbook for a gap. Returns None when it cannot (fail-to-
+    nothing) — never raises. The caller forces hitl_mode=HITL and a server id."""
+
+    def draft(
+        self, situation: Situation, hint: str | None = None
+    ) -> tuple[Playbook, str | None] | None: ...

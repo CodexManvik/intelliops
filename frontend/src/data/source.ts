@@ -1,8 +1,13 @@
 import * as api from "./api";
 import * as mock from "./mock";
-import type { LlmProbe, SystemInfo } from "./types";
+import type { LlmProbe, ProposedPlaybook, Situation, SystemInfo } from "./types";
 
 const LIVE = import.meta.env.VITE_DATA_MODE === "live";
+
+// mock mode: proposals mutate this module-local copy so approve/reject and a
+// freshly-drafted proposal are reflected back when the queue reloads, without
+// a server. Reset on page load, same lifespan as the rest of the mock store.
+const _mockProposals: ProposedPlaybook[] = [...mock.proposals];
 
 export const loadSituations = LIVE
   ? api.loadSituations
@@ -34,3 +39,52 @@ export const testLlmConfig = LIVE
       ok: false,
       error: "mock mode",
     });
+
+export const loadProposals = LIVE ? api.loadProposals : async () => _mockProposals;
+
+export const proposePlaybook = LIVE
+  ? api.proposePlaybook
+  : async (situation: Situation, _requestedBy: string): Promise<ProposedPlaybook> => {
+      // mock mode: fabricate a proposal the same shape the server would return
+      // (server-assigned id, forced hitl) — honest about being a stub draft.
+      const proposal: ProposedPlaybook = {
+        id: `prop-mock-${Date.now().toString(36)}`,
+        playbook: {
+          id: `ai-${situation.signature}-mock`,
+          name: `Drafted fix · ${situation.service}`,
+          match_rule: situation.id,
+          steps: [{ action: "restart", note: "mock draft — no LLM configured" }],
+          hitl_mode: "hitl",
+          reversible: true,
+          rollback_steps: [],
+        },
+        status: "proposed",
+        proposed_by: "runbook-author",
+        rationale: "mock mode: no LLM configured — this is a stub draft, not a real AI proposal.",
+        source_situation_id: situation.id,
+        decided_by: null,
+        ts: Date.now(),
+      };
+      _mockProposals.push(proposal);
+      return proposal;
+    };
+
+export const approveProposal = LIVE
+  ? api.approveProposal
+  : async (id: string, decidedBy: string): Promise<ProposedPlaybook> => {
+      const p = _mockProposals.find((x) => x.id === id);
+      if (!p) throw new Error(`proposal ${id} not found`);
+      p.status = "approved";
+      p.decided_by = decidedBy;
+      return p;
+    };
+
+export const rejectProposal = LIVE
+  ? api.rejectProposal
+  : async (id: string, decidedBy: string): Promise<ProposedPlaybook> => {
+      const p = _mockProposals.find((x) => x.id === id);
+      if (!p) throw new Error(`proposal ${id} not found`);
+      p.status = "rejected";
+      p.decided_by = decidedBy;
+      return p;
+    };

@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
-import { LockKey, Scroll, ShieldCheck, UserCheck } from "@phosphor-icons/react";
+import { Check, LockKey, Scroll, ShieldCheck, Sparkle, UserCheck, X } from "@phosphor-icons/react";
 import { Bezel, Eyebrow, timeAgo } from "../components/primitives";
-import { loadAudit, loadOutcomes, loadPlaybooks } from "../data/source";
+import { approveProposal, loadAudit, loadOutcomes, loadPlaybooks, loadProposals, rejectProposal } from "../data/source";
 import { useLiveData } from "../hooks/useLiveData";
+import { pushToast } from "../hooks/useToast";
 import { Reveal as Section } from "../hooks/useReveal";
-import type { AuditRow, OutcomeRow, Playbook } from "../data/types";
+import type { AuditRow, OutcomeRow, Playbook, ProposedPlaybook } from "../data/types";
 
 const gates = [
   {
@@ -33,7 +34,42 @@ export function Governance() {
   const { data: audit } = useLiveData(loadAudit, [] as AuditRow[]);
   const { data: outcomes } = useLiveData(loadOutcomes, [] as OutcomeRow[]);
   const { data: playbooks } = useLiveData(loadPlaybooks, [] as Playbook[]);
+  const { data: proposalsSeed } = useLiveData(loadProposals, [] as ProposedPlaybook[]);
+  const [proposalOverrides, setProposalOverrides] = useState<Record<string, Partial<ProposedPlaybook>>>({});
+  const [decidingId, setDecidingId] = useState<string | null>(null);
   const auditSorted = [...audit].sort((a, b) => new Date(b.ts).getTime() - new Date(a.ts).getTime());
+
+  // merge server proposals with local optimistic overrides, same pattern as
+  // Incidents' situation overrides — the decision buttons update instantly,
+  // the next poll/reload converges to server truth.
+  const proposals = useMemo(
+    () => proposalsSeed.map((p) => ({ ...p, ...proposalOverrides[p.id] })),
+    [proposalsSeed, proposalOverrides],
+  );
+  const pendingProposals = proposals.filter((p) => p.status === "proposed");
+
+  async function decide(proposal: ProposedPlaybook, decision: "approved" | "rejected") {
+    if (decidingId) return;
+    setDecidingId(proposal.id);
+    const decidedBy = "oncall-alice";
+    try {
+      const updated =
+        decision === "approved"
+          ? await approveProposal(proposal.id, decidedBy)
+          : await rejectProposal(proposal.id, decidedBy);
+      setProposalOverrides((o) => ({ ...o, [proposal.id]: updated }));
+      pushToast(
+        "success",
+        decision === "approved"
+          ? `Approved — ${updated.playbook.name} entered the live registry`
+          : `Rejected — ${updated.playbook.name} discarded`,
+      );
+    } catch (e) {
+      pushToast("error", `${decision === "approved" ? "Approve" : "Reject"} failed: ${e instanceof Error ? e.message : "unknown"}`);
+    } finally {
+      setDecidingId(null);
+    }
+  }
 
   // Per-gate activity: `blocked` is the precise signal — outcomes whose reason
   // matches the gate that stopped them. `passed` is the honest total of
@@ -101,6 +137,86 @@ export function Governance() {
           </Section>
         ))}
       </div>
+
+      {/* AI-drafted proposals — the human is the gate before a draft ever reaches the registry */}
+      <Section>
+        <Bezel coreClassName="p-6">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <span className="flex items-center gap-2 text-2xs font-medium uppercase tracking-[0.14em] text-ink-3">
+              <Sparkle size={16} weight="light" className="text-signal" />
+              AI-drafted proposals · awaiting human approval
+            </span>
+            <span className="font-mono text-2xs text-ink-3">{pendingProposals.length} pending</span>
+          </div>
+
+          {pendingProposals.length === 0 ? (
+            <div className="rounded-2xl border border-black/[0.06] p-8 text-center text-ink-3">
+              No proposals waiting. A drafted runbook appears here after someone clicks{" "}
+              <span className="text-ink-2">Draft a runbook with AI</span> on an incident.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {pendingProposals.map((p) => (
+                <div key={p.id} className="rounded-2xl border border-signal/20 bg-signal/[0.04] p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <div className="text-sm font-medium tracking-tight text-ink">{p.playbook.name}</div>
+                      <div className="mt-1 flex items-center gap-3 font-mono text-2xs text-ink-3">
+                        <span className="text-signal-dim">{p.id}</span>
+                        {p.source_situation_id && <span>from {p.source_situation_id}</span>}
+                        <span>proposed by {p.proposed_by}</span>
+                        <span>{timeAgo(p.ts)}</span>
+                      </div>
+                    </div>
+                    <span className="rounded-md bg-black/[0.05] px-2 py-0.5 font-mono text-2xs text-ink-2">
+                      {p.playbook.hitl_mode} · {p.playbook.reversible ? "reversible" : "not reversible"}
+                    </span>
+                  </div>
+
+                  {p.playbook.steps.length > 0 && (
+                    <div className="mt-2.5 flex flex-wrap items-center gap-1.5 font-mono text-2xs text-ink-2">
+                      {p.playbook.steps.map((s, i) => (
+                        <span key={i} className="rounded-md bg-black/[0.05] px-2 py-0.5">
+                          {s.action}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {p.rationale && (
+                    <div className="mt-2.5 rounded-lg bg-black/[0.03] p-2.5 text-2xs leading-relaxed text-ink-2">
+                      <span className="font-mono text-ink-3">rationale: </span>
+                      {p.rationale}
+                    </div>
+                  )}
+
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      onClick={() => decide(p, "approved")}
+                      disabled={decidingId === p.id}
+                      className="flex items-center gap-1.5 rounded-full bg-signal px-4 py-2 text-sm font-medium text-white transition-all duration-300 ease-fluid active:scale-[0.97] disabled:opacity-50"
+                    >
+                      <Check size={14} weight="bold" /> Approve
+                    </button>
+                    <button
+                      onClick={() => decide(p, "rejected")}
+                      disabled={decidingId === p.id}
+                      className="flex items-center gap-1.5 rounded-full border border-black/[0.10] bg-black/[0.04] px-4 py-2 text-sm text-ink-2 transition-all duration-300 ease-fluid hover:bg-black/[0.06] active:scale-[0.97] disabled:opacity-50"
+                    >
+                      <X size={14} weight="bold" /> Reject
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="mt-3 border-t border-black/[0.06] pt-3 font-mono text-2xs text-ink-3">
+            Approve registers the drafted playbook into the live registry (RBAC-gated, same as any approval). Reject
+            discards it. Both are audited.
+          </div>
+        </Bezel>
+      </Section>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
         {/* audit log */}

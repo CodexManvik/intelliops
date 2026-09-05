@@ -72,6 +72,13 @@ class Settings(BaseSettings):
     llm_explanation_timeout_seconds: float = 10.0
     llm_explanation_api_key: str = ""
 
+    # --- AI-authored runbooks (off by default; LLM opt-in via endpoint) ---
+    runbook_author_mode: str = "off"  # "off" | "openai"
+    llm_runbook_endpoint: str = ""  # empty = NullRunbookAuthor, no network
+    llm_runbook_model: str = "gpt-4o-mini"
+    llm_runbook_timeout_seconds: float = 10.0
+    llm_runbook_api_key: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:

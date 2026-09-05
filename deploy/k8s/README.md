@@ -355,6 +355,93 @@ again — all while the incident panel already shows the `🧪 pre-flight:` row
 with its verdict. Only after that has settled does the approval decision
 apply the fix to the real `intelliops-demo` namespace, exactly as in step 4.
 
+## 7. AI-authored runbooks: propose → approve
+
+When RCA finds no playbook that matches a situation (`suggested_runbook_id`
+is empty — visible in the console as **"No matching playbook"** on that
+incident), a human can ask an LLM to draft one instead of hand-writing a
+playbook from scratch. The flow is deliberately narrow: an AI can **suggest**
+a runbook; only a human decision **ever** registers it.
+
+1. **Human clicks "Draft a runbook with AI"** on the gap incident (Incidents
+   view). This calls `POST /playbooks/proposed` on the governance service
+   with the situation and the requester's identity.
+2. **The `RunbookAuthor` adapter drafts a `Playbook`.** `runbook_author_mode`
+   defaults to `"off"` everywhere (base compose, tests, CI), which wires in
+   `NullRunbookAuthor` — a network-free stub that always returns no draft.
+   Opting in is a config switch, the same pattern as `remediator_mode` /
+   `sandbox_mode`: set `INTELLIOPS_RUNBOOK_AUTHOR_MODE=openai` and
+   `INTELLIOPS_LLM_RUNBOOK_ENDPOINT=<openai-chat-completions-shaped URL>` on
+   the governance service (optionally `INTELLIOPS_LLM_RUNBOOK_MODEL` /
+   `INTELLIOPS_LLM_RUNBOOK_API_KEY` / `INTELLIOPS_LLM_RUNBOOK_TIMEOUT_SECONDS`).
+   `OpenAICompatibleRunbookAuthor` never raises — a network failure, a
+   non-200, malformed JSON, or a draft that fails to parse into a valid
+   `Playbook` all return "no draft" (surfaced to the caller as `422`), never
+   a crash and never a partially-formed playbook.
+3. **The draft is stored as a proposal, not registered.** `propose_playbook`
+   normalizes the drafted playbook before storing it — it **force-sets
+   `hitl_mode` to `hitl`** (the AI's own choice is discarded) and
+   **server-assigns the playbook id** (`ai-<signature>-<random>`) and the
+   proposal id (`prop-<random>`) — the AI never gets to name or self-approve
+   its own draft. The proposal (`status: "proposed"`) goes into an in-memory
+   store; it does **not** touch the live playbook registry.
+4. **A human reviews it in Governance.** The Governance view's "AI-drafted
+   proposals" panel lists every `proposed` item — the drafted playbook's
+   name, its typed steps, the rationale, and the source situation — with
+   **Approve** / **Reject** buttons.
+5. **Approve is the only path to the live registry**, and it is RBAC-gated
+   exactly like an execution approval: `POST /playbooks/proposed/{id}/approve`
+   reuses the same `approve` permission check as `decide_approval` (the demo
+   RBAC policy grants it to `oncall-alice`), returns `403` if the decider
+   lacks it, and only on success calls `playbook_store.register(...)` —
+   the same registration path a hand-written playbook goes through. Reject
+   (`POST .../reject`) marks the proposal `rejected` and stops there; nothing
+   is registered.
+6. **Both decisions are audited.** `approve-proposal` / `reject-proposal`
+   audit records are written the same way every other governance decision is
+   (actor, resource, decision, correlation id) — visible in the Governance
+   audit trail.
+
+### Safety guarantees, stated plainly
+
+- **The closed action vocabulary is enforced at parse time, not by asking
+  nicely.** `RemediationStep.action` is a closed Pydantic `Literal[...]`
+  (the same 7 actions covered in §"Tier-2 extended-vocabulary actions" /
+  "Actions permanently excluded" above). An LLM-drafted step with an
+  out-of-set action fails `Playbook.model_validate(...)` and the whole draft
+  is discarded (`draft()` returns `None` → the route returns `422`) —
+  the vocabulary boundary is a type-system guarantee, independent of
+  whatever the model was told in its prompt.
+- **HITL is forced, unconditionally.** Whatever `hitl_mode` the draft
+  contains is overwritten to `hitl` before the proposal is ever stored.
+  There is no code path by which an AI-authored playbook can be marked
+  `auto` at proposal time — autonomy is still only earned the existing way,
+  through the graduation rule, after the playbook has a track record.
+- **IDs are server-assigned**, so a draft can never collide with or spoof an
+  existing playbook id.
+- **Only the approve route reaches the live registry.** The propose route
+  calls `proposed_store.add(...)`; the approve route is the only route in
+  the service that calls `playbook_store.register(...)` for a proposal. A
+  proposal sitting in `"proposed"` status is inert — it cannot be executed,
+  because nothing in the action service's remediation path reads the
+  proposed store; it only ever reads the registered playbook store.
+- **Approve/reject are RBAC-checked and audited**, identically to every
+  other governance decision — no separate, weaker permission model for
+  AI-originated playbooks.
+- **An approved playbook is not exempt from anything downstream.** Once
+  `register(...)` runs, the playbook is an ordinary registry entry: it is
+  subject to the denylist gate (§6 above), the sandbox rehearsal when
+  `sandbox_mode=k8s` is on, and — because it entered as `hitl` — a human
+  approval gate on every execution until it separately earns graduation to
+  `auto`. Being AI-authored changes nothing about how safely it can run; it
+  only changes who wrote the first draft.
+
+See
+[`docs/sandbox-and-ai-runbooks-design-note.md`](../../docs/sandbox-and-ai-runbooks-design-note.md)
+for the fuller rationale behind the typed-vocabulary boundary and why a
+sandboxed "pass" is deliberately never treated as a substitute for the
+human decision described here.
+
 ## The honest note
 
 Real pod remediation only happens on this path, against a real kind cluster,
