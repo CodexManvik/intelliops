@@ -84,6 +84,13 @@ class Settings(BaseSettings):
     runbook_selector_model: str = "all-MiniLM-L6-v2"
     runbook_selector_threshold: float = 0.45  # min cosine similarity to accept a match
 
+    # --- Metric-kind-aware detection policy (off by default; pure z-score unaffected) ---
+    detection_policy: str = "off"  # "off" | "on"
+    detection_ratio_threshold: float = 0.02
+    detection_saturation_ratio_threshold: float = 0.80
+    detection_saturation_percent_threshold: float = 90.0
+    detection_latency_ceiling_ms: float = 500.0
+
 
 @lru_cache
 def get_settings() -> Settings:
