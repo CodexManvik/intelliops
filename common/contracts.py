@@ -74,6 +74,7 @@ class RootCauseHypothesis(BaseModel):
     suggested_runbook_id: str | None = None
     explanation: str | None = None
     explanation_source: str | None = None  # "llm" | "template" — provenance of `explanation`
+    confidence_source: str | None = None  # "embedding" | "rule" — provenance of `confidence`
 
 
 class RemediationStep(BaseModel):

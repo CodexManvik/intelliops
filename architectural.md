@@ -1406,6 +1406,65 @@ same way it already inherits `should_suppress` and `_severity_band`.
 
 ---
 
+### ADR-028 — RCA metric-family rules + AI-computed confidence
+
+**Context.** RCA's `rank_hypotheses` (`services/rca/rank.py`) had only three rules — deploy,
+saturation (cpu/disk tokens), and log/error — each with a **hardcoded** confidence constant (0.8 /
+0.6 / 0.5). That was thin against the ~11 metric families Metrics Phases 1–2 added: `latency`,
+`queue_depth`, `db_pool`, `request_rate`, and `memory` had no rule at all, or worse, were
+**mis-mapped** — `memory` shared the `_SATURATION_TOKENS` match (it contains "mem"-adjacent
+saturation tokens conceptually) and fired `scale-service`, but scaling a memory leak just spins up
+new pods that leak the same way; the process needs to be **recycled**, not multiplied. And a hand-
+tuned constant is a magic number, not a measure of how well a runbook actually fits the incident in
+front of it — the user wanted the **AI to compute the confidence**, so *fit* chooses the runbook,
+not a rule author's guess made months earlier.
+
+**Decision.** A **two-layer diagnosis**. The keyword rules stay as the **candidate layer**: extended
+with a dedicated memory rule (`restart-pod`, fallback 0.65 — ranked above saturation's 0.6 so a
+leak restarts even with the selector off), a `db_pool` rule (`restart-pod`, fallback 0.62), and a
+`latency`/`queue_depth`/`request_rate` rule (`scale-service`, fallback 0.55) — each rule still only
+ever proposes one of the **closed** three runbooks (`restart-pod` / `scale-service` /
+`rollback-deploy`; no new runbook, no new remediation action). Then, when
+[ADR-026](#adr-026--semantic-runbook-selection-embedding-fallback)'s `EmbeddingRunbookSelector` is
+enabled (`RUNBOOK_SELECTOR_MODE=embedding` + the `ml` extra), its cosine machinery is exposed as a
+per-candidate `score(situation, hypothesis, playbook) -> float | None` — the fit of the incident's
+symptoms against *that specific runbook's* `symptoms` text — and **that score becomes the
+hypothesis's confidence**, stamped `confidence_source="embedding"` (mirroring
+`explanation_source`'s honesty). The rules already decided **which** runbook; the embedding only
+re-scores **how confident** we are in that already-vetted choice. Off, or on any embedding error,
+the fallback constant stands with `confidence_source="rule"` — never raises out of ranking. The
+three playbooks' `symptoms` text was sharpened alongside this (restart-pod: crash loops, wedged
+process, memory leak trending to OOM, db connection-pool exhaustion, elevated error rate;
+scale-service: CPU/resource saturation, high latency under load, growing queue depth, a traffic
+surge) so the cosine fit actually routes each family to the runbook that fixes it.
+
+**Why.** This resolves the memory→restart mis-mapping **by fit, not by a new hand-tuned constant**:
+a memory-leak incident's symptoms score higher against restart-pod's "leak, recycle" language than
+against scale-service's "saturation, capacity" language, so restart wins on the merits — the same
+correction the fallback ordering (0.65 > 0.6) already gives for free when the selector is off. The
+same multi-metric shape drives the two co-occurring fault families Meridian actually emits:
+`dependency_outage` (error + latency) and `db_exhaustion` (db_pool + latency) both route to
+`restart-pod` because the restart-family rule (0.58 / 0.62) is ranked above the latency/queue/
+request-rate rule (0.55) — recycling the process fixes a wedged dependency call or a wedged
+connection pool; scaling just spins up more pods that hit the same failure. **Off-by-default is
+byte-identical**, the same load-bearing property as ADR-026/027: with the selector off, every
+existing diagnosis (saturation→scale, error→restart, deploy→rollback) and the base suite are
+unchanged, and the pre-existing **error→restart invariant** (an `error`/`dependency_outage`
+incident must never outrank to `scale-service` just because cpu is present) holds **both** off (via
+the fallback ordering) **and** on (via the fit, tested with a stub selector). This is the same
+"retrieval, not an LLM choosing" principle as ADR-026, now applied to *confidence* instead of just
+fallback selection: **the AI chooses the runbook by fit, but only ever among vetted, rule-proposed
+candidates within the closed 3-runbook catalog** — it can raise or lower how confident a hypothesis
+is, it can never invent a candidate `select_runbook`/`store.get` wouldn't recognize. The honest
+frame stays what it has been since ADR-025/026: deterministic ranking, the HITL gate
+([ADR-003](#adr-003--governance-is-an-active-gate-not-passive-logging)), the
+[ADR-024](#adr-024--tier-2-remediation-vocabulary--a-destructive-action-denylist) denylist, and the
+[ADR-023](#adr-023--pre-flight-sandbox-rehearsal-before-remediation) sandbox still **decide and
+gate** the action; the AI **advises** (a fit-computed confidence here, an explanation via ADR-019,
+a drafted runbook via ADR-025) — it does not decide what gets executed.
+
+---
+
 ## 4. Cross-cutting concerns
 
 **Traceability.** A `correlation_id` is threaded through every `AuditRecord`, so one

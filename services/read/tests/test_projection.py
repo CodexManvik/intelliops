@@ -184,6 +184,7 @@ def test_projection_keeps_evidence_and_joins_outcome():
         suggested_runbook_id="scale-service",
         explanation="Likely cause: CPU.",
         explanation_source="template",
+        confidence_source="rule",
     )
     m = ReadModel()
     m.apply_detected(sit)
@@ -208,6 +209,7 @@ def test_projection_keeps_evidence_and_joins_outcome():
     assert s["hypotheses"][0]["evidence"] == ["metrics: cpu_usage"]
     assert s["hypotheses"][0]["explanation"] == "Likely cause: CPU."
     assert s["hypotheses"][0]["explanation_source"] == "template"
+    assert s["hypotheses"][0]["confidence_source"] == "rule"
     assert s["peak_score"] == 6.3
     assert s["baseline"]["cpu_usage"]["mean"] == 18.0
     assert "resource saturation" in s["title"].lower()
