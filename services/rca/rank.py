@@ -43,6 +43,7 @@ def rank_hypotheses(
     situation: Situation,
     context: EnrichmentContext,
     reliability_provider: Callable[[str], float] | None = None,
+    store=None,
     selector=None,
 ) -> list[RootCauseHypothesis]:
     hypotheses: list[RootCauseHypothesis] = []
@@ -147,6 +148,35 @@ def rank_hypotheses(
                 suggested_runbook_id=None,
             )
         )
+
+    # Embedding re-scoring pass (Task 3): when a store + selector are both
+    # supplied, let the selector's retrieval fit re-score each rule-proposed
+    # candidate's confidence — decisions stay deterministic (the rules above
+    # already chose WHICH runbook), the embedding only re-scores HOW
+    # confident we are in that already-vetted choice, among the closed
+    # 3-runbook catalog. Runs once, before both sort branches below, so the
+    # (possibly embedding-computed) confidence feeds either sort and the
+    # reliability boost still applies on top of it. Off path (store or
+    # selector is None) leaves every hypothesis's rule confidence untouched
+    # and just stamps provenance — byte-identical to Phase 2 otherwise. The
+    # fallback hypothesis (suggested_runbook_id=None) is never scored.
+    for hyp in hypotheses:
+        if hyp.suggested_runbook_id is None:
+            continue
+        scored = False
+        if store is not None and selector is not None:
+            try:
+                pb = store.get(hyp.suggested_runbook_id)
+                if pb is not None:
+                    s = selector.score(situation, hyp, pb)
+                    if s is not None:
+                        hyp.confidence = min(1.0, max(0.0, s))
+                        hyp.confidence_source = "embedding"
+                        scored = True
+            except Exception:  # noqa: BLE001,S110 — fail-safe; ranking must never raise
+                pass
+        if not scored:
+            hyp.confidence_source = "rule"
 
     if reliability_provider is None:
         hypotheses.sort(key=lambda h: h.confidence, reverse=True)

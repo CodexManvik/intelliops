@@ -321,3 +321,124 @@ def test_db_exhaustion_with_latency_maps_to_restart():
     sit = _situation_multi("db_pool_in_use", "latency_p99_ms")
     hyps = rank_hypotheses(sit, EnrichmentContext())
     assert hyps[0].suggested_runbook_id == "restart-pod"
+
+
+# --- Task 3: embedding-computed confidence + provenance ---
+#
+# When a store + selector are both passed and the selector returns a float
+# score for a candidate's playbook, that score REPLACES the rule-based
+# fallback confidence (clamped to [0, 1]) and confidence_source is set to
+# "embedding". Off path (store/selector None), on error, or when the
+# selector abstains (returns None) the rule confidence stands unchanged and
+# confidence_source is "rule". This never changes WHICH runbook a rule
+# proposes — only how confident we say we are in it, and it only re-scores
+# already-vetted, rule-proposed candidates among the closed 3-runbook
+# catalog (never invents an id).
+
+
+class _StubSelector:
+    """A selector stub returning a canned {playbook_id: score} table."""
+
+    def __init__(self, scores):
+        self._scores = scores
+
+    def score(self, situation, hypothesis, playbook):
+        return self._scores.get(playbook.id)
+
+    def select(self, *a, **k):
+        return None
+
+
+class _PlaybookStore:
+    """Minimal in-memory store, seeded with the closed 3-runbook catalog —
+    mirrors the inline Store pattern in test_surface_runbook_looks_up_top_hypothesis."""
+
+    def __init__(self):
+        self._playbooks = {
+            "restart-pod": Playbook(
+                id="restart-pod",
+                name="Restart Pod",
+                match_rule="x",
+                steps=[RemediationStep(action="restart")],
+                hitl_mode=HitlMode.HITL,
+                symptoms="memory leak, wedged process, db pool exhaustion, error spike",
+            ),
+            "scale-service": Playbook(
+                id="scale-service",
+                name="Scale Service",
+                match_rule="x",
+                steps=[RemediationStep(action="scale", replicas=2)],
+                hitl_mode=HitlMode.HITL,
+                symptoms="cpu saturation, latency under load, request surge",
+            ),
+            "rollback-deploy": Playbook(
+                id="rollback-deploy",
+                name="Rollback Deploy",
+                match_rule="x",
+                steps=[RemediationStep(action="rollback_deploy")],
+                hitl_mode=HitlMode.HITL,
+                symptoms="recent deploy preceded the incident",
+            ),
+        }
+
+    def register(self, playbook):
+        self._playbooks[playbook.id] = playbook
+
+    def get(self, playbook_id):
+        return self._playbooks.get(playbook_id)
+
+    def list(self):
+        return list(self._playbooks.values())
+
+
+def test_embedding_score_becomes_confidence():
+    # cpu_usage rule proposes scale-service @0.60; the stub selector scores
+    # scale-service's playbook at 0.91 — that becomes the top confidence.
+    sit = _situation_with_metric("cpu_usage", value=95.0)
+    sel = _StubSelector({"scale-service": 0.91})
+    hyps = rank_hypotheses(sit, EnrichmentContext(), store=_PlaybookStore(), selector=sel)
+    top = hyps[0]
+    assert top.suggested_runbook_id == "scale-service"
+    assert abs(top.confidence - 0.91) < 1e-6  # embedding score, not the 0.60 constant
+    assert top.confidence_source == "embedding"
+
+
+def test_falls_back_to_rule_confidence_when_selector_none():
+    sit = _situation_with_metric("cpu_usage", value=95.0)
+    hyps = rank_hypotheses(sit, EnrichmentContext(), store=None, selector=None)
+    assert hyps[0].confidence == 0.60
+    assert hyps[0].confidence_source in (None, "rule")
+
+
+def test_embedding_error_keeps_rule_confidence():
+    # If a selector's score() raises, rank_hypotheses must guard it -> rule
+    # confidence stands and ranking never raises.
+    class _Raises:
+        def score(self, *a, **k):
+            raise RuntimeError("boom")
+
+        def select(self, *a, **k):
+            return None
+
+    sit = _situation_with_metric("cpu_usage", value=95.0)
+    hyps = rank_hypotheses(sit, EnrichmentContext(), store=_PlaybookStore(), selector=_Raises())
+    assert hyps[0].confidence == 0.60  # unchanged; ranking never raised
+    assert hyps[0].confidence_source == "rule"
+
+
+def test_memory_leak_restart_wins_on_embedding_fit():
+    # Embedding scores restart-pod higher than scale for a memory-leak
+    # incident — same winner as the rule invariant, now embedding-confirmed.
+    sit = _situation_with_metric("memory_usage_mb", value=900.0)
+    sel = _StubSelector({"restart-pod": 0.88, "scale-service": 0.40})
+    hyps = rank_hypotheses(sit, EnrichmentContext(), store=_PlaybookStore(), selector=sel)
+    assert hyps[0].suggested_runbook_id == "restart-pod"
+
+
+def test_error_restart_invariant_holds_on():
+    # The load-bearing error->restart invariant, with the selector ON: it
+    # must hold with embedding scoring active, not just when off.
+    sit = _situation_with_metric("meridian_error_rate", value=0.5)
+    sel = _StubSelector({"restart-pod": 0.80, "scale-service": 0.30})
+    hyps = rank_hypotheses(sit, EnrichmentContext(), store=_PlaybookStore(), selector=sel)
+    assert hyps[0].suggested_runbook_id == "restart-pod"  # never scale, on
