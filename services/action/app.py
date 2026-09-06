@@ -46,7 +46,13 @@ def _make_sandbox(settings):
     if settings.sandbox_mode == "k8s":
         from services.action.adapters.sandbox import NamespaceCloneSandbox
 
-        return NamespaceCloneSandbox(settings.k8s_namespace, prometheus_url=settings.prometheus_url)
+        policy = _make_detection_policy(settings)
+        return NamespaceCloneSandbox(
+            settings.k8s_namespace,
+            prometheus_url=settings.prometheus_url,
+            policy=policy,
+            z_threshold=settings.correlation_z_threshold,
+        )
     from services.action.adapters.sandbox import NullSandbox
 
     return NullSandbox()

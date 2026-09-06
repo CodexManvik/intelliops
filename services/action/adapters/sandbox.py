@@ -226,17 +226,36 @@ def _referenced_config_map_names(dep) -> list[str]:
 class NamespaceCloneSandbox:
     """Rehearse a plan by cloning the target into a throwaway namespace.
 
-    Pass signal for PR A is the CLONE'S POD READINESS. The health checker's
-    metric predicate is left at its default (`lambda: True`) rather than wired to
-    Prometheus: the demo's `cpu_usage` series is keyed per-metric-name, not
-    per-namespace, so a clone's metric series is not reliably distinguishable
-    from production's — a real per-namespace metric query is deferred to PR B.
-    So `passed` is driven by the clone pod reaching ready==desired after the fix.
+    Pass signal is the CLONE'S POD READINESS, plus — when a `policy` is supplied
+    — the SAME per-metric recovery predicate the live health path uses (Metrics
+    Phase 4), applied to the POST-FIX check only. HONESTY NOTE: in this repo's
+    demo/Meridian setup, Prometheus is configured with static scrape targets
+    (deploy/prometheus.yml, deploy/k8s/prometheus/configmap.yaml) pointed at the
+    PRODUCTION Service DNS names — there is no `kubernetes_sd_configs` pod/
+    endpoint discovery, so a pod cloned into a throwaway `intelliops-sandbox-*`
+    namespace is never scraped at all, and the demo/Meridian gauges carry no
+    namespace label to filter on even if it were. So `query_value` below will
+    typically return None (no clone series exists) — or, if a query happens to
+    resolve production's series for that metric name, an unrelated value —
+    either way `build_metric_healthy` fails safe: a query miss makes that metric
+    not-recovered, so the post-fix check falls back to pod-readiness deciding
+    `passed`, exactly as before this wiring. This is the SAFE direction (fails
+    closed, never fakes a pass) and is future-proofed for when per-clone scraping
+    exists. When `policy` is None (default — back-compat), the post-fix check is
+    pod-readiness only, unchanged from before.
     """
 
-    def __init__(self, namespace: str, prometheus_url: str | None = None):
+    def __init__(
+        self,
+        namespace: str,
+        prometheus_url: str | None = None,
+        policy=None,
+        z_threshold: float = 3.0,
+    ):
         self._namespace = namespace
         self._prometheus_url = prometheus_url
+        self._policy = policy
+        self._z_threshold = z_threshold
 
     def rehearse(self, situation: Situation, plan: RemediationPlan) -> PreflightResult:
         sandbox_ns = f"intelliops-sandbox-{uuid4().hex[:8]}"
@@ -312,13 +331,23 @@ class NamespaceCloneSandbox:
                     sandbox_namespace=sandbox_ns,
                 )
 
-            # --- health: post-fix, poll the clone to ready==desired (bounded).
-            #     This is the PRIMARY pass signal for PR A ---
-            health = KubernetesHealthChecker(
-                apps_v1=apps_v1,
-                timeout_seconds=_HEALTH_TIMEOUT_SECONDS,
-                poll_interval_seconds=_POLL_INTERVAL_SECONDS,
-            ).check(situation, clone_target)
+            # --- health: post-fix, poll the clone to ready==desired AND (when a
+            #     policy is configured) the firing metric recovered on the clone.
+            #     This is the PRIMARY pass signal. See the class docstring's
+            #     HONESTY NOTE: today's static Prometheus scrape config means the
+            #     clone is typically un-queryable, so query_value fails safe to
+            #     None and this falls back to deciding on pod-readiness alone —
+            #     never a faked pass. ---
+            post_fix_kwargs: dict = {
+                "apps_v1": apps_v1,
+                "timeout_seconds": _HEALTH_TIMEOUT_SECONDS,
+                "poll_interval_seconds": _POLL_INTERVAL_SECONDS,
+            }
+            if self._policy is not None:
+                post_fix_kwargs["policy"] = self._policy
+                post_fix_kwargs["query_value"] = self._query_value
+                post_fix_kwargs["z_threshold"] = self._z_threshold
+            health = KubernetesHealthChecker(**post_fix_kwargs).check(situation, clone_target)
 
             passed = bool(health)
             detail = (
@@ -370,6 +399,38 @@ class NamespaceCloneSandbox:
                 )
             except Exception as exc:  # noqa: BLE001 — a missing/unreadable CM is skipped
                 logger.debug("configmap clone skipped for %s: %s", cm_name, exc)
+
+    def _query_value(self, name: str) -> float | None:
+        """Instant-query the current value of a firing metric by bare name — same
+        shape as services.action.app._make_health_checker's query_value. `httpx`
+        is imported lazily so the module import stays k8s/http-extra free.
+
+        See the class docstring's HONESTY NOTE: this queries the metric NAME
+        only, with no namespace selector, because (checked against this repo's
+        deploy/prometheus.yml and deploy/k8s/prometheus/configmap.yaml) Prometheus
+        is scrape-configured with static targets pointed at the PRODUCTION
+        Service DNS names — it never discovers pods in a throwaway sandbox
+        namespace, so there is no clone series to select even if a namespace
+        label existed. In practice this call typically returns None for the
+        clone (no error, just an unrelated-or-absent series), which
+        build_metric_healthy treats as 'not recovered' — the post-fix check then
+        decides on pod-readiness alone, exactly as before this wiring. Any
+        network/parse error is likewise treated as None (fail-safe, never a
+        fabricated pass)."""
+        import httpx  # lazy — same rationale as _load_k8s
+
+        try:
+            r = httpx.get(
+                f"{self._prometheus_url}/api/v1/query",
+                params={"query": name},
+                timeout=5.0,
+            )
+            results = r.json().get("data", {}).get("result", [])
+            if not results:
+                return None
+            return max(float(v["value"][1]) for v in results)
+        except Exception:  # noqa: BLE001 — a failed query -> None -> metric not recovered
+            return None
 
 
 def _namespace_body(sandbox_ns: str):

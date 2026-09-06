@@ -10,8 +10,11 @@ from common.contracts import (
     RemediationTarget,
     Situation,
     SituationStatus,
+    TelemetryEvent,
+    TelemetryKind,
 )
 from services.action.adapters.sandbox import NullSandbox
+from services.correlation.detection_policy import DetectionPolicy
 
 
 def _situation() -> Situation:
@@ -415,6 +418,148 @@ def test_seed_revision_history_failure_is_swallowed(monkeypatch):
     assert isinstance(result, PreflightResult)  # never raised
     assert result.mode == "k8s"
     assert core.deleted  # torn down regardless
+
+
+# --- NamespaceCloneSandbox: post-fix health check is per-metric (Metrics Phase 4) ---
+#
+# The sandbox's PRE-fix rollout-wait check stays pod-readiness only (it's waiting
+# for the clone to come up, not verifying recovery). The POST-fix check, when the
+# sandbox is constructed with a `policy`, must build a per-metric predicate the
+# same way the live health path does (Task 2/3) — i.e. the post-fix
+# KubernetesHealthChecker(...) call must receive `policy=` and `query_value=`.
+# Because the sandbox is heavily k8s-mocked, the assertion spies on the
+# KubernetesHealthChecker constructor within sandbox.py: two constructions happen
+# per successful rehearse() (rollout-wait, then post-fix) — the LAST one seen is
+# the post-fix call.
+
+
+def _situation_firing_on(metric_name: str) -> Situation:
+    now = datetime.now(UTC)
+    return Situation(
+        id="sit-1",
+        status=SituationStatus.DIAGNOSED,
+        member_events=[
+            TelemetryEvent(
+                source="t",
+                kind=TelemetryKind.METRIC,
+                name=metric_name,
+                value=300.0,
+                ts=now,
+                fingerprint="fp-1",
+            )
+        ],
+        severity="high",
+        first_seen=now,
+        last_seen=now,
+        signature="sig-1",
+        baseline={metric_name: {"mean": 200.0, "std": 20.0}},
+    )
+
+
+def _happy_path_mocks(monkeypatch, apps, core):
+    """Shared plumbing for a full rehearse() happy path: mocks everything up to
+    (and including) the two health checks, using the given apps_v1/core_v1 fakes.
+    Modeled on test_namespace_clone_sandbox_fails_when_apply_returns_false above."""
+    from services.action.adapters import sandbox as sb
+
+    monkeypatch.setattr(sb, "_load_k8s", lambda: (apps, core), raising=False)
+    monkeypatch.setattr(sb, "_strip_deployment", lambda dep, ns: dep, raising=False)
+    monkeypatch.setattr(sb, "_namespace_body", lambda ns: object(), raising=False)
+    monkeypatch.setattr(sb, "_referenced_config_map_names", lambda dep: [], raising=False)
+    monkeypatch.setattr(
+        sb.NamespaceCloneSandbox,
+        "_clone_service_best_effort",
+        lambda self, core_v1, dep_name, sandbox_ns: None,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        sb.NamespaceCloneSandbox,
+        "_clone_config_maps_best_effort",
+        lambda self, core_v1, source_dep, sandbox_ns: None,
+        raising=False,
+    )
+
+    class _Remediator:
+        def __init__(self, *a, **k):
+            pass
+
+        def execute(self, plan):
+            return True  # fix "applies" cleanly so the flow reaches the post-fix check
+
+    monkeypatch.setattr(sb, "KubernetesRemediator", _Remediator, raising=False)
+    return sb
+
+
+def test_sandbox_post_fix_check_is_per_metric(monkeypatch):
+    import services.action.adapters.sandbox as sb
+
+    seen = []
+    real = sb.KubernetesHealthChecker
+
+    class Spy(real):
+        def __init__(self, *a, **k):
+            seen.append(k)
+            super().__init__(*a, **k)
+
+        def check(self, situation, target):
+            return True  # force a pass so the flow proceeds past both health checks
+
+    monkeypatch.setattr(sb, "KubernetesHealthChecker", Spy)
+
+    apps, core = _AppsV1HappyPath(), _CoreV1HappyPath()
+    _happy_path_mocks(monkeypatch, apps, core)
+
+    policy = DetectionPolicy(enabled=True)
+    sandbox = sb.NamespaceCloneSandbox(
+        "intelliops", prometheus_url="http://prom:9090", policy=policy, z_threshold=3.0
+    )
+    situation = _situation_firing_on("memory_usage_mb")
+    result = sandbox.rehearse(situation, _plan())
+
+    assert result.passed is True
+    # Two KubernetesHealthChecker constructions: rollout-wait, then post-fix.
+    assert len(seen) == 2
+    rollout_kwargs, post_fix_kwargs = seen[0], seen[1]
+    # PRE-fix rollout-wait stays pod-readiness only — no policy/query_value.
+    assert rollout_kwargs.get("policy") is None
+    assert rollout_kwargs.get("query_value") is None
+    # POST-fix carries the per-metric predicate.
+    assert post_fix_kwargs.get("policy") is policy
+    assert post_fix_kwargs.get("query_value") is not None
+    assert post_fix_kwargs.get("z_threshold") == 3.0
+
+
+def test_sandbox_post_fix_check_is_pod_readiness_only_without_policy(monkeypatch):
+    """Back-compat: a NamespaceCloneSandbox built with no policy (the default —
+    e.g. existing direct constructions in tests, or sandbox_mode="k8s" before
+    this wiring) must keep the post-fix check pod-readiness only, exactly as
+    before Metrics Phase 4."""
+    import services.action.adapters.sandbox as sb
+
+    seen = []
+    real = sb.KubernetesHealthChecker
+
+    class Spy(real):
+        def __init__(self, *a, **k):
+            seen.append(k)
+            super().__init__(*a, **k)
+
+        def check(self, situation, target):
+            return True
+
+    monkeypatch.setattr(sb, "KubernetesHealthChecker", Spy)
+
+    apps, core = _AppsV1HappyPath(), _CoreV1HappyPath()
+    _happy_path_mocks(monkeypatch, apps, core)
+
+    sandbox = sb.NamespaceCloneSandbox("intelliops")  # no policy — default
+    result = sandbox.rehearse(_situation(), _plan())
+
+    assert result.passed is True
+    assert len(seen) == 2
+    for kwargs in seen:
+        assert kwargs.get("policy") is None
+        assert kwargs.get("query_value") is None
 
 
 # --- Serialization round-trip: V1OwnerReference must survive sanitize_for_serialization ----
