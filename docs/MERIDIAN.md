@@ -159,23 +159,37 @@ each moving a realistic *cluster* of the USE+RED metrics from §1a rather than a
 | `saturation` | `cpu_usage` ↑, `saturation` ↑, `queue_depth` ↑ (step) | local capacity exhaustion | `scale-service` |
 | `latency` | `latency_p50_ms`/`latency_p99_ms` ↑, `queue_depth` ↑, `cpu_usage` mildly ↑ (step) | slow downstream call / lock contention | `scale-service` |
 | `error` | `meridian_error_rate` ↑ only; **`cpu_usage` + latency held at baseline** | a failing dependency or bad code path inside this service | `restart-pod` |
-| `memory_leak` | `memory_usage_mb` **ramps** linearly toward a target over `duration_seconds`; nothing else moves | a leak trending toward OOM | no dedicated RCA rule today — detection-only (see below) |
+| `memory_leak` | `memory_usage_mb` **ramps** linearly toward a target over `duration_seconds`; nothing else moves | a leak trending toward OOM | `restart-pod` (Phase 3 — recycle, don't scale: new pods leak too) |
 | `traffic_surge` | `request_rate` ↑, `cpu_usage` ↑, `saturation` ↑, `queue_depth` ↑ (step) | more legitimate load than the service has capacity for | `scale-service` |
-| `dependency_outage` | `meridian_error_rate` ↑, `latency_p99_ms` ↑; **`cpu_usage` held at baseline** | an upstream dependency this service calls is down | `restart-pod` (or, ideally, a dependency-specific runbook once RCA gains one — Phase 3) |
-| `db_exhaustion` | `db_pool_in_use` → `db_pool_max`, `latency_p99_ms` ↑ (step); cpu/error stay baseline | database connection-pool starvation | no dedicated RCA rule today — detection-only (see below) |
-| `crash` | `/ready` starts returning 503 (`unhealthy=True`); no metric moves | a wedged process | no dedicated RCA rule today — detection-only (see below) |
+| `dependency_outage` | `meridian_error_rate` ↑, `latency_p99_ms` ↑; **`cpu_usage` held at baseline** | an upstream dependency this service calls is down | `restart-pod` |
+| `db_exhaustion` | `db_pool_in_use` → `db_pool_max`, `latency_p99_ms` ↑ (step); cpu/error stay baseline | database connection-pool starvation | `restart-pod` (Phase 3 — recycle to release wedged connections) |
+| `crash` | `/ready` starts returning 503 (`unhealthy=True`); no metric moves | a wedged process | no dedicated RCA rule today — detection-only (no metric moves for a rule to key on) |
+
+**Phase 3 routing (`services/rca/rank.py`) and how confidence is set.** The metric-family rules
+above PROPOSE a candidate runbook from the closed 3-runbook catalog (restart-pod / scale-service /
+rollback-deploy) with a fallback confidence; `latency`/`queue_depth`/`request_rate` → `scale-service`
+and `memory`/`db_pool` → `restart-pod` are ranked so the restart family outranks the scale family on
+the multi-metric profiles above (`dependency_outage` = error+latency, `db_exhaustion` = db_pool+
+latency both land on `restart-pod`, not `scale-service`) — scaling just spins up new pods that hit
+the same wedged dependency or exhausted pool. When `RUNBOOK_SELECTOR_MODE=embedding` (+ the `ml`
+extra) is enabled, the confidence shown is **embedding-computed** — the cosine fit of the incident's
+symptoms against the chosen runbook's `symptoms` text (`confidence_source="embedding"`); off
+(default), the fallback constant stands (`confidence_source="rule"`). Either way the rules alone
+decide *which* runbook; see [ADR-028](../architectural.md#adr-028--rca-metric-family-rules--ai-computed-confidence).
 
 **The load-bearing cross-metric invariant.** `error` and `dependency_outage` are the two scenarios
 that deliberately **hold `cpu_usage` at its 18.0 baseline** while they move: RCA's
 `rank_hypotheses` (`services/rca/rank.py`) scores a saturation-token match at confidence 0.6 and an
-error/log match at 0.5 — if either fault also spiked `cpu_usage`, `scale-service` would always
-outrank `restart-pod` and the error/outage incident would be misdiagnosed as a capacity problem.
-Keeping `cpu_usage` flat during both faults is what lets `restart-pod` fire at all; the same
-discipline is documented in `services/meridian/common.py`'s module docstring and enforced by
-`services/meridian/tests/` (`test_error_keeps_cpu_and_latency_at_baseline`,
+error/log match at 0.58 (as of Phase 3; originally 0.5) — if either fault also spiked `cpu_usage`,
+`scale-service` would always outrank `restart-pod` and the error/outage incident would be
+misdiagnosed as a capacity problem. Keeping `cpu_usage` flat during both faults is what lets
+`restart-pod` fire at all; the same discipline is documented in `services/meridian/common.py`'s
+module docstring and enforced by `services/meridian/tests/`
+(`test_error_keeps_cpu_and_latency_at_baseline`,
 `test_dependency_outage_moves_errors_and_latency_not_cpu`). More generally, every one of the 8
-profiles moves *only* the metrics that incident would realistically move — the shape of the
-anomaly cluster is itself part of the (eventual, Phase-3) diagnosis, not noise.
+profiles moves *only* the metrics that incident would realistically move — the shape of the anomaly
+cluster is itself part of the diagnosis, not noise, and as of Phase 3 that shape is exactly what the
+metric-family rules key on (§4 above).
 
 ### The 8 scripted scenarios (Operations view presets)
 
@@ -185,26 +199,25 @@ anomaly cluster is itself part of the (eventual, Phase-3) diagnosis, not noise.
 | Report slow | reporting | `latency` (+ cpu) | `scale-service` |
 | Validation errors | validation | `error` (magnitude 0.5) | `restart-pod` |
 | Bad gateway deploy | gateway | deploy marker (v2.3.1) then `saturation` | `rollback-deploy` |
-| Memory leak (gradual) | aggregation | `memory_leak` | detection-only — no dedicated rule today |
+| Memory leak (gradual) | aggregation | `memory_leak` | `restart-pod` (Phase 3) |
 | Traffic surge | gateway | `traffic_surge` | `scale-service` |
 | Dependency outage | validation | `dependency_outage` | `restart-pod` |
-| DB pool exhaustion | reporting | `db_exhaustion` | detection-only — no dedicated rule today |
+| DB pool exhaustion | reporting | `db_exhaustion` | `restart-pod` (Phase 3) |
 
 ### The custom-fault builder
 
 The Operations view also has a composer: pick a target service, a fault type (all 8 scenarios), a
 magnitude (0.1–2.0), a duration, and an optional "mark as deploy" checkbox, then fire it through
 the same `/api/ops/fault` proxy the presets use — the identical real mechanism, not a separate code
-path. **Honest note on coverage:** only some of the 8 scenarios map to a playbook RCA actually
-ranks above the low-confidence fallback today (`saturation`/`latency`/`traffic_surge` →
-`scale-service`; `error`/`dependency_outage` → `restart-pod`; a deploy marker → `rollback-deploy`).
-`memory_leak`, `db_exhaustion`, and `crash` have **no dedicated RCA rule** in `rank_hypotheses` as
-of Metrics Phase 1 — unless one happens to co-occur with a saturation- or error-token metric, it
-lands in the generic "root cause undetermined" fallback (confidence 0.2, no suggested runbook).
-That is a genuine, current gap in RCA's rule coverage (closing it for the new metric families is
-explicitly **Phase 3** of this metrics arc — see the design spec), not a UI bug: the composer will
-happily let you inject any of the 8, and IntelliOps will detect the anomaly but may not diagnose it
-richly until Phase 3 lands.
+path. **Honest note on coverage (updated for Phase 3):** 7 of the 8 scenarios now map to a
+dedicated `rank_hypotheses` rule (`saturation`/`latency`/`traffic_surge` → `scale-service`;
+`error`/`dependency_outage`/`memory_leak`/`db_exhaustion` → `restart-pod`; a deploy marker →
+`rollback-deploy`). Only `crash` has **no dedicated RCA rule** — it flips `/ready` to unhealthy but
+moves no metric, so there is no metric-family token for a rule to key on; it lands in the generic
+"root cause undetermined" fallback (confidence 0.2, no suggested runbook) unless it happens to
+co-occur with a metric-moving fault. When the embedding selector is enabled
+(`RUNBOOK_SELECTOR_MODE=embedding`), each of the 7 routed scenarios' confidence is computed from the
+symptom fit rather than a fixed constant — see [ADR-028](../architectural.md#adr-028--rca-metric-family-rules--ai-computed-confidence).
 
 ### Why sequential injection is required
 
@@ -303,13 +316,14 @@ the demo script below insists on it.
 - **Faults must be injected one at a time.** Correlation groups by time window, not by service
   (§4) — this is a real constraint of the current detector, confirmed live (§5), not just a UI
   restriction. Concurrent faults on different services will merge into one Situation.
-- **Not every fault scenario has a dedicated playbook.** `crash`, `memory_leak`, and
-  `db_exhaustion` have no RCA rule of their own today (§4) — Metrics Phase 1 adds the *metric
-  signals* for these incident shapes, but mapping the new metric families to runbooks is
-  explicitly deferred to Phase 3 of the metrics arc (see the design spec at
-  `docs/superpowers/specs/2026-09-06-rich-metrics-phase1-design.md`). They are detection-capable
-  but not richly diagnosable today, and the custom-fault composer does not currently flag this
-  distinction in its own UI text (it is documented here instead).
+- **One fault scenario still has no dedicated playbook.** `crash` (§4) moves no metric — it only
+  flips `/ready` to unhealthy — so there is no metric-family token for an `rank_hypotheses` rule to
+  key on; it is detection-capable (the health check fails) but not richly diagnosable via RCA
+  today. `memory_leak` and `db_exhaustion` gained dedicated rules (both → `restart-pod`) in
+  **Metrics Phase 3** (see `docs/superpowers/specs/2026-09-06-rca-metric-rules-phase3-design.md`
+  and [ADR-028](../architectural.md#adr-028--rca-metric-family-rules--ai-computed-confidence)). The
+  custom-fault composer does not currently flag the `crash` gap in its own UI text (it is
+  documented here instead).
 - **Only the gateway has real domain routes today.** `validation`, `aggregation`, and `reporting`
   are fully faultable, independently-observed services with the complete scaffold, but their
   `/validate`, `/aggregate`, and `/report` domain endpoints are not yet wired to real business
