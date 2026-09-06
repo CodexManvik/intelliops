@@ -1,7 +1,9 @@
 import random
 from datetime import UTC, datetime
 
+from common.config import get_settings
 from common.contracts import TelemetryEvent, TelemetryKind
+from services.correlation.adapters import _make_detection_policy, make_correlator
 from services.correlation.adapters.river_correlator import RiverCorrelator
 from services.correlation.adapters.robust_correlator import RobustCorrelator
 from services.correlation.adapters.trained_correlator import TrainedCorrelator
@@ -149,3 +151,48 @@ def test_is_anomaly_scored_avoids_second_detect_call():
     ratio_event = _ev("meridian_error_rate", 0.05)
     assert c.is_anomaly_scored(ratio_event, score=0.0) is True  # ratio fires on value alone
     assert c.is_anomaly_scored(_ev("meridian_error_rate", 0.001), score=99.0) is False
+
+
+# --- Task 4: factory builds the policy from settings + threads it into make_correlator ---
+
+
+def test_make_detection_policy_off_by_default():
+    """Default settings (no env override) build a disabled policy: the live
+    pipeline stays byte-identical to pre-phase behavior until opted in."""
+    get_settings.cache_clear()
+    p = _make_detection_policy(get_settings())
+    assert p._enabled is False
+
+
+def test_make_detection_policy_on_reads_config_thresholds(monkeypatch):
+    monkeypatch.setenv("INTELLIOPS_DETECTION_POLICY", "on")
+    monkeypatch.setenv("INTELLIOPS_DETECTION_RATIO_THRESHOLD", "0.05")
+    get_settings.cache_clear()
+    try:
+        p = _make_detection_policy(get_settings())
+        assert p._enabled is True
+        assert p._t["ratio"] == 0.05
+    finally:
+        get_settings.cache_clear()
+
+
+def test_make_correlator_threads_disabled_policy_by_default():
+    """make_correlator with default settings builds a correlator whose _policy
+    is disabled — the reset factory (Task 3) carries this through unchanged."""
+    get_settings.cache_clear()
+    correlator = make_correlator(get_settings())
+    assert correlator._policy._enabled is False
+
+
+def test_make_correlator_threads_enabled_policy_when_configured(monkeypatch):
+    """With detection on, EACH correlator kind make_correlator can build (river/
+    robust/trained) receives a live, enabled DetectionPolicy."""
+    monkeypatch.setenv("INTELLIOPS_DETECTION_POLICY", "on")
+    for kind in ("river", "robust", "trained"):
+        monkeypatch.setenv("INTELLIOPS_CORRELATOR_KIND", kind)
+        get_settings.cache_clear()
+        try:
+            correlator = make_correlator(get_settings())
+            assert correlator._policy._enabled is True
+        finally:
+            get_settings.cache_clear()
