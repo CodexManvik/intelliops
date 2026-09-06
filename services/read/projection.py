@@ -147,6 +147,7 @@ class ReadModel:
                 "evidence": list(h.evidence),
                 "explanation": h.explanation,
                 "explanation_source": h.explanation_source,
+                "confidence_source": h.confidence_source,
             }
             for h in d.hypotheses
         ]
