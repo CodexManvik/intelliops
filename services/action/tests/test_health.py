@@ -68,3 +68,34 @@ def test_fixed_health_checker():
 
 def test_fixed_satisfies_protocol():
     assert isinstance(FixedHealthChecker(healthy=True), HealthChecker)
+
+
+def test_make_health_checker_k8s_builds_per_metric():
+    from services.action.adapters.k8s_health import KubernetesHealthChecker
+    from services.action.app import _make_health_checker
+
+    class S:
+        health_check_mode = "k8s"
+        detection_policy = "on"
+        detection_ratio_threshold = 0.02
+        detection_saturation_ratio_threshold = 0.80
+        detection_saturation_percent_threshold = 90.0
+        detection_latency_ceiling_ms = 500.0
+        correlation_z_threshold = 3.0
+        prometheus_url = "http://prom:9090"
+
+    checker = _make_health_checker(S())
+    assert isinstance(checker, KubernetesHealthChecker)
+    assert checker._policy is not None
+    assert checker._policy.enabled is True
+    assert checker._query_value is not None
+    assert checker._z_threshold == 3.0
+
+
+def test_make_health_checker_always_is_always_healthy():
+    from services.action.app import _make_health_checker
+
+    class S:
+        health_check_mode = "always"
+
+    assert isinstance(_make_health_checker(S()), AlwaysHealthyChecker)
