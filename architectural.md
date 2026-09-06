@@ -1465,6 +1465,90 @@ a drafted runbook via ADR-025) — it does not decide what gets executed.
 
 ---
 
+### ADR-029 — Per-metric health verification
+
+**Context.** Post-remediation health verification asked Prometheus one hardcoded question
+regardless of which metric fired the incident: `services/action/app.py` `_make_health_checker`
+queried `cpu_usage` and declared the metric half of the verdict healthy when every returned series
+was `< 50`; `KubernetesHealthChecker.check` required both pod-readiness AND that predicate before
+declaring success, otherwise the caller rolled back
+([ADR-007](#adr-007--reversible-only-health-verified-remediation)). So a **memory-leak** incident
+was "verified fixed" by checking cpu — if cpu never spiked, the check passed trivially, a **false
+success**. An **error-rate spike**, a **latency** regression, a **db-pool exhaustion** were all
+verified against cpu, none against the metric that actually broke. This mattered beyond one wrong
+check: the `worked` flag this verdict feeds drives **reliability scoring** and **suppression** — a
+signature that "reliably self-heals" gets auto-remediated more readily — so a false success here
+corrupted a downstream safety signal, not just a log line. The sandbox pre-flight rehearsal
+([ADR-023](#adr-023--pre-flight-sandbox-rehearsal-before-remediation)) had the same gap one layer
+deeper: its post-fix `KubernetesHealthChecker` was constructed with the metric predicate left at
+the default `lambda: True`, so the rehearsal verified pod-readiness only and never checked a metric
+at all — the per-namespace metric query ADR-023 flagged as deferred.
+[ADR-028](#adr-028--rca-metric-family-rules--ai-computed-confidence) had already taught RCA to
+diagnose the *right* metric family; verification was the one place still checking the wrong one.
+
+**Decision.** Apply **detect-and-verify symmetry**: a metric is *recovered* when it is no longer
+anomalous by the **same** [ADR-027](#adr-027--detection-policy-per-metric-kind) `DetectionPolicy`
+rule that detected it — one rule governs both "is this firing?" and "has this recovered?". A new
+pure helper, `services/action/verify.py` `build_metric_healthy(situation, query_value, policy,
+z_threshold)`, returns a `metric_healthy()` predicate: it reads the firing metric names off
+`situation.member_events` (metric-kind events carrying a value; value-`None` log/trace events are
+skipped), re-queries each one's current value via the injected `query_value(name)` callable, and
+classifies recovery by the policy's kind rule — ratio and saturation verify from the current value
+alone (an absolute cutoff, no baseline needed); latency verifies against its ceiling, plus a
+z-score half when a baseline exists; the pure `default` kind (`memory_usage_mb`, `queue_depth`,
+`db_pool_in_use`, `request_rate`, …) has only the z-score rule, so it needs the baseline the
+Situation already carries (`Situation.baseline`, per-metric `{mean, std}` captured at detection
+time). **Every** firing metric must recover — a partial fix (error rate down, latency still
+breaching) is not healthy, keeping the `worked` signal honest. **Fail-safe to rollback everywhere
+uncertain**, matching the [ADR-007](#adr-007--reversible-only-health-verified-remediation) bias: a
+query that fails or returns `None`, or a `default`-kind metric with no usable baseline (`std <= 0`
+or absent), makes that metric not-recovered; the predicate never raises. A Situation with no
+judgeable metric events is vacuously healthy on the metric half, leaving pod-readiness as the sole
+verdict — the one case that preserves pre-Phase-4 behavior for a metric-less Situation.
+
+Both call sites now build this predicate from a shared `_make_detection_policy(settings)` helper —
+the **same** `detection_*` + `correlation_z_threshold` settings the correlation engine detects
+with, so detect and verify agree by construction with no new config. In the live path,
+`_make_health_checker` supplies a `query_value(name)` that instant-queries the FIRING metric by
+name (not cpu) and passes the policy + z-threshold into `KubernetesHealthChecker`, which builds the
+predicate fresh from the Situation it receives in `check()`. In the sandbox path,
+`NamespaceCloneSandbox`'s post-fix check gets the identical wiring, targeting the sandbox
+namespace's own `query_value`; the pre-fix rollout-wait stays pod-readiness only, since it is
+confirming the clone came up, not verifying a fix. **Honest limitation:** in this repo's
+demo/Meridian setup, Prometheus is configured with static scrape targets pointed at the production
+Service DNS names (`deploy/prometheus.yml`, `deploy/k8s/prometheus/configmap.yaml`) — there is no
+`kubernetes_sd_configs` pod discovery, and the gauges carry no namespace label — so a pod cloned
+into a throwaway `intelliops-sandbox-*` namespace is never independently scraped. The sandbox's
+per-metric query therefore typically returns `None`, which fails safe to not-recovered, and the
+rehearsal falls back to deciding on pod-readiness alone — exactly the pre-Phase-4 behavior, never a
+faked pass. The wiring is correct and future-proof: it activates fully once per-clone scraping
+exists, but the sandbox metric check is not fully live today, and the docs do not claim otherwise.
+
+This ships **on by default** within the existing `health_check_mode == "k8s"` path — no flag gates
+it. The cpu threshold moves from the old hardcoded `< 50` to the policy's saturation cutoff (90
+percent-scale) when `detection_policy=on`; every non-cpu firing metric changes from
+"cpu-based" to "the-right-metric-based." The `always` (dry-run) health mode is untouched —
+`AlwaysHealthyChecker` has nothing to verify against in dry-run — so the default dev/test posture
+does not change; the correction is live only in the real-cluster path.
+
+**Why.** A correctness fix to a safety signal should ship as a correction, not an opt-in — the old
+`cpu_usage < 50` check was never a deliberate design choice to preserve, it was the absence of a
+per-metric one, and leaving it in place behind a flag would mean choosing to keep verifying the
+wrong thing by default. Reusing [ADR-027](#adr-027--detection-policy-per-metric-kind)'s policy
+(rather than a bespoke verification rule) is what makes "recovered" mean exactly the inverse of
+"detected" — the same thresholds, the same kind classification, no drift between the two questions.
+The fail-safe-to-rollback bias is the same discipline
+[ADR-007](#adr-007--reversible-only-health-verified-remediation) already applies to the whole
+verification path: an unprovable recovery must never be mistaken for a proven one, so the one case
+with no absolute test to fall back on (a `default`-kind metric lacking a baseline) declares
+not-recovered rather than guessing. Documenting the sandbox's real behavior — wiring that is
+correct but not yet exercised end-to-end in this repo's Prometheus setup — continues the same
+honesty discipline [ADR-023](#adr-023--pre-flight-sandbox-rehearsal-before-remediation) itself set:
+say what is genuinely verified today and what is future-proofed for tomorrow, and let the fail-safe
+direction (never a faked pass) cover the gap in between.
+
+---
+
 ## 4. Cross-cutting concerns
 
 **Traceability.** A `correlation_id` is threaded through every `AuditRecord`, so one

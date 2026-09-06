@@ -165,6 +165,14 @@ each moving a realistic *cluster* of the USE+RED metrics from §1a rather than a
 | `db_exhaustion` | `db_pool_in_use` → `db_pool_max`, `latency_p99_ms` ↑ (step); cpu/error stay baseline | database connection-pool starvation | `restart-pod` (Phase 3 — recycle to release wedged connections) |
 | `crash` | `/ready` starts returning 503 (`unhealthy=True`); no metric moves | a wedged process | no dedicated RCA rule today — detection-only (no metric moves for a rule to key on) |
 
+**Phase 4: recovery is verified on the metric that moved, not on cpu.** Post-remediation health
+verification (`health_check_mode=k8s`) now checks the metric(s) each fault above actually fired
+on — a `memory_leak` fix is verified on `memory_usage_mb`, an `error` fix on
+`meridian_error_rate`, a `latency` fix on `latency_p50_ms`/`latency_p99_ms`, a `db_exhaustion` fix
+on `db_pool_in_use` — instead of the old hardcoded `cpu_usage < 50` check, which would have
+trivially "passed" a memory or error fix without cpu ever having moved. See
+[ADR-029](../architectural.md#adr-029--per-metric-health-verification).
+
 **Phase 3 routing (`services/rca/rank.py`) and how confidence is set.** The metric-family rules
 above PROPOSE a candidate runbook from the closed 3-runbook catalog (restart-pod / scale-service /
 rollback-deploy) with a fallback confidence; `latency`/`queue_depth`/`request_rate` → `scale-service`
