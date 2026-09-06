@@ -43,6 +43,10 @@ class DetectionPolicy:
         self._enabled = enabled
         self._t = {**_DEFAULTS, **(thresholds or {})}
 
+    @property
+    def enabled(self) -> bool:
+        return self._enabled
+
     def is_anomaly(self, event: TelemetryEvent, score: float, z_threshold: float) -> bool:
         if not self._enabled:
             return score > z_threshold
