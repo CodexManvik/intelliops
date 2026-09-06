@@ -29,6 +29,9 @@ class NullRunbookSelector:
     ) -> tuple[str, float] | None:
         return None
 
+    def score(self, situation: Situation, hypothesis: RootCauseHypothesis, playbook) -> None:
+        return None
+
 
 # Process-wide cache so repeated EmbeddingRunbookSelector construction (e.g.
 # one per request in a naive caller) doesn't reload the sentence-transformers
@@ -69,28 +72,42 @@ class EmbeddingRunbookSelector:
         names = " ".join(e.name for e in situation.member_events)
         return f"{hypothesis.description}. signals: {names}".strip()
 
+    def score(
+        self, situation: Situation, hypothesis: RootCauseHypothesis, playbook
+    ) -> float | None:
+        """Cosine fit of (incident symptoms + hypothesis) against `playbook.symptoms`.
+
+        None when unavailable (no symptoms, model/encode error) — callers fall
+        back to the rule confidence. NEVER raises."""
+        symptoms = getattr(playbook, "symptoms", None)
+        if not symptoms:
+            return None
+        try:
+            import numpy as np
+
+            q = np.asarray(self._encode([self._query_text(situation, hypothesis)]))[0]
+            s = np.asarray(self._encode([symptoms]))[0]
+            denom = np.linalg.norm(q) * np.linalg.norm(s)
+            if denom == 0:
+                return None
+            return float(np.dot(q, s) / denom)
+        except Exception:  # noqa: BLE001 — fail-safe, never raise
+            return None
+
     def select(
         self, situation: Situation, hypothesis: RootCauseHypothesis, store: PlaybookStore
     ) -> tuple[str, float] | None:
         try:
-            import numpy as np
-
             candidates = [p for p in store.list() if getattr(p, "symptoms", None)]
             if not candidates:
                 return None
-            query_vec = np.asarray(self._encode([self._query_text(situation, hypothesis)]))[0]
-            symptom_texts = [p.symptoms for p in candidates]
-            symptom_vecs = np.asarray(self._encode(symptom_texts))
-
-            def _cos(a, b):
-                na, nb = np.linalg.norm(a), np.linalg.norm(b)
-                return float(a @ b / (na * nb)) if na and nb else 0.0
-
-            scores = [_cos(query_vec, sv) for sv in symptom_vecs]
-            best_i = int(np.argmax(scores))
-            best_score = scores[best_i]
+            scored = [(p.id, self.score(situation, hypothesis, p)) for p in candidates]
+            scored = [(pid, sc) for pid, sc in scored if sc is not None]
+            if not scored:
+                return None
+            best_id, best_score = max(scored, key=lambda item: item[1])
             if best_score >= self._threshold:
-                return candidates[best_i].id, best_score
+                return best_id, best_score
             return None
         except Exception as exc:  # noqa: BLE001 — fail-safe, never raise out of diagnose
             logger.info(
