@@ -16,6 +16,7 @@ import logging
 import time
 
 from common.contracts import RemediationTarget, Situation
+from services.action.adapters.kube_config import load_kube
 from services.action.verify import build_metric_healthy
 
 logger = logging.getLogger("intelliops.action.k8s_health")
@@ -24,7 +25,7 @@ logger = logging.getLogger("intelliops.action.k8s_health")
 def _default_apps_v1():
     from kubernetes import client, config
 
-    config.load_kube_config()
+    load_kube(config)
     return client.AppsV1Api()
 
 

@@ -24,6 +24,7 @@ from uuid import uuid4
 from common.contracts import PreflightResult, RemediationPlan, RemediationTarget, Situation
 from services.action.adapters.k8s_health import KubernetesHealthChecker
 from services.action.adapters.k8s_remediator import KubernetesRemediator
+from services.action.adapters.kube_config import load_kube
 
 logger = logging.getLogger("intelliops.action.sandbox")
 
@@ -38,10 +39,7 @@ _POLL_INTERVAL_SECONDS = 2.0
 def _load_k8s():
     from kubernetes import client, config  # imported lazily so off-mode never needs k8s
 
-    try:
-        config.load_incluster_config()
-    except Exception:  # noqa: BLE001
-        config.load_kube_config()
+    load_kube(config)
     return client.AppsV1Api(), client.CoreV1Api()
 
 
