@@ -1,0 +1,27 @@
+# Opt-in LIVE posture for a real cluster. Enable with:
+#   helm install intelliops deploy/k8s/platform -f deploy/k8s/platform/values-live.yaml \
+#     --set-string llm.apiKey=$GROQ_API_KEY
+#
+# The LLM API key is NOT in this file (never commit a key). Supply it at install
+# via --set-string llm.apiKey=... (the chart then creates a Secret), OR pre-create
+# a Secret and set llm.apiKeySecretName to its name.
+#
+# This flips the metrics-arc features ON and points remediation/health at the
+# real cluster + in-cluster Prometheus:
+env:
+  CORRELATOR_KIND: "robust"          # seasonal per-(metric,hour) baselines
+  DETECTION_POLICY: "on"             # Phase 2 — detect + verify agree
+  RUNBOOK_SELECTOR_MODE: "embedding" # Phase 3 — AI-computed (symptom-fit) confidence
+  REMEDIATOR_MODE: "k8s"             # real pod remediation
+  SANDBOX_MODE: "k8s"                # pre-flight rehearsal on a throwaway clone
+  HEALTH_CHECK_MODE: "k8s"           # Phase 4 — verify the firing metric recovered
+  PROMETHEUS_URL: "http://prometheus:9090"
+  # LLM explanations (Phase: AI-drafted/advisory). Groq shown; any OpenAI-compatible
+  # endpoint works. The key is supplied at install (see above), never here.
+  LLM_EXPLANATION_ENDPOINT: "https://api.groq.com/openai/v1"
+  LLM_EXPLANATION_MODEL: "llama-3.3-70b-versatile"
+
+# The action service needs cluster RBAC to patch Deployments + create/delete the
+# sandbox namespace.
+rbac:
+  create: true

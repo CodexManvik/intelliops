@@ -1,0 +1,62 @@
+{{/*
+rbac.yaml
+Scoped RBAC for the action service's real k8s remediation + sandbox pre-flight.
+Rendered only when rbac.create (the live posture); dry-run needs no cluster access.
+
+The verbs below are exactly what the action adapters call (k8s_remediator, sandbox,
+k8s_health): patch/scale/rollback Deployments, read rollout status, and clone into
+a THROWAWAY namespace for the sandbox rehearsal. Namespace create/delete is
+cluster-scoped, so this must be a ClusterRole (a namespaced Role cannot grant it).
+*/}}
+{{- if .Values.rbac.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: intelliops-action
+  labels:
+    {{- include "intelliops.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-intelliops-action
+  labels:
+    {{- include "intelliops.labels" . | nindent 4 }}
+rules:
+  # Deployments: scale / restart (rollout restart via patch) / rollback + clone.
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "create", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    verbs: ["get", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/status"]
+    verbs: ["get"]
+  # Sandbox pre-flight: create/delete a throwaway namespace + clone config/service.
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["configmaps", "services"]
+    verbs: ["get", "create"]
+  # Diagnostics / health.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-intelliops-action
+  labels:
+    {{- include "intelliops.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-intelliops-action
+subjects:
+  - kind: ServiceAccount
+    name: intelliops-action
+    namespace: {{ .Release.Namespace }}
+{{- end }}
