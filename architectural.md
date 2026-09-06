@@ -1342,6 +1342,70 @@ human approval when none does.
 
 ---
 
+### ADR-027 — Detection policy per metric kind
+
+**Context.** Every correlator ([ADR-019](#adr-019--pluggable-detectors-the-finetuning-loop-and-llm-assisted-rca))
+made the same anomaly decision regardless of what a metric was: `detect(event) > z_threshold`. A
+single z-score is the right question for an unbounded utilization signal against a stable
+baseline, but the wrong question for two common metric shapes. A bounded **ratio** (an error rate)
+can jump from a healthy 0.1% to a genuinely bad 5% while barely moving its own running
+mean/variance if the service has always been a little noisy, so the std-dev framing hides the
+level that actually matters. And **latency**, like the seasonal telemetry ADR-019 already
+identified, has a legitimate daily shape (busier at peak hours), so a global z-score in the
+`river` correlator flags the same 200ms tail every afternoon.
+
+**Decision.** Add a `DetectionPolicy` (`services/correlation/detection_policy.py`) that classifies
+each metric by name into one of four kinds and applies the matching rule:
+
+- **`ratio`** (name contains `error_rate` / `error_ratio` / `_ratio`) fires on an absolute
+  threshold (`event.value > detection_ratio_threshold`, default `0.02`), never the z-score. A 5%
+  error rate is bad regardless of how noisy the baseline has been.
+- **`saturation`** (`saturation` / `utilization` / `disk_usage` / `cpu_usage` / `_percent`) fires
+  on an absolute cutoff too, but the vocabulary mixes two scales: `cpu_usage` and any `_percent`
+  name are 0..100 and compared against `detection_saturation_percent_threshold` (default `90.0`);
+  every other saturation name is treated as 0..1 and compared against
+  `detection_saturation_ratio_threshold` (default `0.80`).
+- **`latency`** (`latency` / `duration` / `_ms`) fires on the statistical score or an absolute
+  ceiling (`detection_latency_ceiling_ms`, default `500.0`ms), whichever trips first. The
+  statistical half is only genuinely seasonal for the `robust`/`trained` correlators, which score
+  against a per-`(metric, hour-of-day)` baseline ([ADR-019](#adr-019--pluggable-detectors-the-finetuning-loop-and-llm-assisted-rca));
+  under the `river` default, whose baseline has no time-of-day awareness, the statistical term
+  still catches a global deviation but not a seasonal one, so the ceiling is what actually
+  protects against the seasonal false positive / false negative this kind exists to fix.
+- **`default`** (everything else) keeps the unmodified z-score — this policy narrows scope to the
+  two shapes that are provably wrong under a z-score, rather than reinventing detection for every
+  metric.
+
+`is_anomaly(event, score, z_threshold)` lives on `DetectionPolicy`; `BaseCorrelator` holds one
+instance (`_policy`, defaulting to a disabled policy so a correlator built with no policy is
+unaffected) and exposes `is_anomaly_scored(event, score)`, so all three correlators — `river`,
+`robust`, `trained` — get kind-aware detection for free. `CorrelationEngine.add()` calls
+`is_anomaly_scored` instead of comparing the raw score itself, and the engine's `reset()` factory
+forwards the same `_policy` instance into the reconstructed correlator, so a mid-stream reset
+doesn't silently fall back to the raw z-score. The policy is built from settings once
+(`detection_policy` = `off`/`on`, default `off`) alongside `CORRELATOR_KIND`, following the same
+switch pattern as [ADR-012](#adr-012--config-switched-adapter-selection-with-test-safe-defaults):
+`off` reproduces `score > z_threshold` exactly, for every kind, regardless of `event.value` — a
+config-switched-off policy is byte-identical to the pre-policy engine, so the existing correlation
+suite is untouched.
+
+**Why.** Off-by-default is the load-bearing property, not a footnote: a metric-kind classifier
+that misclassifies a name should never be able to change production behavior until someone
+deliberately opts in, so it ships exactly like every other test-safe-default switch in this
+system. The classification is honestly name-pattern-based, not schema- or unit-derived — it is a
+heuristic over conventional metric names (`error_rate`, `cpu_usage`, `latency_p99_ms`, …), not an
+inference over the values themselves, so a metric named against convention lands in `default` and
+falls back to the z-score rather than misfiring on the wrong absolute threshold. Likewise,
+"latency via the seasonal path" is only true seasonality when `CORRELATOR_KIND=robust` or
+`trained`; under the `river` default the ceiling is what guards against the seasonal false
+positive/negative this kind targets, and the docs make that explicit rather than implying every
+deployment gets seasonal latency detection for free.
+Keeping the decision on `BaseCorrelator`, not duplicated per correlator, means the four kinds and
+their thresholds are defined once and every correlator — present or future — inherits them the
+same way it already inherits `should_suppress` and `_severity_band`.
+
+---
+
 ## 4. Cross-cutting concerns
 
 **Traceability.** A `correlation_id` is threaded through every `AuditRecord`, so one

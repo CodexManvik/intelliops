@@ -28,6 +28,7 @@ class CorrelationEngine:
         self._correlator_factory = lambda: type(correlator)(
             z_threshold=correlator._z_threshold,
             warmup_samples=correlator._warmup_samples,
+            detection_policy=correlator._policy,
         )
         self._window = window_seconds
         self._suppress_threshold = suppress_threshold
@@ -49,7 +50,7 @@ class CorrelationEngine:
         # is simpler than a second baseline-only lock.
         with self._lock:
             score = self._correlator.detect(event)
-            if score <= self._correlator._z_threshold:
+            if not self._correlator.is_anomaly_scored(event, score):
                 return None
             emitted: Situation | None = None
             if self._buffer:

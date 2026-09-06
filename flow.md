@@ -207,6 +207,13 @@ all three subclassing a shared `BaseCorrelator`:
   sklearn/joblib are imported lazily — a `river`/`robust` deployment never pays the
   import cost.
 
+**The anomaly decision itself is policy-aware.** `detect_anomaly` still produces the
+score above, but whether that score (or the raw event value) counts as an anomaly is
+now decided by a `DetectionPolicy` shared via `BaseCorrelator`: kind-based absolute
+thresholds for `ratio`/`saturation`/`latency` metrics when `DETECTION_POLICY=on`, else
+the unmodified z-score (default `off`, byte-identical). See
+[ADR-027](architectural.md#adr-027--detection-policy-per-metric-kind) for the detail.
+
 ### 5.3 `rca-service` — explain the Situation and suggest a fix
 
 | Function | What it does | Why | Depends on |
