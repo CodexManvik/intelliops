@@ -87,7 +87,7 @@ meridian:
     - { name: meridian-reporting, module: "services.meridian.reporting.app:app" }
 prometheus:
   enabled: true
-  image: prom/prometheus
+  image: prom/prometheus:v2.54.1   # pinned for reproducibility (not :latest)
 
 # The React console: nginx serving the built SPA + same-origin reverse-proxy to
 # the read service (SSE-safe). Exposed via NodePort for the browser on kind.

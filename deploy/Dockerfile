@@ -31,7 +31,7 @@ ENV SERVICE_MODULE=services.ingestion.app:app
 ENV PORT=8000
 CMD ["sh", "-c", "uvicorn \"$SERVICE_MODULE\" --host 0.0.0.0 --port \"$PORT\""]
 
-# ---- full: base + ml + k8s (correlation, action) ----
+# ---- full: base + ml + k8s (rca: embedding selection; action: k8s remediation) ----
 FROM builder-base AS full
 RUN uv sync --frozen --no-dev --extra ml --extra k8s --no-install-project
 
@@ -47,7 +47,7 @@ RUN uv sync --frozen --no-dev --extra ml --extra k8s --no-install-project
 # no training/CUDA). pyproject.toml pins torch to the CPU-only PyTorch index
 # (`[tool.uv.sources]` + `[[tool.uv.index]] pytorch-cpu`), so the `uv sync` above
 # ALREADY installs `torch ...+cpu` and never downloads the multi-GB CUDA wheels
-# (~6GB → ~1-1.7GB image). Assert it here as a build-time guard.
+# (the CUDA build is ~6GB; this CPU image measures ~4GB). Assert it here as a build-time guard.
 RUN /app/.venv/bin/python -c "import torch; assert torch.version.cuda is None and torch.__version__.endswith('+cpu'), f'expected CPU-only torch, got {torch.__version__} (cuda={torch.version.cuda})'; print('torch OK:', torch.__version__)"
 
 # Pre-cache all-MiniLM-L6-v2 (~90MB) so RUNBOOK_SELECTOR_MODE=embedding needs no
