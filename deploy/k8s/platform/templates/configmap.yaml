@@ -28,6 +28,15 @@ data:
   INTELLIOPS_SANDBOX_MODE: {{ .Values.env.SANDBOX_MODE | quote }}
   INTELLIOPS_HEALTH_CHECK_MODE: {{ .Values.env.HEALTH_CHECK_MODE | quote }}
   INTELLIOPS_PROMETHEUS_URL: {{ .Values.env.PROMETHEUS_URL | quote }}
+  # Ingestion telemetry source: "file" (default, no polling) or "prometheus"
+  # (poll the query below and publish each series as a TelemetryEvent).
+  INTELLIOPS_TELEMETRY_MODE: {{ .Values.env.TELEMETRY_MODE | quote }}
+  INTELLIOPS_PROMETHEUS_QUERY: {{ .Values.env.PROMETHEUS_QUERY | quote }}
+  # HITL approvals: in k8s the action + governance services are SEPARATE pods, so
+  # the action gate must reach governance over HTTP (not the in-process store) or
+  # the console's "Approve" (which hits the governance service) 404s.
+  INTELLIOPS_GOVERNANCE_MODE: {{ .Values.env.GOVERNANCE_MODE | quote }}
+  INTELLIOPS_GOVERNANCE_URL: {{ .Values.env.GOVERNANCE_URL | quote }}
   # LLM explainer endpoint/model (non-secret). The API KEY is NOT here — it is
   # injected on the rca pod via a Secret (secretKeyRef), never the configmap.
   INTELLIOPS_LLM_EXPLANATION_ENDPOINT: {{ .Values.env.LLM_EXPLANATION_ENDPOINT | quote }}
