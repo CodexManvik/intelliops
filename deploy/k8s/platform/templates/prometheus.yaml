@@ -1,0 +1,84 @@
+{{/*
+prometheus.yaml
+In-cluster Prometheus that scrapes the demo-app + Meridian Services by their
+release-namespace DNS, so per-metric health verification (Phase 4) and RCA see
+REAL series. Gated on prometheus.enabled. Config is a chart-managed ConfigMap.
+*/}}
+{{- if .Values.prometheus.enabled }}
+{{- $ns := .Release.Namespace }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  labels:
+    {{- include "intelliops.labels" . | nindent 4 }}
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 5s
+    scrape_configs:
+      {{- if .Values.demoApp.enabled }}
+      - job_name: demo-app
+        static_configs:
+          - targets: ["demo-app.{{ $ns }}:{{ .Values.demoApp.port }}"]
+            labels: { service: demo-app }
+      {{- end }}
+      {{- if .Values.meridian.enabled }}
+      {{- range .Values.meridian.services }}
+      - job_name: {{ .name }}
+        static_configs:
+          - targets: ["{{ .name }}.{{ $ns }}:8000"]
+            labels: { service: {{ .name }} }
+      {{- end }}
+      {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  labels:
+    {{- include "intelliops.labels" . | nindent 4 }}
+    {{- include "intelliops.selectorLabels" (dict "root" . "name" "prometheus") | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "intelliops.selectorLabels" (dict "root" . "name" "prometheus") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "intelliops.selectorLabels" (dict "root" . "name" "prometheus") | nindent 8 }}
+    spec:
+      containers:
+        - name: prometheus
+          image: {{ .Values.prometheus.image | quote }}
+          args:
+            - "--config.file=/etc/prometheus/prometheus.yml"
+          ports:
+            - containerPort: 9090
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+          readinessProbe:
+            httpGet: { path: /-/ready, port: 9090 }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: config
+          configMap:
+            name: prometheus-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  labels:
+    {{- include "intelliops.labels" . | nindent 4 }}
+    {{- include "intelliops.selectorLabels" (dict "root" . "name" "prometheus") | nindent 4 }}
+spec:
+  selector:
+    {{- include "intelliops.selectorLabels" (dict "root" . "name" "prometheus") | nindent 4 }}
+  ports:
+    - port: 9090
+      targetPort: 9090
+{{- end }}
