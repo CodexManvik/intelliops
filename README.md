@@ -64,7 +64,7 @@ IntelliOps is and how it works:
 | Read this | To understand |
 |-----------|---------------|
 | **[flow.md](flow.md)** | **How a signal flows through the system** — the one-incident journey, every bus topic and data contract, a function-by-function reference for each of the seven services, and the current status (what's real vs. simulated). |
-| **[architectural.md](architectural.md)** | **Why the system is shaped this way** — the layer model and twenty-nine ADRs (Architecture Decision Records), each with the context, the decision, the trade-offs, and the alternatives rejected. |
+| **[architectural.md](architectural.md)** | **Why the system is shaped this way** — the layer model and thirty ADRs (Architecture Decision Records), each with the context, the decision, the trade-offs, and the alternatives rejected. |
 
 Then, for the team: **[WORKPLAN.md](WORKPLAN.md)** divides the remaining work into four
 owned streams with acceptance criteria. The full original design spec is at
@@ -346,7 +346,7 @@ and honest limits (synthetic data, toggle-based faults, dry-run remediation) in
 ## Documentation map
 
 - **[architectural.md](architectural.md)** — design principles, the 5→6 layer mapping,
-  twenty-nine ADRs, cross-cutting concerns, compliance mapping.
+  thirty ADRs, cross-cutting concerns, compliance mapping.
 - **[docs/DEMO.md](docs/DEMO.md)** — the guided two-act demo walkthrough: the live dry-run loop,
   then real remediation on a kind cluster.
 - **[flow.md](flow.md)** — the one-incident journey, bus topics, data contracts, and a

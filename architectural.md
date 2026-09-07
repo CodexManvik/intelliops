@@ -1549,6 +1549,62 @@ direction (never a faked pass) cover the gap in between.
 
 ---
 
+### ADR-030 — Full in-cluster deployment (Helm)
+
+**Context.** The platform ran either in docker-compose or, for "real remediation", as compose
+services driving a kind cluster that held only the demo-app + Prometheus. To showcase the whole
+metrics arc *live and nothing-mocked* — embedding-computed confidence, LLM explanations, real pod
+remediation, per-metric health verification against real Prometheus, all behind the React console —
+everything needs to run in Kubernetes as one release. The existing Helm chart rendered the 7
+services with basic env; it had no AI/mode config, no RBAC, a single image for every service, no
+frontend, and the LLM key had nowhere safe to live.
+
+**Decision.** Extend the chart into a complete, opt-in-live deployment:
+
+- **Per-service images.** The `full` Docker target (base + the `ml` + `k8s` extras) is pinned to
+  **CPU-only torch** — torch is inference-only here (sentence-transformers `.encode` for the
+  cosine fit; no training, no CUDA), which cuts the image from ~6 GB to ~4 GB — and **bakes
+  all-MiniLM-L6-v2** so embedding works air-gapped. `rca` (embedding selection) and `action` (k8s
+  remediation) run `full`; the other five stay on the lean `base` image, preserving the
+  slim-boundary of [ADR-022](#adr-022--slim-per-service-docker-images).
+- **Live posture is opt-in.** The chart's default values keep the safe posture —
+  `REMEDIATOR_MODE=dry_run`, selector `off`, LLM template, `HEALTH_CHECK_MODE=always`, no RBAC — so
+  a plain `helm install` never touches a real cluster, exactly the default-dry-run principle of
+  [ADR-007](#adr-007--verify-then-roll-back). A `values-live.yaml` overlay flips on the robust
+  correlator, detection policy, embedding selection, k8s remediation/sandbox/health, and the LLM
+  endpoint.
+- **Scoped RBAC for remediation.** The action service patches Deployments and — for the
+  [ADR-023](#adr-023--pre-flight-sandbox-rehearsal-before-remediation) sandbox — creates and
+  deletes a throwaway namespace. In-cluster it authenticates as its pod ServiceAccount, so the
+  chart renders a ServiceAccount + a **ClusterRole** (namespace create/delete is cluster-scoped, so
+  a namespaced Role cannot grant it) + binding, scoped to exactly the verbs the adapters call,
+  gated on `rbac.create`. The k8s client picks `load_incluster_config()` in a pod and a kubeconfig
+  otherwise.
+- **The LLM key never touches git.** It is supplied at install (`--set-string llm.apiKey=…` or a
+  pre-created Secret) and reaches only the `rca` pod via `secretKeyRef` — never the ConfigMap,
+  never a committed values file.
+- **Everything folded in.** demo-app, the four Meridian services, and an in-cluster Prometheus
+  (scraping the Services by release-namespace DNS, so per-metric verification and RCA see real
+  series) are chart-managed. The React console ships as an nginx image that serves the SPA and
+  **reverse-proxies each backend same-origin** under `/api/*`; the read proxy sets
+  `proxy_buffering off` + HTTP/1.1 so the `/stream` SSE that drives the live UI is not buffered.
+  The console and read service are exposed via NodePort for the operator's browser on kind.
+
+**Why.** One `helm install` (plus a `kind-up-full.sh` that builds + loads the images and wires the
+key from the operator's environment) brings up the entire stack, and the same UI that renders mock
+data offline now renders real data live. Safety rides on the same defaults as everywhere else: the
+live features are strictly opt-in, the RBAC is minimal and cluster-scoped only where the sandbox
+genuinely requires it, and the key is handled the way secrets should be. It is the honest
+counterpart to the arc — the features are not just present in code, they run.
+
+**Alternatives rejected.** *Everything in compose* — simpler, but then remediation isn't real k8s
+and the "nothing mocked" story is thinner. *One fat image for all services* — drops the
+slim-boundary and bloats every pod with torch. *CUDA torch* — needless multi-GB weight for
+inference on short strings. *Key in a values file / ConfigMap* — a committed secret; rejected
+outright.
+
+---
+
 ## 4. Cross-cutting concerns
 
 **Traceability.** A `correlation_id` is threaded through every `AuditRecord`, so one

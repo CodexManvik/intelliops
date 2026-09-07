@@ -135,6 +135,40 @@ To upgrade an existing release:
 helm upgrade intelliops deploy/k8s/platform/
 ```
 
+### Full stack, live posture
+
+`helm install` alone brings up the platform in the **safe** posture (dry-run,
+selector off, LLM template, health `always`, no RBAC) — nothing in the cluster is
+remediated for real. To run *everything* in-cluster with the metrics-arc AI
+features live, use the one-command bring-up and the live overlay
+([ADR-030](../architectural.md#adr-030--full-in-cluster-deployment-helm),
+[deploy/k8s/README.md](../deploy/k8s/README.md)):
+
+```bash
+GROQ_API_KEY=gsk_... ./scripts/kind-up-full.sh
+```
+
+The live overlay (`deploy/k8s/platform/values-live.yaml`) flips these — **no new
+config keys**, it reuses the same `INTELLIOPS_*` settings the services already
+read:
+
+| Setting | Safe default | Live |
+|---|---|---|
+| `INTELLIOPS_CORRELATOR_KIND` | `river` | `robust` |
+| `INTELLIOPS_DETECTION_POLICY` | `off` | `on` |
+| `INTELLIOPS_RUNBOOK_SELECTOR_MODE` | `off` | `embedding` |
+| `INTELLIOPS_REMEDIATOR_MODE` | `dry_run` | `k8s` |
+| `INTELLIOPS_SANDBOX_MODE` | `off` | `k8s` |
+| `INTELLIOPS_HEALTH_CHECK_MODE` | `always` | `k8s` |
+| `INTELLIOPS_LLM_EXPLANATION_ENDPOINT`/`_MODEL` | empty | set |
+| `rbac.create` (chart) | `false` | `true` |
+
+`rca` and `action` run the `full` image (ml + k8s extras, CPU torch + baked
+embedding model); the other five use the lean `base` image. The **LLM API key is
+never committed** — supply it at install via `--set-string llm.apiKey=…` (the
+chart creates a Secret) or pre-create a Secret and set `llm.apiKeySecretName`; it
+reaches only the `rca` pod via `secretKeyRef`, never the ConfigMap.
+
 ---
 
 ## Environment-switch reference
