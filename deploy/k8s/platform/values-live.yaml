@@ -13,8 +13,16 @@ env:
   DETECTION_POLICY: "on"             # Phase 2 — detect + verify agree
   RUNBOOK_SELECTOR_MODE: "embedding" # Phase 3 — AI-computed (symptom-fit) confidence
   REMEDIATOR_MODE: "k8s"             # real pod remediation
-  SANDBOX_MODE: "k8s"                # pre-flight rehearsal on a throwaway clone
+  # Sandbox pre-flight is OFF: cloning a Deployment into a throwaway namespace
+  # isn't reliable in this kind setup (ADR-029's documented limit), and a failed
+  # rehearsal fails closed and blocks every remediation. Real remediation +
+  # per-metric health verification still run. Flip to "k8s" once per-clone
+  # cloning is supported in the target cluster.
+  SANDBOX_MODE: "off"
   HEALTH_CHECK_MODE: "k8s"           # Phase 4 — verify the firing metric recovered
+  # A human needs time to click Approve in the console before the action service
+  # gives up and aborts:timeout. 10 minutes.
+  HITL_POLL_TIMEOUT_SECONDS: "600"
   PROMETHEUS_URL: "http://prometheus:9090"
   # Ingestion polls Prometheus live. The query is a __name__ regex selector across
   # every USE+RED family the arc detects, so faults on any of them flow into a
