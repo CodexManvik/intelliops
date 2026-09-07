@@ -52,6 +52,36 @@ const METRIC_DOCS: Record<string, { title: string; formula: string; meaning: str
   },
 };
 
+// Phase-2 detection policy: how each metric kind is judged anomalous.
+const DETECTION_KIND_LABEL: Record<string, string> = {
+  ratio: "abs · ratio",
+  saturation: "abs · saturation",
+  latency: "ceiling / z",
+  default: "z-score",
+};
+const DETECTION_KIND_DOC: Record<string, string> = {
+  ratio: "Ratio/error-rate metric — fires on an absolute level (e.g. > 2%), not standard deviations. A z-score misses a small-baseline rate spike.",
+  saturation: "Saturation metric — scale-aware absolute cutoff (0–100 → 90, 0–1 → 0.80). CPU/disk/percent utilization.",
+  latency: "Latency metric — statistical score OR an absolute ceiling (500ms). Seasonal, so judged against the same hour's normal on robust/trained correlators.",
+  default: "Unbounded utilization signal — the plain per-metric z-score against its learned baseline.",
+};
+
+/** The metric names that fired for this situation (value-bearing metric events). */
+function metricNames(s: Situation): string[] {
+  return (s.member_events ?? [])
+    .filter((e) => e.kind === "metric" && e.value != null)
+    .map((e) => e.name);
+}
+
+/** Adaptive precision so a small ratio baseline (0.012) doesn't render as 0.0. */
+function fmtBaseline(v: number): string {
+  const a = Math.abs(v);
+  if (a === 0) return "0";
+  if (a < 1) return v.toFixed(3);
+  if (a < 100) return v.toFixed(1);
+  return Math.round(v).toString();
+}
+
 function MetricCard({
   docKey, value, sub,
 }: { docKey: keyof typeof METRIC_DOCS; value: string; sub: string }) {
@@ -327,10 +357,13 @@ export function Incidents() {
                   </div>
                 </div>
 
-                {/* what broke — member events + z-score vs baseline */}
+                {/* what broke — member events + z-score vs baseline + detection kind */}
                 {shown.member_events && shown.member_events.length > 0 && (
                   <div className="mt-5">
-                    <div className="mb-2 text-2xs font-medium uppercase tracking-[0.14em] text-ink-3">What broke — the signal</div>
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="text-2xs font-medium uppercase tracking-[0.14em] text-ink-3">What broke — the signal</span>
+                      <span className="font-mono text-2xs text-ink-4">detection rule</span>
+                    </div>
                     <div className="space-y-1">
                       {shown.member_events.slice(0, 6).map((ev, i) => {
                         const b = shown.baseline?.[ev.name];
@@ -338,8 +371,16 @@ export function Incidents() {
                           <div key={i} className="flex items-center gap-3 rounded-lg bg-black/[0.02] px-3 py-1.5 font-mono text-2xs">
                             <span className="text-ink">{ev.name}</span>
                             <span className="text-signal-dim">{ev.value ?? "—"}</span>
-                            {b && <span className="text-ink-3">vs baseline {b.mean.toFixed(1)}±{b.std.toFixed(1)}</span>}
-                            {shown.peak_score != null && i === 0 && <span className="ml-auto text-sev-warn">z ≈ {shown.peak_score.toFixed(1)}</span>}
+                            {b && <span className="text-ink-3">vs baseline {fmtBaseline(b.mean)}±{fmtBaseline(b.std)}</span>}
+                            {shown.peak_score != null && i === 0 && <span className="text-sev-warn">z ≈ {shown.peak_score.toFixed(1)}</span>}
+                            {ev.kind_detected && (
+                              <span
+                                className="ml-auto rounded bg-black/[0.05] px-1.5 py-0.5 text-ink-3"
+                                title={DETECTION_KIND_DOC[ev.kind_detected]}
+                              >
+                                {DETECTION_KIND_LABEL[ev.kind_detected]}
+                              </span>
+                            )}
                           </div>
                         );
                       })}
@@ -358,7 +399,24 @@ export function Incidents() {
                       <div key={i} className={`rounded-xl border p-3 ${i === 0 ? "border-signal/25 bg-signal/[0.05]" : "border-black/[0.06] bg-black/[0.02]"}`}>
                         <div className="flex items-center justify-between gap-3">
                           <span className="text-sm text-ink-2">{h.description}</span>
-                          <span className="flex-none font-mono text-2xs text-ink-3">conf {h.confidence.toFixed(2)}</span>
+                          <span className="flex flex-none items-center gap-1.5 font-mono text-2xs text-ink-3">
+                            {h.confidence_source === "embedding" ? (
+                              <span
+                                className="inline-flex items-center gap-1 rounded bg-signal/10 px-1.5 py-0.5 text-signal-dim"
+                                title="Confidence computed by the AI as the embedding fit between this incident's symptoms and the playbook — not a hardcoded rule constant."
+                              >
+                                <Sparkle size={10} weight="fill" /> fit
+                              </span>
+                            ) : h.confidence_source === "rule" ? (
+                              <span
+                                className="rounded bg-black/[0.05] px-1.5 py-0.5 text-ink-3"
+                                title="Confidence is the deterministic rule fallback (no embedding selector active for this candidate)."
+                              >
+                                rule
+                              </span>
+                            ) : null}
+                            conf {h.confidence.toFixed(2)}
+                          </span>
                         </div>
                         <div className="mt-2 flex items-center gap-2">
                           <div className="h-1 flex-1 overflow-hidden rounded-full bg-black/[0.08]">
@@ -413,6 +471,11 @@ export function Incidents() {
                             )}
                           </div>
                         )}
+                        {metricNames(shown).length > 0 && (
+                          <div className="mt-1 font-mono text-2xs text-ink-3" title="Phase 4: recovery is verified on the metric(s) that fired, not on cpu by default — each must be back within its detection policy to count as healthy.">
+                            ✓ verified recovered: <span className="text-sev-ok">{metricNames(shown).join(", ")}</span> back within baseline
+                          </div>
+                        )}
                         <div className="font-mono text-2xs text-ink-3">outcome labeled → reliability rising → next matching storm may be suppressed</div>
                       </div>
                     </div>
@@ -431,6 +494,11 @@ export function Incidents() {
                             ) : (
                               <span className="text-sev-warn">failed — {shown.outcome.preflight.detail}</span>
                             )}
+                          </div>
+                        )}
+                        {shown.outcome?.health_after === "unhealthy:rolled-back" && metricNames(shown).length > 0 && (
+                          <div className="mt-1 font-mono text-2xs text-ink-3" title="Phase 4: the metric that fired was still anomalous after the fix, so the remediation was rolled back — never declared healthy on a metric we couldn't verify.">
+                            ✗ still anomalous after fix: <span className="text-sev-warn">{metricNames(shown).join(", ")}</span> → rolled back
                           </div>
                         )}
                         <div className="font-mono text-2xs text-ink-3">gate failed closed — nothing executed</div>

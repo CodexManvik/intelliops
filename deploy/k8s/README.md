@@ -8,6 +8,68 @@ part of CI. Everywhere else (compose without this overlay, tests, CI),
 `REMEDIATOR_MODE` defaults to `dry_run` and nothing in a real cluster is ever
 touched.
 
+---
+
+## The full in-cluster stack (Helm) — everything live, one command
+
+The rest of this document describes the **compose + kind overlay** path (the 7
+services run in docker-compose, only demo-app + Prometheus live in kind). The
+**full path** below runs *everything* in Kubernetes via the Helm chart — all 7
+services + Meridian + demo-app + Postgres + Redis + Prometheus + the React
+console — with the metrics-arc AI features live (embedding-computed confidence +
+LLM explanations), real pod remediation, and per-metric health verification
+against the in-cluster Prometheus. See [ADR-030](../../architectural.md#adr-030--full-in-cluster-deployment-helm).
+
+**Prerequisites:** `docker`, `kind`, `kubectl`, `helm`.
+
+**Bring it all up (one command):**
+
+```bash
+# Your LLM key is read from the environment and wired via a Secret — never
+# written to a file or committed. Omit it and explanations fall back to template.
+GROQ_API_KEY=gsk_... ./scripts/kind-up-full.sh
+```
+
+That script: creates the kind cluster (mapping the console + read NodePorts to
+the host), builds and loads the three images (`base`, `full` = rca+action, and
+the `console`), `helm install`s with `values-live.yaml` (+ your key via
+`--set-string`), and waits for every rollout. When it finishes:
+
+- **Console (live UI):** <http://localhost:30080> — runs in `live` mode; nginx
+  reverse-proxies each backend same-origin under `/api/*` (SSE-safe), so the
+  dashboard shows **real** situations, embedding-fit confidences, and per-metric
+  verification.
+- **Read service:** <http://localhost:30007>.
+
+**Safe by default.** `helm install` *without* the live overlay (or
+`SAFE=1 ./scripts/kind-up-full.sh`) keeps the safe posture — `dry_run` / selector
+`off` / LLM template / `HEALTH_CHECK_MODE=always`, no RBAC — so nothing in the
+cluster is remediated for real unless you opt in. The live posture lives entirely
+in `deploy/k8s/platform/values-live.yaml`.
+
+**What's live in the live posture:**
+
+| Feature | Config (values-live) | Effect |
+|---|---|---|
+| Embedding runbook selection | `RUNBOOK_SELECTOR_MODE=embedding` | confidence = real symptom-fit (rca runs the `full` image with the baked model) |
+| LLM explanations | `LLM_EXPLANATION_ENDPOINT/MODEL` + your key | model-generated root-cause explanations |
+| Detection policy | `DETECTION_POLICY=on` | per-metric-kind anomaly rules |
+| Real remediation | `REMEDIATOR_MODE=k8s` (+ RBAC) | approving a fix patches a real Deployment |
+| Sandbox pre-flight | `SANDBOX_MODE=k8s` | rehearse on a throwaway namespace clone first |
+| Per-metric health | `HEALTH_CHECK_MODE=k8s` | verify the metric that *fired* recovered, not cpu |
+
+**Drive an incident:** inject a fault via the demo-app / a Meridian
+`/admin/fault` endpoint and watch detect → diagnose (real embedding confidence +
+LLM explanation) → approve → real pod remediation → per-metric verification, live
+in the console. **Tear down:** `kind delete cluster --name intelliops`.
+
+**The LLM key**, to be explicit: it is passed to Helm as `--set-string
+llm.apiKey=…` from your shell, stored only in a k8s Secret, and surfaced to the
+`rca` pod via `secretKeyRef`. It never lands in the ConfigMap, a values file, or
+git.
+
+---
+
 ## Probes for a real app-service deployment
 
 The manifests in this directory cover the **demo-app** and **Prometheus** (the workloads this

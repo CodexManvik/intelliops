@@ -11,6 +11,7 @@ import datetime as _dt
 import logging
 
 from common.contracts import RemediationPlan, RemediationStep, RemediationTarget
+from services.action.adapters.kube_config import load_kube
 
 logger = logging.getLogger("intelliops.action.k8s")
 
@@ -21,7 +22,7 @@ _MIN_REPLICAS = 1
 def _default_apps_v1():
     from kubernetes import client, config
 
-    config.load_kube_config()
+    load_kube(config)
     return client.AppsV1Api()
 
 

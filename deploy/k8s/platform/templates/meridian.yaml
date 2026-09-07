@@ -1,0 +1,62 @@
+{{/*
+meridian.yaml
+The Meridian sample production system (4 services) — a second, richer fault
+source. Each runs the shared BASE image launching its own module. Gated on
+meridian.enabled; ranges over meridian.services.
+*/}}
+{{- if .Values.meridian.enabled }}
+{{- $img := .Values.meridian.image | default (printf "%s:%s" .Values.image.repository .Values.image.tag) }}
+{{- $root := . }}
+{{- range .Values.meridian.services }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .name }}
+  labels:
+    {{- include "intelliops.labels" $root | nindent 4 }}
+    {{- include "intelliops.selectorLabels" (dict "root" $root "name" .name) | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "intelliops.selectorLabels" (dict "root" $root "name" .name) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "intelliops.selectorLabels" (dict "root" $root "name" .name) | nindent 8 }}
+    spec:
+      containers:
+        - name: {{ .name }}
+          image: {{ $img | quote }}
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          env:
+            - name: SERVICE_MODULE
+              value: {{ .module | quote }}
+            - name: PORT
+              value: "8000"
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 2
+            periodSeconds: 3
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits: { cpu: "250m", memory: "128Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .name }}
+  labels:
+    {{- include "intelliops.labels" $root | nindent 4 }}
+    {{- include "intelliops.selectorLabels" (dict "root" $root "name" .name) | nindent 4 }}
+spec:
+  selector:
+    {{- include "intelliops.selectorLabels" (dict "root" $root "name" .name) | nindent 4 }}
+  ports:
+    - port: 8000
+      targetPort: 8000
+{{- end }}
+{{- end }}

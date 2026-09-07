@@ -1,0 +1,14 @@
+# kind cluster config for the FULL in-cluster stack (scripts/kind-up-full.sh).
+# Maps the NodePorts the operator's browser needs on the host: the console and
+# the read service (its SSE/REST, though the console proxies it same-origin so
+# 30007 is a direct-access convenience). Prometheus + Meridian ports kept for
+# direct inspection.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - { containerPort: 30080, hostPort: 30080, protocol: TCP }   # console (React UI)
+      - { containerPort: 30007, hostPort: 30007, protocol: TCP }   # read-service (direct)
+      - { containerPort: 30090, hostPort: 30090, protocol: TCP }   # prometheus (if a NodePort is added)
+      - { containerPort: 30808, hostPort: 30808, protocol: TCP }   # meridian-gateway (direct)
