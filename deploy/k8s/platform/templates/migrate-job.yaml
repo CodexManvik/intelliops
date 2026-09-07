@@ -35,7 +35,7 @@ spec:
             - sh
             - -c
             - |
-              until pg_isready -h {{ .Release.Name }}-postgres -p 5432 -U {{ .Values.postgres.user }}; do
+              until pg_isready -h postgres -p 5432 -U {{ .Values.postgres.user }}; do
                 echo "waiting for postgres…"; sleep 2;
               done
       containers:

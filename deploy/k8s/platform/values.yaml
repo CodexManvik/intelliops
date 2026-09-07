@@ -17,6 +17,7 @@ services:
     module: "services.correlation.app:app"
     port: 8000
     externalPort: 8002
+    image: full            # RiverCorrelator imports `river`/`numpy` (the ml extra) at module load
   - name: rca
     module: "services.rca.app:app"
     port: 8000
