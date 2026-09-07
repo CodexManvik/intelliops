@@ -19,7 +19,7 @@ env:
   # LLM explanations (Phase: AI-drafted/advisory). Groq shown; any OpenAI-compatible
   # endpoint works. The key is supplied at install (see above), never here.
   LLM_EXPLANATION_ENDPOINT: "https://api.groq.com/openai/v1"
-  LLM_EXPLANATION_MODEL: "llama-3.3-70b-versatile"
+  LLM_EXPLANATION_MODEL: "openai/gpt-oss-120b"
 
 # The action service needs cluster RBAC to patch Deployments + create/delete the
 # sandbox namespace.
