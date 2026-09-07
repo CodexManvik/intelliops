@@ -52,80 +52,175 @@ export const system: SystemInfo = {
 
 export const baseline: BaselineInfo = {
   correlator_kind: "river",
+  // The real USE+RED metric surface (Phase 1) with the per-metric z-score
+  // baselines the correlator learns. Names match what the services emit.
   baselines: [
-    { metric_name: "cpu_pct", mean: 42.3, std: 9.1, count: 1840 },
-    { metric_name: "error_rate", mean: 0.012, std: 0.006, count: 1840 },
-    { metric_name: "latency_ms", mean: 118.4, std: 24.7, count: 1840 },
-    { metric_name: "mem_pct", mean: 61.8, std: 7.4, count: 1840 },
+    { metric_name: "cpu_usage", mean: 42.3, std: 9.1, count: 1840 },
+    { metric_name: "memory_usage_mb", mean: 512.0, std: 48.0, count: 1840 },
+    { metric_name: "meridian_error_rate", mean: 0.012, std: 0.006, count: 1840 },
+    { metric_name: "latency_p99_ms", mean: 118.4, std: 24.7, count: 1840 },
+    { metric_name: "latency_p50_ms", mean: 41.2, std: 8.9, count: 1840 },
+    { metric_name: "queue_depth", mean: 6.5, std: 3.1, count: 1840 },
+    { metric_name: "db_pool_in_use", mean: 8.4, std: 2.7, count: 1840 },
+    { metric_name: "request_rate", mean: 1240.0, std: 210.0, count: 1840 },
   ],
 };
 
+// Each situation is a typed fault profile (Phase 1) carrying its real firing
+// metrics (member_events, with the Phase-2 detection kind that judged each) and
+// the correlator's baseline snapshot, so the drill-down shows what actually
+// broke and how. Hypotheses carry the real Phase-3 confidences and, where an
+// embedding selector would be enabled, `confidence_source: "embedding"` — the
+// AI-computed (symptom-fit) confidence. In live k8s mode with
+// RUNBOOK_SELECTOR_MODE=embedding this is genuine; here it is illustrative of
+// that feature (mock has no model), the same way the LLM is shown as template.
 export const situations: Situation[] = [
   {
+    // dependency_outage: error_rate ↑ + latency_p99 ↑, cpu flat. The load-bearing
+    // multi-metric case — restart wins over scale because a failing dependency is
+    // fixed by recycling, not capacity (Phase 3 collision fix: 0.58 > 0.55).
+    id: "sit-3f81ac04",
+    signature: "3f81ac04",
+    service: "checkout-api",
+    title: "Dependency outage · checkout-api",
+    status: "diagnosed",
+    severity: "critical",
+    memberCount: 132,
+    first_seen: mins(6),
+    member_events: [
+      { name: "meridian_error_rate", value: 0.087, labels: { service: "checkout-api" }, kind: "metric", ts: mins(6), kind_detected: "ratio" },
+      { name: "latency_p99_ms", value: 612.0, labels: { service: "checkout-api" }, kind: "metric", ts: mins(6), kind_detected: "latency" },
+      { name: "cpu_usage", value: 44.0, labels: { service: "checkout-api" }, kind: "metric", ts: mins(6), kind_detected: "saturation" },
+    ],
+    baseline: {
+      meridian_error_rate: { mean: 0.012, std: 0.006 },
+      latency_p99_ms: { mean: 118.4, std: 24.7 },
+      cpu_usage: { mean: 42.3, std: 9.1 },
+    },
+    peak_score: 5.1,
+    hypotheses: [
+      { description: "Failing upstream dependency — error rate and latency both breached, CPU flat", confidence: 0.58, suggested_runbook_id: "restart-pod", confidence_source: "embedding", evidence: ["metrics: meridian_error_rate latency_p99_ms cpu_usage"] },
+      { description: "Latency/queueing under load — capacity contention", confidence: 0.55, suggested_runbook_id: "scale-service", confidence_source: "rule", evidence: ["metrics: latency_p99_ms"] },
+    ],
+    suggested_runbook_id: "restart-pod",
+    hitl_mode: "hitl",
+    reversible: true,
+    reliability: 0.71,
+    suppressed: false,
+  },
+  {
+    // db_exhaustion: db_pool_in_use → max + latency ↑. → restart-pod (0.62)
+    // to recycle wedged connections. Resolved + verified per-metric (Phase 4).
+    id: "sit-b7e4a190",
+    signature: "b7e4a190",
+    service: "payments",
+    title: "DB connection-pool exhaustion · payments",
+    status: "resolved",
+    severity: "high",
+    memberCount: 68,
+    first_seen: mins(23),
+    member_events: [
+      { name: "db_pool_in_use", value: 20.0, labels: { service: "payments" }, kind: "metric", ts: mins(23), kind_detected: "default" },
+      { name: "latency_p99_ms", value: 540.0, labels: { service: "payments" }, kind: "metric", ts: mins(23), kind_detected: "latency" },
+    ],
+    baseline: {
+      db_pool_in_use: { mean: 8.4, std: 2.7 },
+      latency_p99_ms: { mean: 118.4, std: 24.7 },
+    },
+    peak_score: 4.3,
+    hypotheses: [
+      { description: "Database connection-pool exhaustion — recycle connections", confidence: 0.62, suggested_runbook_id: "restart-pod", confidence_source: "embedding", evidence: ["metrics: db_pool_in_use latency_p99_ms"] },
+      { description: "Latency/queueing under load — capacity contention", confidence: 0.55, suggested_runbook_id: "scale-service", confidence_source: "rule" },
+    ],
+    suggested_runbook_id: "restart-pod",
+    hitl_mode: "auto",
+    reversible: true,
+    reliability: 0.86,
+    suppressed: false,
+    outcome: {
+      result: "success",
+      health_after: "healthy",
+      mode: "dry_run",
+      steps: ["restart"],
+      preflight: { passed: true, detail: "sandbox: clone healthy in 7s", mode: "k8s" },
+    },
+  },
+  {
+    // memory_leak: memory_usage_mb ramping, cpu flat. → restart-pod (0.65) — a
+    // leak is fixed by recycling; scaling spins up pods that also leak. The
+    // headline Phase-3 correction (memory no longer routes to scale).
     id: "sit-9abe6de2",
     signature: "9abe6de2",
     service: "web",
-    title: "CPU saturation after deploy · web",
-    status: "diagnosed",
+    title: "Memory leak trending to OOM · web",
+    status: "acting",
     severity: "high",
-    memberCount: 214,
-    first_seen: mins(4),
-    hypotheses: [
-      { description: "Recent deployment of web (v2.14.0) preceded the incident", confidence: 0.8, suggested_runbook_id: "rollback-deploy" },
-      { description: "Resource saturation across the affected service", confidence: 0.6, suggested_runbook_id: "scale-service" },
+    memberCount: 74,
+    first_seen: mins(3),
+    member_events: [
+      { name: "memory_usage_mb", value: 928.0, labels: { service: "web" }, kind: "metric", ts: mins(3), kind_detected: "default" },
+      { name: "cpu_usage", value: 39.0, labels: { service: "web" }, kind: "metric", ts: mins(3), kind_detected: "saturation" },
     ],
-    suggested_runbook_id: "rollback-deploy",
+    baseline: {
+      memory_usage_mb: { mean: 512.0, std: 48.0 },
+      cpu_usage: { mean: 42.3, std: 9.1 },
+    },
+    peak_score: 8.7,
+    hypotheses: [
+      { description: "Memory pressure / leak — recycle the process", confidence: 0.65, suggested_runbook_id: "restart-pod", confidence_source: "embedding", evidence: ["metrics: memory_usage_mb cpu_usage"] },
+    ],
+    suggested_runbook_id: "restart-pod",
     hitl_mode: "hitl",
     reversible: true,
     reliability: 0.67,
     suppressed: false,
   },
   {
-    id: "sit-3f81ac04",
-    signature: "3f81ac04",
-    service: "checkout-api",
-    title: "Error-rate spike · checkout-api",
-    status: "acting",
-    severity: "critical",
-    memberCount: 96,
-    first_seen: mins(11),
-    hypotheses: [
-      { description: "Error spike in service logs", confidence: 0.5, suggested_runbook_id: "restart-pod" },
-    ],
-    suggested_runbook_id: "restart-pod",
-    hitl_mode: "auto",
-    reversible: true,
-    reliability: 0.83,
-    suppressed: false,
-  },
-  {
-    id: "sit-c72d10b9",
-    signature: "c72d10b9",
-    service: "payments",
-    title: "Memory pressure · payments-worker",
+    // traffic_surge: request_rate + cpu + queue_depth all ↑. → scale-service
+    // (0.60) — genuine capacity shortfall. Recent-deploy context would outrank
+    // this (0.80→rollback); here there's no deploy, so scale wins.
+    id: "sit-51c8de77",
+    signature: "51c8de77",
+    service: "search",
+    title: "Traffic surge · search",
     status: "detected",
     severity: "medium",
-    memberCount: 41,
-    first_seen: mins(2),
-    hypotheses: [
-      { description: "Resource saturation across the affected service, no rule matched confidently", confidence: 0.4, suggested_runbook_id: null },
+    memberCount: 203,
+    first_seen: mins(1),
+    member_events: [
+      { name: "request_rate", value: 4820.0, labels: { service: "search" }, kind: "metric", ts: mins(1), kind_detected: "default" },
+      { name: "cpu_usage", value: 93.0, labels: { service: "search" }, kind: "metric", ts: mins(1), kind_detected: "saturation" },
+      { name: "queue_depth", value: 41.0, labels: { service: "search" }, kind: "metric", ts: mins(1), kind_detected: "default" },
     ],
-    suggested_runbook_id: null, // the gap: RCA has no matching playbook — a human can draft one with AI
+    baseline: {
+      request_rate: { mean: 1240.0, std: 210.0 },
+      cpu_usage: { mean: 42.3, std: 9.1 },
+      queue_depth: { mean: 6.5, std: 3.1 },
+    },
+    peak_score: 6.4,
+    hypotheses: [
+      { description: "Resource saturation across the affected service", confidence: 0.6, suggested_runbook_id: "scale-service", confidence_source: "rule", evidence: ["metrics: request_rate cpu_usage queue_depth"] },
+      { description: "Latency/queueing under load — capacity contention", confidence: 0.55, suggested_runbook_id: "scale-service", confidence_source: "rule" },
+    ],
+    suggested_runbook_id: "scale-service",
     hitl_mode: "hitl",
     reversible: true,
-    reliability: 0.5,
+    reliability: 0.58,
     suppressed: false,
   },
 ];
 
+// Outcomes reflect Phase-4 per-metric verification: `reason` (health_after) is
+// judged on the metric that fired, not cpu. A `rolled_back` means the firing
+// metric was still anomalous after the fix → rolled back (fail-safe).
 export const outcomes: OutcomeRow[] = [
-  { situation_id: "sit-9abe6de2", playbook_id: "rollback-deploy", result: "success", reason: "healthy", ts: mins(18), service: "web" },
-  { situation_id: "sit-9abe6de2", playbook_id: "rollback-deploy", result: "success", reason: "healthy", ts: mins(52), service: "web" },
-  { situation_id: "sit-3f81ac04", playbook_id: "restart-pod", result: "success", reason: "healthy", ts: mins(9), service: "checkout-api" },
+  { situation_id: "sit-b7e4a190", playbook_id: "restart-pod", result: "success", reason: "healthy", ts: mins(21), service: "payments" },
+  { situation_id: "sit-a1f0c3d2", playbook_id: "restart-pod", result: "success", reason: "healthy", ts: mins(38), service: "checkout-api" },
   { situation_id: "sit-77a0f2e1", playbook_id: "scale-service", result: "rolled_back", reason: "unhealthy:rolled-back", ts: mins(74), service: "search" },
   { situation_id: "sit-2b44c9d0", playbook_id: "restart-pod", result: "failure", reason: "denied:rbac", ts: mins(96), service: "auth" },
-  { situation_id: "sit-91e7bb3c", playbook_id: "scale-service", result: "success", reason: "healthy", ts: mins(120), service: "checkout-api" },
-  { situation_id: "sit-6cd8a4f2", playbook_id: "rollback-deploy", result: "failure", reason: "aborted:timeout", ts: mins(140), service: "web" },
+  { situation_id: "sit-91e7bb3c", playbook_id: "scale-service", result: "success", reason: "healthy", ts: mins(120), service: "search" },
+  { situation_id: "sit-6cd8a4f2", playbook_id: "restart-pod", result: "success", reason: "healthy", ts: mins(140), service: "web" },
+  { situation_id: "sit-2b44c9d0", playbook_id: "rollback-deploy", result: "failure", reason: "aborted:timeout", ts: mins(165), service: "web" },
 ];
 
 export const audit: AuditRow[] = [
