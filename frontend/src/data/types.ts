@@ -151,7 +151,9 @@ export interface SystemInfo {
 
 export interface BaselineInfo {
   correlator_kind: string;
-  baselines: { metric_name: string; mean: number; std: number; count: number }[];
+  // mean/count are null for the robust correlator (median/MAD per hour-bucket,
+  // no running mean); std may be 0 before enough samples. Guard before formatting.
+  baselines: { metric_name: string; mean: number | null; std: number | null; count: number | null }[];
 }
 
 export interface LlmProbe {
