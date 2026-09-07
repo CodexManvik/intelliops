@@ -17,6 +17,7 @@ services:
     module: "services.correlation.app:app"
     port: 8000
     externalPort: 8002
+    image: full            # RiverCorrelator imports `river`/`numpy` (the ml extra) at module load
   - name: rca
     module: "services.rca.app:app"
     port: 8000
@@ -54,6 +55,10 @@ env:
   SANDBOX_MODE: "off"               # k8s in values-live (pre-flight rehearsal)
   HEALTH_CHECK_MODE: "always"       # k8s in values-live (Phase 4 per-metric verify)
   PROMETHEUS_URL: "http://prometheus:9090"
+  TELEMETRY_MODE: "file"            # "prometheus" in values-live (poll real metrics)
+  PROMETHEUS_QUERY: "cpu_usage"     # values-live widens this to all metric families
+  GOVERNANCE_MODE: "in_process"     # "http" in values-live — action + governance are
+  GOVERNANCE_URL: "http://governance:8000"  # separate pods, so approvals must go over HTTP
   LLM_EXPLANATION_ENDPOINT: ""      # set in values-live (e.g. Groq/OpenAI base URL)
   LLM_EXPLANATION_MODEL: ""         # set in values-live
 

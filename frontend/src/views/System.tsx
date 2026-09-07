@@ -222,9 +222,11 @@ export function System() {
                   {baseline.baselines.map((b, i) => (
                     <tr key={i} className="border-t border-black/[0.06]">
                       <td className="py-2 pr-4 text-ink">{b.metric_name}</td>
-                      <td className="py-2 pr-4 text-ink-2 tnum">{b.mean.toFixed(3)}</td>
-                      <td className="py-2 pr-4 text-ink-2 tnum">{b.std.toFixed(3)}</td>
-                      <td className="py-2 text-ink-3 tnum">{b.count.toLocaleString()}</td>
+                      {/* robust correlator uses median/MAD per hour-bucket, so mean/count
+                          are null (only std populated) — render — rather than crash. */}
+                      <td className="py-2 pr-4 text-ink-2 tnum">{b.mean != null ? b.mean.toFixed(3) : "—"}</td>
+                      <td className="py-2 pr-4 text-ink-2 tnum">{b.std != null ? b.std.toFixed(3) : "—"}</td>
+                      <td className="py-2 text-ink-3 tnum">{b.count != null ? b.count.toLocaleString() : "—"}</td>
                     </tr>
                   ))}
                 </tbody>

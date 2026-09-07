@@ -16,10 +16,19 @@ env:
   SANDBOX_MODE: "k8s"                # pre-flight rehearsal on a throwaway clone
   HEALTH_CHECK_MODE: "k8s"           # Phase 4 — verify the firing metric recovered
   PROMETHEUS_URL: "http://prometheus:9090"
+  # Ingestion polls Prometheus live. The query is a __name__ regex selector across
+  # every USE+RED family the arc detects, so faults on any of them flow into a
+  # Situation (not just cpu). One instant query returns all series across services.
+  TELEMETRY_MODE: "prometheus"
+  PROMETHEUS_QUERY: '{__name__=~"cpu_usage|memory_usage_mb|meridian_error_rate|latency_p99_ms|latency_p50_ms|queue_depth|db_pool_in_use|request_rate"}'
+  # action + governance are separate pods in k8s → approvals must go over HTTP so
+  # the console's "Approve" and the action gate share the same approval store.
+  GOVERNANCE_MODE: "http"
+  GOVERNANCE_URL: "http://governance:8000"
   # LLM explanations (Phase: AI-drafted/advisory). Groq shown; any OpenAI-compatible
   # endpoint works. The key is supplied at install (see above), never here.
   LLM_EXPLANATION_ENDPOINT: "https://api.groq.com/openai/v1"
-  LLM_EXPLANATION_MODEL: "llama-3.3-70b-versatile"
+  LLM_EXPLANATION_MODEL: "openai/gpt-oss-120b"
 
 # The action service needs cluster RBAC to patch Deployments + create/delete the
 # sandbox namespace.
