@@ -52,8 +52,10 @@ def _content(playbook_json: dict, rationale="because") -> dict:
     return {"choices": [{"message": {"content": json.dumps(inner)}}]}
 
 
+# A real LLM draft does NOT include an id — the prompt never asks for one and
+# the server assigns it. The author must validate such a draft (regression: it
+# used to require id and 422'd on every real draft).
 _VALID_DRAFT = {
-    "id": "ignored-by-server",
     "name": "Drafted restart",
     "match_rule": "*",
     "steps": [{"action": "restart"}],
@@ -74,6 +76,29 @@ def test_valid_draft_returns_typed_playbook():
     playbook, rationale = result
     assert playbook.steps[0].action == "restart"
     assert rationale == "because"
+
+
+def test_draft_without_id_validates():
+    # Regression: real gpt-oss/OpenAI drafts omit `id` (the prompt doesn't ask
+    # for it; the server assigns it). The author must still return a typed
+    # playbook — it used to fail Playbook.model_validate on the missing id and
+    # return None for EVERY real draft, silently breaking the whole feature.
+    assert "id" not in _VALID_DRAFT
+    client = _FakeClient(_FakeResp(200, _content(_VALID_DRAFT)))
+    author = OpenAICompatibleRunbookAuthor("http://x", "m", http_client=client)
+    result = author.draft(_situation())
+    assert result is not None
+    playbook, _ = result
+    assert playbook.steps[0].action == "restart"
+
+
+def test_draft_with_author_supplied_id_still_validates():
+    # Back-compat: if a model DOES emit an id, validation still succeeds (the
+    # server overwrites it downstream regardless).
+    draft = {**_VALID_DRAFT, "id": "model-supplied"}
+    client = _FakeClient(_FakeResp(200, _content(draft)))
+    author = OpenAICompatibleRunbookAuthor("http://x", "m", http_client=client)
+    assert author.draft(_situation()) is not None
 
 
 def test_unsafe_action_in_draft_returns_none():

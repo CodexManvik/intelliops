@@ -87,7 +87,18 @@ class OpenAICompatibleRunbookAuthor:
             return None
         try:
             parsed = json.loads(content)
-            playbook = Playbook.model_validate(parsed["playbook"])
+            draft = parsed["playbook"]
+            # The AI does NOT author the id — the prompt never asks for one and
+            # propose_playbook assigns a server-side `ai-<sig>-<uuid>` right after
+            # (the AI setting an id is exactly what we must not trust). But
+            # Playbook.id is required, so a draft that (correctly) omits it would
+            # always fail validation. Inject a placeholder purely to validate the
+            # parts the AI DOES author (name/match_rule/steps/hitl/rollback); the
+            # server overwrites it, so the placeholder never escapes. The closed
+            # RemediationStep Literal — the load-bearing safety gate — still runs.
+            if isinstance(draft, dict) and "id" not in draft:
+                draft = {**draft, "id": "ai-draft-pending"}
+            playbook = Playbook.model_validate(draft)
         except (json.JSONDecodeError, ValidationError, KeyError, TypeError) as exc:
             logger.info(
                 "runbook author draft did not validate (%s); no draft", exc.__class__.__name__
