@@ -69,13 +69,25 @@ spec:
               value: {{ .module | quote }}
             - name: PORT
               value: {{ .port | quote }}
-            {{- if and (eq .name "rca") (or $.Values.llm.apiKey $.Values.llm.apiKeySecretName) }}
+            {{- if or $.Values.llm.apiKey $.Values.llm.apiKeySecretName }}
             {{- $secretName := $.Values.llm.apiKeySecretName | default (printf "%s-llm" $.Release.Name) }}
+            {{- if eq .name "rca" }}
+            # rca: the LLM explainer key (ExplanationProvider).
             - name: INTELLIOPS_LLM_EXPLANATION_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ $secretName }}
                   key: api-key
+            {{- end }}
+            {{- if eq .name "governance" }}
+            # governance: the AI runbook-author key (PR C). Same Secret, distinct
+            # env var — the author lives in governance, not rca.
+            - name: INTELLIOPS_LLM_RUNBOOK_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: api-key
+            {{- end }}
             {{- end }}
           ports:
             - containerPort: {{ .port }}

@@ -62,6 +62,9 @@ env:
   HITL_POLL_TIMEOUT_SECONDS: "30"   # values-live raises this so a human has time to click Approve
   LLM_EXPLANATION_ENDPOINT: ""      # set in values-live (e.g. Groq/OpenAI base URL)
   LLM_EXPLANATION_MODEL: ""         # set in values-live
+  RUNBOOK_AUTHOR_MODE: "off"        # "openai" in values-live (AI-authored runbook drafts)
+  LLM_RUNBOOK_ENDPOINT: ""          # set in values-live (author LLM base URL)
+  LLM_RUNBOOK_MODEL: ""             # set in values-live
 
 # RBAC for the action service's k8s remediation + sandbox (cluster-scoped: it
 # creates/deletes throwaway sandbox namespaces). Off by default (dry-run needs none).
