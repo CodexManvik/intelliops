@@ -39,6 +39,24 @@ spec:
       {{- if and $.Values.rbac.create (eq .name "action") }}
       serviceAccountName: intelliops-action
       {{- end }}
+      # Wait for Redis + Postgres before the app starts, so consumer/DB threads
+      # never come up against a dead dependency (the consume loops are also
+      # retry-resilient, but this keeps a fresh install clean of crash-loop churn).
+      initContainers:
+        - name: wait-deps
+          image: {{ $.Values.postgres.image | quote }}
+          command:
+            - bash
+            - -c
+            - |
+              until pg_isready -h postgres -p 5432 -U {{ $.Values.postgres.user }}; do
+                echo "waiting for postgres…"; sleep 2;
+              done
+              # bash /dev/tcp probe — no nc needed; postgres image ships bash.
+              until (exec 3<>/dev/tcp/redis/6379) 2>/dev/null; do
+                echo "waiting for redis…"; sleep 2;
+              done
+              echo "deps ready"
       containers:
         - name: {{ .name }}
           image: "{{ $img }}:{{ $tag }}"
