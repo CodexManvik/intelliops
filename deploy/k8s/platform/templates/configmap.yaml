@@ -48,3 +48,11 @@ data:
   # injected on the rca pod via a Secret (secretKeyRef), never the configmap.
   INTELLIOPS_LLM_EXPLANATION_ENDPOINT: {{ .Values.env.LLM_EXPLANATION_ENDPOINT | quote }}
   INTELLIOPS_LLM_EXPLANATION_MODEL: {{ .Values.env.LLM_EXPLANATION_MODEL | quote }}
+  # AI-authored runbooks (PR C): the human-initiated "Draft a runbook with AI"
+  # affordance. The author lives in the GOVERNANCE service, so its LLM key is
+  # injected on the governance pod via a Secret (secretKeyRef), never here.
+  # "off" (default) → NullRunbookAuthor (no network); "openai" + an endpoint →
+  # OpenAICompatibleRunbookAuthor. values-live flips the mode on.
+  INTELLIOPS_RUNBOOK_AUTHOR_MODE: {{ .Values.env.RUNBOOK_AUTHOR_MODE | quote }}
+  INTELLIOPS_LLM_RUNBOOK_ENDPOINT: {{ .Values.env.LLM_RUNBOOK_ENDPOINT | quote }}
+  INTELLIOPS_LLM_RUNBOOK_MODEL: {{ .Values.env.LLM_RUNBOOK_MODEL | quote }}
