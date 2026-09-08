@@ -22,7 +22,6 @@ from common.contracts import (
 )
 from common.stores import make_stores
 from services.base import create_app, db_ready
-from services.governance.adapters.approval_store import InMemoryApprovalStore
 from services.governance.adapters.proposed_store import InMemoryProposedPlaybookStore
 from services.governance.adapters.runbook_author import (
     NullRunbookAuthor,
@@ -54,7 +53,11 @@ def _init_state() -> None:
     app.state.audit_sink = stores.audit_sink
     app.state.playbook_store = stores.playbook_store
     app.state.rbac = RbacPolicy.from_file(settings.rbac_policy_path)
-    app.state.approval_store = InMemoryApprovalStore()
+    # Use the approval store make_stores built (Postgres when STORE_BACKEND=postgres).
+    # Previously this hardcoded InMemoryApprovalStore(), so approvals never persisted
+    # and were lost on every governance restart — the console's Approve then 404'd
+    # ("approval not found") because the action-created approval had vanished.
+    app.state.approval_store = stores.approval_store
     app.state.proposed_store = InMemoryProposedPlaybookStore()
     app.state.runbook_author = _make_runbook_author(settings)
 

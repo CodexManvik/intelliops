@@ -59,6 +59,7 @@ env:
   PROMETHEUS_QUERY: "cpu_usage"     # values-live widens this to all metric families
   GOVERNANCE_MODE: "in_process"     # "http" in values-live — action + governance are
   GOVERNANCE_URL: "http://governance:8000"  # separate pods, so approvals must go over HTTP
+  HITL_POLL_TIMEOUT_SECONDS: "30"   # values-live raises this so a human has time to click Approve
   LLM_EXPLANATION_ENDPOINT: ""      # set in values-live (e.g. Groq/OpenAI base URL)
   LLM_EXPLANATION_MODEL: ""         # set in values-live
 

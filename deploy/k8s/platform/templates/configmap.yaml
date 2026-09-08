@@ -37,6 +37,13 @@ data:
   # the console's "Approve" (which hits the governance service) 404s.
   INTELLIOPS_GOVERNANCE_MODE: {{ .Values.env.GOVERNANCE_MODE | quote }}
   INTELLIOPS_GOVERNANCE_URL: {{ .Values.env.GOVERNANCE_URL | quote }}
+  # The namespace the action service remediates in (+ clones the sandbox from).
+  # Track the RELEASE namespace so real remediation targets where the workloads
+  # actually live — the default (intelliops-demo) is the old compose/kind path.
+  INTELLIOPS_K8S_NAMESPACE: {{ .Release.Namespace | quote }}
+  # How long the action service waits for a human HITL decision before aborting.
+  # The default 30s is too short to click Approve in the UI live — raised in values-live.
+  INTELLIOPS_HITL_POLL_TIMEOUT_SECONDS: {{ .Values.env.HITL_POLL_TIMEOUT_SECONDS | quote }}
   # LLM explainer endpoint/model (non-secret). The API KEY is NOT here — it is
   # injected on the rca pod via a Secret (secretKeyRef), never the configmap.
   INTELLIOPS_LLM_EXPLANATION_ENDPOINT: {{ .Values.env.LLM_EXPLANATION_ENDPOINT | quote }}
