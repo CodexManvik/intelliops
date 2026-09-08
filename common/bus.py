@@ -47,9 +47,7 @@ class RedisBus:
                         if "BUSYGROUP" not in str(exc):
                             raise
                     group_ready = True
-                resp = self._r.xreadgroup(
-                    group, self._consumer, {topic: ">"}, count=1, block=1000
-                )
+                resp = self._r.xreadgroup(group, self._consumer, {topic: ">"}, count=1, block=1000)
                 if not resp:
                     continue
                 for _stream, entries in resp:
