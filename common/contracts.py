@@ -245,3 +245,42 @@ class TrainingRecord(BaseModel):
     result: RemediationResult
     worked: bool
     ts: datetime
+
+
+class TraceStepKind(str, Enum):
+    """The kind of step in a trace of the AI runbook author's reasoning."""
+    MODEL_TURN = "model_turn"
+    TOOL_CALL = "tool_call"
+    SUBMIT = "submit"
+    OUTCOME = "outcome"
+
+
+class TraceStep(BaseModel):
+    """A single step in the trace of the AI runbook author's activity.
+
+    Records each model reasoning turn, tool call, submission, and outcome
+    in monotonic sequence. text (model reasoning) is truncated to ~4000 chars."""
+
+    run_id: str
+    seq: int  # monotonically increasing from 0
+    kind: str  # "model_turn" | "tool_call" | "submit" | "outcome"
+    ts: datetime
+    text: str | None = None  # for model_turn: the reasoning
+    tool: str | None = None  # for tool_call: the tool name
+    arguments: dict | None = None  # for tool_call: the arguments
+    result_summary: str | None = None  # for tool_call: the result
+    detail: dict | None = None  # for submit: the draft detail; for outcome: {"status": str, "proposal_id": str|None}
+
+
+class RunSummary(BaseModel):
+    """Summary of a completed run of the AI runbook author agent."""
+
+    run_id: str
+    started_at: datetime
+    status: str  # "succeeded" | "failed" | "gave_up"
+    signature: str
+    step_count: int
+    proposal_id: str | None = None
+
+
+_TRACE_TEXT_CAP = 4000
