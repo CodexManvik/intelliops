@@ -35,6 +35,10 @@ Two consequences:
   live incident + the **learned experience** for this signature.
 - The author **learns from past actions** — its own and humans' — via
   **retrieval** (reading history into the prompt), not model training.
+- The author **keeps a memory of its own decisions**: every draft is logged
+  (chosen actions + cited facts), and its human disposition and eventual outcome
+  are written back, so the *next* draft for a similar incident is better
+  informed. Structured and durable (Postgres), not a free-text scratchpad.
 - The author is a **tool-calling agent**: it gathers context by calling tools
   (like a function-calling agent) and then submits a typed runbook.
 - **System-agnostic.** The target system that IntelliOps remediates is not yet
@@ -97,7 +101,9 @@ the governance service. Given a `Situation`, the author:
    budget is hit;
 5. the submitted runbook is validated against the closed `Playbook` /
    `RemediationStep` schema (unchanged gate) and returned to
-   `propose_playbook`, which forces HITL + assigns the id + stores the proposal.
+   `propose_playbook`, which forces HITL + assigns the id + stores the proposal
+   **and records an `AuthorDecision`** (the draft's chosen actions + cited
+   facts) so the agent can learn from this decision next time.
 
 ```
 Situation ─▶ RunbookAuthorAgent.draft()
@@ -106,13 +112,29 @@ Situation ─▶ RunbookAuthorAgent.draft()
                  ├─ get_incident_details(id)   ← the Situation in hand
                  ├─ get_past_outcomes(sig)     ← feedback TrainingStore (Postgres)
                  ├─ get_human_decisions(sig)   ← AuditRecords (audit_sink)
+                 ├─ get_past_decisions(sig)    ← AuthorDecisionStore (Postgres)  ◀ NEW: its own memory
                  ├─ list_available_actions()   ← closed RemediationStep Literal
                  └─ submit_runbook(pb, why) ─▶ Playbook.model_validate (GATE)
                                                     │
                                     propose_playbook: force HITL + assign id
+                                                    │       │
+                                                    │       └─▶ AuthorDecisionStore.record(...)  ◀ NEW: log this decision
                                                     │
                                           ProposedPlaybook  (awaits human approve)
+                                                    │
+                          approve / reject  ──▶  AuthorDecisionStore.update_disposition(...)  ◀ NEW: close the loop
+                                                    │
+                          remediation outcome ──▶ AuthorDecisionStore.update_outcome(...)     ◀ NEW: did the draft work
 ```
+
+**The self-referential memory (this arc's new capability).** Beyond retrieving
+*remediation outcomes* and *human decisions*, the author now keeps and reads a
+memory of **its own past drafting decisions**: what it chose for a signature,
+which facts it cited, and — filled in later — whether a human accepted it and
+whether it ultimately worked. Next time a similar signature appears, the agent
+reads that memory (`get_past_decisions`) and drafts a *better-informed* runbook.
+The memory is **structured** (not free-text the model appends to and re-obeys)
+and lives in a **new Postgres store** (`AuthorDecisionStore`).
 
 ### 5.1 The tools
 
@@ -125,14 +147,17 @@ locally (no new network dependency).
 | `get_incident_details` | `situation_id` | the situation's metrics, member events, signature, severity | the `Situation` passed to `draft()` (no lookup — served from memory) |
 | `get_past_outcomes` | `signature` | per-runbook worked/total + last N outcomes for this signature | feedback `TrainingStore` (+ metrics summary) |
 | `get_human_decisions` | `signature` | prior proposals for this signature and their accept/reject decisions | `audit_sink` records |
+| `get_past_decisions` | `signature` | **the agent's own prior drafting decisions** for this signature: actions chosen, facts cited, human disposition (accepted/rejected), and outcome (worked/failed) | **`AuthorDecisionStore`** (new, Postgres) |
 | `list_available_actions` | — | the closed action vocabulary + one-line usage note per action | derived from `RemediationStep` Literal + a static notes map |
-| `submit_runbook` | `playbook`, `rationale` | terminates the loop | validated by the existing gate |
+| `submit_runbook` | `playbook`, `rationale`, `cited_facts` | terminates the loop; the cited facts are logged with the decision | validated by the existing gate |
 
-**Why these:** they are exactly the three context axes from the goals —
-*system* (`get_system_context`), *incident* (`get_incident_details`), and
-*experience* (`get_past_outcomes` + `get_human_decisions`) — plus the action
-menu and the terminal submit. The agent decides which to call; a good agent
-reads experience before drafting, which is the whole point.
+**Why these:** they cover the context axes from the goals — *system*
+(`get_system_context`), *incident* (`get_incident_details`), *experience*
+(`get_past_outcomes` + `get_human_decisions`), and now the agent's **own memory**
+(`get_past_decisions`) — plus the action menu and the terminal submit. The agent
+decides which to call; a good agent reads experience *and its own past
+judgments* before drafting, which is the whole point. `submit_runbook` also
+captures the facts the agent cited, so the decision it logs is self-explaining.
 
 ### 5.2 The system-context file (system-agnostic)
 
@@ -194,39 +219,99 @@ point at to explain *why* a runbook was drafted. (Exact storage — audit record
 vs. a field on `ProposedPlaybook` — decided at plan time; leaning on an audit
 record so `ProposedPlaybook` stays lean.)
 
+### 5.5 The author's decision memory (`AuthorDecisionStore`) — this arc's core add
+
+A new, durable, **structured** memory of the agent's own drafting decisions, so
+"next time it knows more." Its lifecycle spans three events:
+
+1. **On draft (`submit_runbook` → `propose_playbook`):** record an
+   `AuthorDecision` — `signature`, `proposal_id`, the `actions` chosen, the
+   `cited_facts` the agent gave, a short capped `note`, `ts`, and
+   `disposition="pending"`, `outcome="unknown"`.
+2. **On human approve/reject:** `update_disposition(proposal_id, "accepted"|"rejected", decided_by)`.
+3. **On remediation outcome** (the approved runbook ran): `update_outcome(proposal_id, "worked"|"failed", health_after)`.
+
+Then `get_past_decisions(signature)` returns these completed records, so a
+future draft sees: *"for this signature I previously chose restart+scale, cited
+'restart 4/5'; the human accepted it; it worked"* — or *"I chose scale, the
+human rejected it."* That is the agent learning from itself.
+
+**Contract (`AuthorDecision`, new):**
+
+```
+signature: str
+proposal_id: str                 # links to the ProposedPlaybook
+actions: list[str]               # the step actions chosen (closed-vocab strings)
+cited_facts: list[str]           # what the agent said it based the draft on
+note: str | None                 # short, length-capped model note (optional)
+disposition: "pending"|"accepted"|"rejected"
+outcome: "unknown"|"worked"|"failed"
+decided_by: str | None
+ts: datetime
+```
+
+**Store:** `AuthorDecisionStore` protocol with `InMemory` (tests) and `Postgres`
+implementations, mirroring `TrainingStore`. New `author_decisions` table in
+`common/db.py` (SQLAlchemy, JSONB `payload` like the others) + a new Alembic
+migration `0005_author_decisions.py` (the migrate Job runs `alembic upgrade head`,
+so a bare `Table` is not enough — a migration is required). On `app.state` in
+governance via `make_stores`.
+
+**Why structured, not a free-text memory file:** the agent's own past output is
+untrusted when replayed into a later prompt (a poisoned or bad earlier note
+could steer a future draft). Storing bounded, typed fields — and surfacing any
+free-text `note` to the model **clearly labeled as prior, unverified reasoning,
+never as instructions** — keeps the memory auditable and injection-resistant.
+The closed action Literal + human approval remain the hard gates regardless.
+A file-based memory (memory.md-style) was rejected: multi-pod/restart file
+writes in k8s are racy and fragile; Postgres is the correct durable store here.
+
 ## 6. Learning model (retrieval, explicit)
 
-"Learn from past actions" = the agent **retrieves and reads** two histories for
-the incident's signature before drafting:
+"Learn from past actions" = the agent **retrieves and reads** three histories
+for the incident's signature before drafting:
 
 1. **Outcomes** (`get_past_outcomes`): what was tried and whether it *worked* —
-   from the feedback `TrainingStore` the loop already fills. This biases the
-   draft toward actions with a track record for this signature.
+   from the feedback `TrainingStore` the loop already fills. Biases the draft
+   toward actions with a track record for this signature.
 2. **Human decisions** (`get_human_decisions`): which prior proposals a human
-   *accepted* or *rejected* for this signature — from audit records. This biases
-   the draft away from things humans have rejected and toward what they've
-   approved.
+   *accepted* or *rejected* for this signature — from audit records. Biases the
+   draft away from things humans rejected and toward what they approved.
+3. **Its own past decisions** (`get_past_decisions`): what the agent itself
+   chose before, the facts it cited, and how those decisions turned out
+   (accepted? worked?) — from `AuthorDecisionStore`. This is the
+   self-referential loop: the agent's judgment improves because it can see how
+   its earlier judgments fared.
 
 Properties: deterministic given the same history, no training infrastructure,
-fully inspectable (the retrieved facts are shown in the audit trail), and it
-improves automatically as more outcomes and decisions accumulate — every
-approve/reject and every remediation result makes the next draft better.
+fully inspectable, and it improves automatically as outcomes, human decisions,
+and the agent's own recorded decisions accumulate — every remediation result,
+every approve/reject, and every prior draft makes the next draft better.
 
 ## 7. Data flow & component changes (summary — details in the plan)
 
 - **New:** `RunbookAuthorAgent` (tool-calling) alongside the existing adapters;
   a `SystemContextProvider` (reads the YAML); a small "author tools" module
-  defining tool schemas + dispatch to local stores.
-- **Contracts:** possibly a lightweight `AuthorTrace` (tools called + facts) for
-  the audit trail; no change to `Playbook` / `RemediationStep`.
-- **Governance wiring:** put `training_store` on `app.state` (from `make_stores`);
-  construct the agent with handles to `training_store`, `audit_sink`, the
-  context provider, and the closed action set; `propose_playbook` unchanged in
-  contract (still returns a `ProposedPlaybook`).
+  defining tool schemas + dispatch to local stores; **`AuthorDecisionStore`**
+  (InMemory + Postgres).
+- **Contracts:** `AuthorDecision` (new, §5.5); no change to `Playbook` /
+  `RemediationStep`.
+- **DB:** new `author_decisions` table in `common/db.py` + Alembic migration
+  `0005_author_decisions.py`.
+- **Governance wiring:** put `training_store` **and `author_decision_store`** on
+  `app.state` (from `make_stores`); construct the agent with handles to
+  `training_store`, `audit_sink`, `author_decision_store`, the context provider,
+  and the closed action set. `propose_playbook` records a decision on draft;
+  the **approve/reject routes update its disposition**; contract of
+  `propose_playbook` (returns `ProposedPlaybook`) unchanged.
+- **Outcome linkage:** when a remediation outcome lands for an approved
+  AI-authored playbook, `AuthorDecisionStore.update_outcome` is called. Where
+  this hook lives (governance consuming `remediation.outcomes`, vs. feedback
+  writing it) is a plan-time decision — see open question 6.
 - **Config:** `system_context.yaml` (placeholder) + a settings path for it +
   chart wiring to mount it. Off-by-default and the #46 key wiring unchanged.
-- **Feedback service:** unchanged (governance reads the shared training store
-  directly; no new endpoint).
+- **Feedback service:** unchanged for reads (governance reads the shared
+  training store directly; no new endpoint).
 
 ## 8. Safety & failure analysis
 
@@ -240,6 +325,9 @@ approve/reject and every remediation result makes the next draft better.
 | Rate limiting (Groq TPM) | #48 backoff carried over; tool-calling adds calls, so the budget is small and `max_tokens` capped. |
 | Tool raises (e.g. DB blip) | Caught → that tool returns an error marker → agent proceeds or the loop ends → `None`. Never crashes governance. |
 | Stale/poisoned history | History is the system's own audit + outcomes (not external input); retrieval only *informs* a draft a human still approves. |
+| **Replaying the agent's own past text** | The decision memory is **structured** typed fields, not a free-text log the model appends to and re-obeys. Any free-text `note` is surfaced **labeled as prior, unverified reasoning, never as instructions**; the closed Literal + human approval still gate every submitted runbook. |
+| **Decision-store write fails on draft** | Recording an `AuthorDecision` is best-effort around the proposal: a failed write is logged, the proposal still returns. The memory is an aid, not a correctness dependency. |
+| **Disposition/outcome update missed** | An update that never lands leaves the record `pending`/`unknown` — the agent simply has less signal for that entry, never wrong signal. |
 
 ## 9. Explainable demo (once a target system exists)
 
@@ -249,11 +337,16 @@ With the target's `system_context.yaml` filled in, the story is:
 2. Operator clicks "Draft a runbook with AI."
 3. The agent calls `get_system_context` (knows the service + its deps),
    `get_incident_details`, `get_past_outcomes` (sees what worked),
-   `get_human_decisions` (sees what was rejected) — visible in the audit trail.
-4. It submits a runbook whose rationale cites those facts.
-5. A human approves; it enters the registry.
-6. Next time the same signature recurs, the accumulated outcomes/decisions make
-   the draft measurably better — that is the learning, demonstrated.
+   `get_human_decisions` (sees what was rejected), and `get_past_decisions`
+   (sees what *it* chose before and how that turned out) — all recorded.
+4. It submits a runbook whose rationale cites those facts; the decision is
+   logged to `AuthorDecisionStore`.
+5. A human approves → the decision's disposition becomes `accepted`; when the
+   runbook runs, its outcome (`worked`/`failed`) is written back.
+6. Next time the same signature recurs, the agent reads that completed decision
+   ("last time I chose X, human accepted, it worked") plus the accumulated
+   outcomes/human-decisions — and drafts a measurably better-informed runbook.
+   **That closed loop is the learning, demonstrated on screen.**
 
 (2–3 concrete, scripted use cases will be defined against the real target when
 it's chosen — deliberately deferred, per the system-agnostic goal.)
@@ -263,13 +356,23 @@ it's chosen — deliberately deferred, per the system-agnostic goal.)
 1. **System-context delivery:** repo YAML + ConfigMap mount (recommended) vs.
    baked file vs. a governance `/config/system-context` runtime endpoint. Any
    preference, or leave to the plan?
-2. **Author trace storage:** dedicated `AuditRecord`(s) (leaning this way) vs. a
-   new field on `ProposedPlaybook`. Preference?
-3. **Loop budget:** default max tool-call rounds (proposing 6) and overall
+2. **Loop budget:** default max tool-call rounds (proposing 6) and overall
    timeout. Acceptable?
-4. **Does `get_past_outcomes` read Postgres directly** (shared-DB, simplest) or
-   must it go through a feedback HTTP endpoint for service-boundary cleanliness?
-   (Design assumes direct shared-DB read.)
-5. **Scope of this arc:** ship the mechanism + placeholder context now, or wait
-   until the target system is chosen so the demo use cases land in the same PR?
+3. **Does `get_past_outcomes` / `get_past_decisions` read Postgres directly**
+   (shared-DB, simplest) or must it go through a feedback HTTP endpoint for
+   service-boundary cleanliness? (Design assumes direct shared-DB read, matching
+   ADR-014/015.)
+4. **Outcome linkage for the decision memory (§7):** should governance consume
+   `remediation.outcomes` to call `update_outcome`, or should the write happen
+   where outcomes are already handled (feedback)? Governance-consumes keeps the
+   decision store fully owned by governance; feedback-writes avoids a new
+   consumer. Preference?
+5. **Scope of this arc:** ship the mechanism + decision memory + placeholder
+   context now, or wait until the target system is chosen so the demo use cases
+   land in the same PR? (The decision-memory loop is demonstrable even with a
+   placeholder system context, since it learns from outcomes/decisions.)
+6. **Author-trace vs. decision record:** the `AuthorDecision` now captures the
+   cited facts + chosen actions, so a separate audit "trace" record (old Q2) may
+   be redundant. Fold explainability entirely into `AuthorDecision`, or still
+   emit an audit trace too?
 ```
