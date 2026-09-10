@@ -8,7 +8,7 @@ import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 
-from common.contracts import TraceStep
+from common.contracts import TraceStep, TraceStepKind
 
 logger = logging.getLogger("intelliops.governance.trace")
 
@@ -23,7 +23,7 @@ class TraceCollector:
 
     def _emit(self, kind: str, **fields) -> None:
         try:
-            step = TraceStep(run_id=self._run_id, seq=self._seq, kind=kind,
+            step = TraceStep(run_id=self._run_id, seq=self._seq, kind=TraceStepKind(kind),
                              ts=datetime.now(UTC), **fields)
             self._seq += 1
             if self._sink is not None:

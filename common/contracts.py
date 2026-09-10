@@ -263,7 +263,7 @@ class TraceStep(BaseModel):
 
     run_id: str
     seq: int  # monotonically increasing from 0
-    kind: str  # "model_turn" | "tool_call" | "submit" | "outcome"
+    kind: TraceStepKind
     ts: datetime
     text: str | None = None  # for model_turn: the reasoning
     tool: str | None = None  # for tool_call: the tool name
