@@ -8,6 +8,7 @@ tests are unaffected.
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -21,11 +22,19 @@ from common.envelope import publish_model
 from services.base import create_app
 from services.ingestion.normalize import normalize
 
+logger = logging.getLogger("intelliops.ingestion")
+
 
 def run_poll_loop(bus, source, interval: float, stop_event: threading.Event) -> None:
     while not stop_event.is_set():
-        for event in source.poll():
-            publish_model(bus, "telemetry.raw", event)
+        # Never let a transient error (Prometheus unreachable, or Redis down when
+        # publishing) kill the poll thread — that silently stops ingestion. Log
+        # and continue to the next interval; the next poll re-tries.
+        try:
+            for event in source.poll():
+                publish_model(bus, "telemetry.raw", event)
+        except Exception:  # resilience: keep polling across transient failures
+            logger.warning("ingestion poll iteration failed; retrying next interval", exc_info=True)
         if stop_event.is_set():
             break
         time.sleep(interval)

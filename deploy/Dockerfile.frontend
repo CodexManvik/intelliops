@@ -1,0 +1,20 @@
+# The IntelliOps React console: Vite build → nginx static serve + same-origin
+# backend proxy (see deploy/nginx.conf). Built for LIVE mode with each backend
+# URL pointing at the nginx /api/* prefix, so the browser talks to one origin.
+FROM node:20-alpine AS build
+WORKDIR /app
+COPY frontend/package*.json ./
+RUN npm ci
+COPY frontend/ ./
+# Live mode; each backend proxied same-origin under /api/* by nginx.
+ENV VITE_DATA_MODE=live
+ENV VITE_READ_URL=/api/read
+ENV VITE_GOV_URL=/api/gov
+ENV VITE_CORR_URL=/api/corr
+ENV VITE_RCA_URL=/api/rca
+RUN npm run build
+
+FROM nginx:1.27-alpine
+COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/dist /usr/share/nginx/html
+EXPOSE 8080

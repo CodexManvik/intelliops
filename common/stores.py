@@ -13,6 +13,10 @@ from services.correlation.adapters.model_store import InMemoryModelStore, Postgr
 from services.feedback.adapters.training_store import FileTrainingStore, PostgresTrainingStore
 from services.governance.adapters.approval_store import InMemoryApprovalStore, PostgresApprovalStore
 from services.governance.adapters.audit_sink import FileAuditSink, PostgresAuditSink
+from services.governance.adapters.author_decision_store import (
+    InMemoryAuthorDecisionStore,
+    PostgresAuthorDecisionStore,
+)
 from services.governance.adapters.playbook_store import FilePlaybookStore, PostgresPlaybookStore
 
 
@@ -25,6 +29,7 @@ class Stores:
     approval_store: object
     baseline_store: object | None
     model_store: object | None
+    author_decision_store: object
 
 
 def make_stores(settings) -> Stores:
@@ -40,6 +45,7 @@ def make_stores(settings) -> Stores:
             approval_store=PostgresApprovalStore(engine),
             baseline_store=PostgresBaselineStore(engine),
             model_store=PostgresModelStore(engine),
+            author_decision_store=PostgresAuthorDecisionStore(engine),
         )
     return Stores(
         audit_sink=FileAuditSink(settings.audit_store_path),
@@ -52,4 +58,9 @@ def make_stores(settings) -> Stores:
         # store still lets POST /retrain save a fit and a later in-process reload
         # pick it up (mirrors InMemoryApprovalStore's file-mode posture).
         model_store=InMemoryModelStore(),
+        # No file-backed AuthorDecisionStore exists (or is needed): in-memory is
+        # an acceptable dev/test posture for the non-postgres path, same as
+        # InMemoryApprovalStore/InMemoryModelStore above — the author's decision
+        # history just doesn't survive a restart outside of Postgres.
+        author_decision_store=InMemoryAuthorDecisionStore(),
     )

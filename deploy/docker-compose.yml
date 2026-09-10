@@ -59,10 +59,11 @@ services:
       INTELLIOPS_TELEMETRY_MODE: prometheus
       INTELLIOPS_PROMETHEUS_URL: http://prometheus:9090
       # Instant-vector selector (keeps __name__+value) so ingestion also picks
-      # up the Meridian validation service's error-rate metric, alongside the
-      # existing demo-app cpu_usage series. Overridden here only — the default
-      # in common/config.py stays cpu_usage for test stability.
-      INTELLIOPS_PROMETHEUS_QUERY: '{__name__=~"cpu_usage|meridian_error_rate"}'
+      # up the full Meridian USE+RED metric set (Metrics Phase 1 Task 1),
+      # alongside the existing demo-app cpu_usage series. Overridden here
+      # only — the default in common/config.py stays cpu_usage for test
+      # stability.
+      INTELLIOPS_PROMETHEUS_QUERY: '{__name__=~"cpu_usage|meridian_error_rate|request_rate|latency_p50_ms|latency_p99_ms|memory_usage_mb|saturation|queue_depth|db_pool_in_use|db_pool_max|disk_usage_percent"}'
     ports:
       - "8001:8000"
     healthcheck:

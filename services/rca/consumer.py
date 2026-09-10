@@ -37,8 +37,10 @@ def diagnose(
     selector=None,
 ) -> DiagnosedSituation:
     context = enrich(situation, provider)
-    hypotheses = rank_hypotheses(situation, context, reliability_provider)
     sel = selector or NullRunbookSelector()
+    hypotheses = rank_hypotheses(
+        situation, context, reliability_provider, store=store, selector=sel
+    )
     runbook, score, runbook_source = select_runbook(hypotheses, situation, store, sel)
     if runbook_source == "semantic" and hypotheses and runbook is not None:
         top0 = hypotheses[0]

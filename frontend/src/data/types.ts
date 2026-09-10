@@ -36,6 +36,7 @@ export interface Hypothesis {
   evidence?: string[];
   explanation?: string | null;
   explanation_source?: string | null; // "llm" | "template"
+  confidence_source?: "embedding" | "rule" | null; // how `confidence` was computed (Phase 3)
 }
 
 export interface SituationOutcome {
@@ -127,6 +128,10 @@ export interface MemberEvent {
   labels: Record<string, string>;
   kind: string;
   ts: number;
+  // Detection-policy classification (Phase 2) — which anomaly rule judged this
+  // metric: absolute ratio / scale-aware saturation / latency ceiling-or-z /
+  // plain z-score. A display hint the read model may carry; safe when absent.
+  kind_detected?: "ratio" | "saturation" | "latency" | "default";
 }
 
 export interface SystemInfo {
@@ -146,7 +151,9 @@ export interface SystemInfo {
 
 export interface BaselineInfo {
   correlator_kind: string;
-  baselines: { metric_name: string; mean: number; std: number; count: number }[];
+  // mean/count are null for the robust correlator (median/MAD per hour-bucket,
+  // no running mean); std may be 0 before enough samples. Guard before formatting.
+  baselines: { metric_name: string; mean: number | null; std: number | null; count: number | null }[];
 }
 
 export interface LlmProbe {

@@ -18,8 +18,9 @@ and why**. Read it alongside:
 > **A sample production system now feeds real faults into this pipeline.** **Meridian**
 > (`services/meridian/`) — a four-service financial/audit platform with its own portal UI — runs
 > alongside IntelliOps, scraped by the same Prometheus, ingested by the same ingestion service
-> (query broadened additively), and diagnosed by the same unmodified RCA rules. See
-> [docs/MERIDIAN.md](docs/MERIDIAN.md) and
+> (query broadened additively), and diagnosed by the same unmodified RCA rules. Each service emits
+> a **USE+RED metric set with 8 typed fault scenarios**, each moving a realistic metric cluster.
+> See [docs/MERIDIAN.md](docs/MERIDIAN.md) and
 > [ADR-020](architectural.md#adr-020--meridian-sample-production-system).
 >
 > **The remediation path gained a rehearsal, a wider-but-still-safe vocabulary, and bounded
@@ -206,12 +207,19 @@ all three subclassing a shared `BaseCorrelator`:
   sklearn/joblib are imported lazily — a `river`/`robust` deployment never pays the
   import cost.
 
+**The anomaly decision itself is policy-aware.** `detect_anomaly` still produces the
+score above, but whether that score (or the raw event value) counts as an anomaly is
+now decided by a `DetectionPolicy` shared via `BaseCorrelator`: kind-based absolute
+thresholds for `ratio`/`saturation`/`latency` metrics when `DETECTION_POLICY=on`, else
+the unmodified z-score (default `off`, byte-identical). See
+[ADR-027](architectural.md#adr-027--detection-policy-per-metric-kind) for the detail.
+
 ### 5.3 `rca-service` — explain the Situation and suggest a fix
 
 | Function | What it does | Why | Depends on |
 |----------|--------------|-----|-----------|
 | `enrich(situation) → context` | Attaches recent deploys, config/change data, and service topology to the situation. | Context is what makes a root-cause suggestion **credible** instead of a guess. | deploy/config/topology sources |
-| `rank_hypotheses(situation, context, reliability_provider=None) → [RootCauseHypothesis]` | Scores and orders likely causes with their supporting evidence; when a `reliability_provider` is passed, a hypothesis whose runbook has a proven track record for this signature gets a bounded confidence boost. | Gives responders a ranked starting point, not a wall of data — and lets learned outcomes feed ranking. | `contracts.RootCauseHypothesis`, `training_store` |
+| `rank_hypotheses(situation, context, reliability_provider=None, store=None, selector=None) → [RootCauseHypothesis]` | **Two-layer diagnosis:** keyword rules PROPOSE a candidate hypothesis per metric family (deploy→rollback-deploy; memory/db_pool/log-error→restart-pod; saturation/latency/queue_depth/request_rate→scale-service) from the closed 3-runbook catalog, each with a fallback confidence. When `store`+`selector` are supplied and `RUNBOOK_SELECTOR_MODE=embedding`, the selector's cosine fit of the incident's symptoms against *that candidate runbook's* `symptoms` text COMPUTES the hypothesis's confidence in place of the fallback (`confidence_source="embedding"`); off, or on any embedding error, the fallback constant stands (`confidence_source="rule"`) — never raises. A `reliability_provider`, if passed, then applies its bounded boost on top. | Gives responders a ranked starting point, not a wall of data; lets the AI's fit-computed confidence — not a hand-tuned constant — decide how strongly a candidate is recommended, while the rules alone still decide *which* runbook is even in play ([ADR-028](architectural.md#adr-028--rca-metric-family-rules--ai-computed-confidence)). | `contracts.RootCauseHypothesis`, `training_store`, `RunbookSelector` |
 | `select_runbook(hypotheses, situation, store, selector) → (Playbook, score, source)` | **Rules-first, semantic-fallback:** the keyword rules (`surface_runbook`) run first; when none fires, a `RunbookSelector` ranks the **registered** playbooks by embedding similarity of their `symptoms` field and picks the best above a threshold (`source` = rule / semantic / none). | Adds *some* real intelligence to selection — retrieval among vetted playbooks, never an LLM choosing — catching semantically-obvious matches the keyword rules miss ([ADR-026](architectural.md#adr-026--semantic-runbook-selection-embedding-fallback)). Default `off` → rules-only. | governance registry, `RunbookSelector` |
 | `explain(hypothesis, context, situation) → str` | Produces human-readable advisory text for the top hypothesis via an `ExplanationProvider` ([ADR-019](architectural.md#adr-019--pluggable-detectors-the-finetuning-loop-and-llm-assisted-rca)) — set on `RootCauseHypothesis.explanation`, **after** ranking, so it can never affect confidence/order/runbook. | Gives an on-call engineer plain-language context, on by default, with zero CI/test network dependency. | `ExplanationProvider`: `TemplateExplanationProvider` (deterministic, no network — used whenever `llm_explanation_endpoint` is unset) or `OpenAICompatibleExplanationProvider` (sync `httpx` POST to `{endpoint}/chat/completions`; any failure falls back to the template) |
 
@@ -221,11 +229,11 @@ all three subclassing a shared `BaseCorrelator`:
 |----------|--------------|-----|-----------|
 | `select_playbook(situation) → Playbook` | Matches a diagnosed situation to a remediation via `match_rule`. | Connects "what's wrong" to "what to do." | governance registry |
 | `_denylist_reason(playbook) → reason \| None` | **Gate (before the sandbox):** refuses dangerous step *shapes* (unsafe scale-to-zero, implausible limits, defeated probe, indeterminate revision), fail-closed. | Defense-in-depth over the closed action `Literal` — guards allowed verbs' shapes, and AI-authored drafts ([ADR-024](architectural.md#adr-024--tier-2-remediation-vocabulary--a-destructive-action-denylist)). | — |
-| `sandbox.rehearse(situation, plan) → PreflightResult` | **Pre-flight (before approval):** clones the target into a throwaway namespace, applies the same plan, watches the clone recover, tears it down. | Try the fix safely first — a failed rehearsal blocks an `auto` playbook and advises a `hitl` human ([ADR-023](architectural.md#adr-023--pre-flight-sandbox-rehearsal-before-remediation)). Fail-safe; `off` by default. | `Sandbox` |
+| `sandbox.rehearse(situation, plan) → PreflightResult` | **Pre-flight (before approval):** clones the target into a throwaway namespace, applies the same plan, watches the clone recover (pod-readiness, plus the same per-metric predicate as `verify_health()` on the post-fix check), tears it down. Honest caveat: this repo's static-scrape Prometheus setup doesn't independently scrape the clone's namespace, so the per-metric query typically returns `None` and fails safe — the rehearsal effectively decides on pod-readiness today, wiring that activates fully once per-clone scraping exists ([ADR-029](architectural.md#adr-029--per-metric-health-verification)). | Try the fix safely first — a failed rehearsal blocks an `auto` playbook and advises a `hitl` human ([ADR-023](architectural.md#adr-023--pre-flight-sandbox-rehearsal-before-remediation)). Fail-safe; `off` by default. | `Sandbox` |
 | `request_approval(playbook, situation) → decision` | **Synchronous** call to governance for RBAC + HITL approval — the pre-flight verdict rides on the request. | The structural HITL gate — action can't proceed without a yes ([ADR-003](architectural.md#adr-003--governance-is-an-active-gate-not-passive-logging)). | `governance-service` |
 | `execute(playbook)` | Runs the playbook's typed steps through a `Remediator` — now **7** Deployment-scoped verbs (`restart`/`scale`/`rollback_deploy`/`wait`/`patch_resource_limits`/`rollback_to_revision`/`patch_probe`), the `Literal` still closed ([ADR-024](architectural.md#adr-024--tier-2-remediation-vocabulary--a-destructive-action-denylist)). | Performs the actual fix. | `Remediator` |
-| `verify_health() → bool` | Checks system health after acting. | Confirms the fix worked before declaring success. | telemetry / health checks |
-| `rollback(playbook)` | Runs `rollback_steps` if health verification fails. | Enforces **reversible-only** automation ([ADR-007](architectural.md#adr-007--reversible-only-health-verified-remediation)). | `Remediator` |
+| `verify_health() → bool` | Checks system health after acting: pod-readiness AND, in the `health_check_mode=k8s` path, per-metric recovery. The metric half no longer always queries `cpu_usage` — it re-applies the [ADR-027](architectural.md#adr-027--detection-policy-per-metric-kind) `DetectionPolicy` to the metric(s) that actually FIRED (detect-and-verify symmetry: a metric is recovered when it's no longer anomalous by the rule that detected it), using the baseline the Situation already carries. **Every** firing metric must recover — a partial fix isn't healthy. Any query failure, or a score-only metric with no usable baseline, fails safe to not-recovered. Dry-run (`health_check_mode=always`, `AlwaysHealthyChecker`) is unaffected. | Confirms the **right** thing recovered before declaring success — a memory/error/latency fix is no longer "verified" against cpu ([ADR-029](architectural.md#adr-029--per-metric-health-verification)). | telemetry / health checks, `services/correlation/detection_policy.DetectionPolicy` |
+| `rollback(playbook)` | Runs `rollback_steps` if health verification fails — including a fail-safe not-recovered verdict from the per-metric check above. | Enforces **reversible-only** automation ([ADR-007](architectural.md#adr-007--reversible-only-health-verified-remediation)). | `Remediator` |
 | `emit_outcome(...)` | Publishes a `RemediationOutcome` to `remediation.outcomes`. | Feeds the feedback loop. | `BusClient` |
 
 ### 5.5 `governance-service` — the control plane
@@ -370,16 +378,23 @@ comparison CI-enforced.
 
 **A real sample system now drives the pipeline.** **Meridian** (`services/meridian/`) — four
 backend services plus a client-portal/ops-panel UI, built on the same `services.base.create_app`
-scaffold — runs alongside IntelliOps in `docker compose up`. It is wired in additively: a
-Prometheus scrape job per service, the ingestion query broadened to a regex selector in the
-compose environment only (the code default is unchanged), and a shared volume that lets
-`rca-service` see Meridian's deploy markers for the first time. Three fault scenarios were run
-sequentially against real Docker and each produced the expected, distinct diagnosis —
-`scale-service`, `restart-pod`, `rollback-deploy` — through the unmodified detection/RCA/action
-path. Faults must be injected one at a time: `correlation-service` groups anomalies by time
-window, not by service, so concurrent faults on two Meridian services would merge into a single
-Situation — a real constraint, confirmed live, that the Meridian UI enforces with a
-sequential-injection guard. See [docs/MERIDIAN.md](docs/MERIDIAN.md) and
+scaffold — runs alongside IntelliOps in `docker compose up`. Each service emits a **USE+RED metric
+set** (11 gauges — CPU, memory, disk, saturation, queue depth, DB-pool utilization, request rate,
+error rate, p50/p99 latency) and accepts **8 typed fault scenarios** (`saturation`, `latency`,
+`error`, `memory_leak`, `traffic_surge`, `dependency_outage`, `db_exhaustion`, `crash`), each
+moving a realistic metric cluster rather than a single gauge — `error`/`dependency_outage`
+deliberately hold `cpu_usage` at baseline so RCA doesn't misdiagnose an error incident as capacity.
+It is wired in additively: a Prometheus scrape job per service, the ingestion query broadened to an
+11-name regex selector in the compose environment only (the code default is unchanged), and a
+shared volume that lets `rca-service` see Meridian's deploy markers for the first time. Three fault
+scenarios were run sequentially against real Docker and each produced the expected, distinct
+diagnosis — `scale-service`, `restart-pod`, `rollback-deploy` — through the unmodified
+detection/RCA/action path; the newer scenarios' metric families don't yet have dedicated RCA rules
+(that mapping is Phase 3 of the metrics arc), so they detect but may not richly diagnose today.
+Faults must be injected one at a time: `correlation-service` groups anomalies by time window, not
+by service, so concurrent faults on two Meridian services would merge into a single Situation — a
+real constraint, confirmed live, that the Meridian UI enforces with a sequential-injection guard.
+See [docs/MERIDIAN.md](docs/MERIDIAN.md) and
 [ADR-020](architectural.md#adr-020--meridian-sample-production-system).
 
 **What is still deliberately simulated / deferred:**

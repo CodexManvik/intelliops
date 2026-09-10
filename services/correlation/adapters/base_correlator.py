@@ -17,13 +17,22 @@ import hashlib
 from abc import ABC, abstractmethod
 
 from common.contracts import Situation, TelemetryEvent
+from services.correlation.detection_policy import DetectionPolicy
 
 
 class BaseCorrelator(ABC):
-    def __init__(self, z_threshold: float = 3.0, warmup_samples: int = 50) -> None:
+    def __init__(
+        self,
+        z_threshold: float = 3.0,
+        warmup_samples: int = 50,
+        detection_policy: DetectionPolicy | None = None,
+    ) -> None:
         self._z_threshold = z_threshold
         self._warmup_samples = warmup_samples
         self._reliability: dict[str, float] = {}
+        self._policy = (
+            detection_policy if detection_policy is not None else DetectionPolicy(enabled=False)
+        )
 
     @abstractmethod
     def detect(self, event: TelemetryEvent) -> float: ...
@@ -38,7 +47,10 @@ class BaseCorrelator(ABC):
     def load(self, rows: list[dict]) -> None: ...
 
     def is_anomaly(self, event: TelemetryEvent) -> bool:
-        return self.detect(event) > self._z_threshold
+        return self.is_anomaly_scored(event, self.detect(event))
+
+    def is_anomaly_scored(self, event: TelemetryEvent, score: float) -> bool:
+        return self._policy.is_anomaly(event, score, self._z_threshold)
 
     def retrain(self, training_data: list[dict]) -> None:
         # REPLACE semantics (recompute from scratch each call) — pinned by test_retrain.py.

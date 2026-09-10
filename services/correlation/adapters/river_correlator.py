@@ -23,11 +23,17 @@ from river import stats
 
 from common.contracts import Situation, SituationStatus, TelemetryEvent
 from services.correlation.adapters.base_correlator import BaseCorrelator
+from services.correlation.detection_policy import DetectionPolicy
 
 
 class RiverCorrelator(BaseCorrelator):
-    def __init__(self, z_threshold: float = 3.0, warmup_samples: int = 50) -> None:
-        super().__init__(z_threshold, warmup_samples)
+    def __init__(
+        self,
+        z_threshold: float = 3.0,
+        warmup_samples: int = 50,
+        detection_policy: DetectionPolicy | None = None,
+    ) -> None:
+        super().__init__(z_threshold, warmup_samples, detection_policy=detection_policy)
         self._mean: dict[str, stats.Mean] = {}
         self._var: dict[str, stats.Var] = {}
         self._count: dict[str, int] = {}

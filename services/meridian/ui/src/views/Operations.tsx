@@ -10,7 +10,16 @@ import {
 import StatusPill from "../components/StatusPill";
 
 const SERVICES: MeridianService[] = ["gateway", "validation", "aggregation", "reporting"];
-const FAULT_TYPES: FaultType[] = ["saturation", "error", "latency", "crash"];
+const FAULT_TYPES: FaultType[] = [
+  "saturation",
+  "error",
+  "latency",
+  "crash",
+  "memory_leak",
+  "traffic_surge",
+  "dependency_outage",
+  "db_exhaustion",
+];
 
 interface Preset {
   id: string;
@@ -50,6 +59,38 @@ const PRESETS: Preset[] = [
     service: "gateway",
     spec: { type: "saturation" },
     deployFirst: true,
+  },
+  {
+    id: "aggregation-memory-leak",
+    label: "Memory leak (gradual)",
+    description:
+      "Gradually ramps memory usage toward OOM on aggregation over the fault duration — no other metric moves.",
+    service: "aggregation",
+    spec: { type: "memory_leak" },
+  },
+  {
+    id: "gateway-traffic-surge",
+    label: "Traffic surge",
+    description:
+      "More legitimate request volume than gateway has capacity for: request rate, CPU, saturation, and queue depth all climb together.",
+    service: "gateway",
+    spec: { type: "traffic_surge" },
+  },
+  {
+    id: "validation-dependency-outage",
+    label: "Dependency outage",
+    description:
+      "A downstream dependency of validation is down: errors and p99 latency spike, but CPU stays flat — it's not a capacity problem.",
+    service: "validation",
+    spec: { type: "dependency_outage" },
+  },
+  {
+    id: "reporting-db-exhaustion",
+    label: "DB pool exhaustion",
+    description:
+      "Reporting's DB connection pool fills up: in-use connections hit the max and latency rises as requests queue for a connection.",
+    service: "reporting",
+    spec: { type: "db_exhaustion" },
   },
 ];
 

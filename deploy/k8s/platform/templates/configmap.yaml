@@ -14,5 +14,51 @@ data:
   INTELLIOPS_AUTH_MODE: {{ .Values.env.AUTH_MODE | quote }}
   INTELLIOPS_STORE_BACKEND: {{ .Values.env.STORE_BACKEND | quote }}
   INTELLIOPS_BUS_BACKEND: {{ .Values.env.BUS_BACKEND | quote }}
-  INTELLIOPS_REDIS_URL: {{ printf "redis://%s-redis:6379/0" .Release.Name | quote }}
-  INTELLIOPS_DATABASE_URL: {{ printf "postgresql://%s:%s@%s-postgres:5432/%s" .Values.postgres.user .Values.postgres.password .Release.Name .Values.postgres.db | quote }}
+  # The Redis + Postgres Services are named plainly (see redis.yaml/postgres.yaml),
+  # NOT <release>-prefixed. And the DB URL MUST use the psycopg (v3) driver — the
+  # dep is psycopg 3, and a bare postgresql:// makes SQLAlchemy load psycopg2
+  # (ModuleNotFoundError). Matches the compose stack + the config default.
+  INTELLIOPS_REDIS_URL: {{ printf "redis://redis:6379/0" | quote }}
+  INTELLIOPS_DATABASE_URL: {{ printf "postgresql+psycopg://%s:%s@postgres:5432/%s" .Values.postgres.user .Values.postgres.password .Values.postgres.db | quote }}
+  # Correlation / detection / RCA / action posture (safe by default; live overlay flips these).
+  INTELLIOPS_CORRELATOR_KIND: {{ .Values.env.CORRELATOR_KIND | quote }}
+  INTELLIOPS_DETECTION_POLICY: {{ .Values.env.DETECTION_POLICY | quote }}
+  INTELLIOPS_RUNBOOK_SELECTOR_MODE: {{ .Values.env.RUNBOOK_SELECTOR_MODE | quote }}
+  INTELLIOPS_REMEDIATOR_MODE: {{ .Values.env.REMEDIATOR_MODE | quote }}
+  INTELLIOPS_SANDBOX_MODE: {{ .Values.env.SANDBOX_MODE | quote }}
+  INTELLIOPS_HEALTH_CHECK_MODE: {{ .Values.env.HEALTH_CHECK_MODE | quote }}
+  INTELLIOPS_PROMETHEUS_URL: {{ .Values.env.PROMETHEUS_URL | quote }}
+  # Ingestion telemetry source: "file" (default, no polling) or "prometheus"
+  # (poll the query below and publish each series as a TelemetryEvent).
+  INTELLIOPS_TELEMETRY_MODE: {{ .Values.env.TELEMETRY_MODE | quote }}
+  INTELLIOPS_PROMETHEUS_QUERY: {{ .Values.env.PROMETHEUS_QUERY | quote }}
+  # HITL approvals: in k8s the action + governance services are SEPARATE pods, so
+  # the action gate must reach governance over HTTP (not the in-process store) or
+  # the console's "Approve" (which hits the governance service) 404s.
+  INTELLIOPS_GOVERNANCE_MODE: {{ .Values.env.GOVERNANCE_MODE | quote }}
+  INTELLIOPS_GOVERNANCE_URL: {{ .Values.env.GOVERNANCE_URL | quote }}
+  # The namespace the action service remediates in (+ clones the sandbox from).
+  # Track the RELEASE namespace so real remediation targets where the workloads
+  # actually live — the default (intelliops-demo) is the old compose/kind path.
+  INTELLIOPS_K8S_NAMESPACE: {{ .Release.Namespace | quote }}
+  # How long the action service waits for a human HITL decision before aborting.
+  # The default 30s is too short to click Approve in the UI live — raised in values-live.
+  INTELLIOPS_HITL_POLL_TIMEOUT_SECONDS: {{ .Values.env.HITL_POLL_TIMEOUT_SECONDS | quote }}
+  # LLM explainer endpoint/model (non-secret). The API KEY is NOT here — it is
+  # injected on the rca pod via a Secret (secretKeyRef), never the configmap.
+  INTELLIOPS_LLM_EXPLANATION_ENDPOINT: {{ .Values.env.LLM_EXPLANATION_ENDPOINT | quote }}
+  INTELLIOPS_LLM_EXPLANATION_MODEL: {{ .Values.env.LLM_EXPLANATION_MODEL | quote }}
+  # AI-authored runbooks (PR C): the human-initiated "Draft a runbook with AI"
+  # affordance. The author lives in the GOVERNANCE service, so its LLM key is
+  # injected on the governance pod via a Secret (secretKeyRef), never here.
+  # "off" (default) → NullRunbookAuthor (no network); "openai" + an endpoint →
+  # OpenAICompatibleRunbookAuthor. values-live flips the mode on.
+  INTELLIOPS_RUNBOOK_AUTHOR_MODE: {{ .Values.env.RUNBOOK_AUTHOR_MODE | quote }}
+  INTELLIOPS_LLM_RUNBOOK_ENDPOINT: {{ .Values.env.LLM_RUNBOOK_ENDPOINT | quote }}
+  INTELLIOPS_LLM_RUNBOOK_MODEL: {{ .Values.env.LLM_RUNBOOK_MODEL | quote }}
+  # Curated, system-agnostic description of the target system the runbook
+  # author reads for grounding (baked into the image at this path — see
+  # deploy/Dockerfile `COPY config/ ./config/`). Empty/all-placeholder file is
+  # safe and reads as "unconfigured" (agent drafts from incident + history
+  # alone); fill it in per target to make drafts system-aware.
+  INTELLIOPS_SYSTEM_CONTEXT_PATH: {{ .Values.env.SYSTEM_CONTEXT_PATH | quote }}

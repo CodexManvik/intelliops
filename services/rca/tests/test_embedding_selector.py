@@ -62,6 +62,21 @@ def _store():
     return s
 
 
+def _playbook(id="scale-service", symptoms="high CPU or memory saturation"):
+    return Playbook(
+        id=id,
+        name=id,
+        match_rule="*",
+        steps=[RemediationStep(action="scale", replicas=1)],
+        hitl_mode=HitlMode.HITL,
+        symptoms=symptoms,
+    )
+
+
+def _hyp(desc="x"):
+    return RootCauseHypothesis(situation_id="sit-1", description=desc, confidence=0.2)
+
+
 def _fake_encode(texts):
     # deterministic toy embeddings: "saturation-ish" -> [1,0]; "deploy-ish" ->
     # [0,1]; else -> [0.5,0.5]
@@ -156,6 +171,61 @@ def test_embedding_selector_default_construction_does_not_load_model():
     sel = rs.EmbeddingRunbookSelector()
     assert sel._model_name == "all-MiniLM-L6-v2"
     assert sel._threshold == 0.45
+
+
+def test_score_returns_cosine_fit_for_a_playbook(monkeypatch):
+    # fake-encode: map known texts to fixed vectors so cosine is deterministic
+    monkeypatch.setattr(
+        rs.EmbeddingRunbookSelector, "_encode", staticmethod(_fake_encode), raising=False
+    )
+    sel = rs.EmbeddingRunbookSelector()
+    pb = _playbook(id="restart-pod", symptoms="crash loops, memory leak, recycle process")
+    s = sel.score(_situation("memory_usage_mb"), _hyp("memory leak trending to OOM"), pb)
+    assert s is not None and 0.0 <= s <= 1.0
+
+
+def test_score_none_when_playbook_has_no_symptoms(monkeypatch):
+    monkeypatch.setattr(
+        rs.EmbeddingRunbookSelector, "_encode", staticmethod(_fake_encode), raising=False
+    )
+    sel = rs.EmbeddingRunbookSelector()
+    pb = _playbook(id="x", symptoms=None)
+    assert sel.score(_situation(), _hyp("x"), pb) is None
+
+
+def test_score_none_on_encode_error(monkeypatch):
+    def _boom(texts):
+        raise RuntimeError("model down")
+
+    monkeypatch.setattr(rs.EmbeddingRunbookSelector, "_encode", staticmethod(_boom), raising=False)
+    sel = rs.EmbeddingRunbookSelector()
+    pb = _playbook(id="x", symptoms="something")
+    assert sel.score(_situation(), _hyp("x"), pb) is None  # never raises
+
+
+def test_null_selector_score_is_none():
+    from services.rca.adapters.runbook_selector import NullRunbookSelector
+
+    assert (
+        NullRunbookSelector().score(_situation(), _hyp("x"), _playbook(id="x", symptoms="s"))
+        is None
+    )
+
+
+def test_select_still_works_via_score(monkeypatch):
+    # select must still return the best (id, score) >= threshold — re-expressed via score
+    monkeypatch.setattr(
+        rs.EmbeddingRunbookSelector, "_encode", staticmethod(_fake_encode), raising=False
+    )
+    sel = rs.EmbeddingRunbookSelector(threshold=0.8)
+    sit = _situation("container_working_set_bytes")
+    hyp = RootCauseHypothesis(
+        situation_id="sit-1", description="service thrashing under load", confidence=0.2
+    )
+    hit = sel.select(sit, hyp, _store())
+    assert hit is not None
+    assert hit[0] == "scale-service"
+    assert hit[1] >= 0.8
 
 
 def _sentence_transformers_available() -> bool:

@@ -21,7 +21,7 @@ from common.contracts import (
 )
 from common.interfaces import PlaybookStore
 
-_SATURATION_TOKENS = ("cpu", "mem", "memory", "disk", "saturation")
+_SATURATION_TOKENS = ("cpu", "disk", "saturation")
 
 # How much weight the learned reliability signal carries against rule-based
 # confidence. Small enough that a proven-reliable low-confidence rule can
@@ -43,6 +43,8 @@ def rank_hypotheses(
     situation: Situation,
     context: EnrichmentContext,
     reliability_provider: Callable[[str], float] | None = None,
+    store=None,
+    selector=None,
 ) -> list[RootCauseHypothesis]:
     hypotheses: list[RootCauseHypothesis] = []
     services = _service_labels(situation)
@@ -61,8 +63,23 @@ def rank_hypotheses(
             )
         )
 
-    # Rule: resource-saturation metric names.
     names = " ".join(e.name.lower() for e in situation.member_events)
+
+    # Rule: memory pressure/leak. Ranked ABOVE saturation (0.65 > 0.6) so a
+    # memory-leaking service is restarted, not scaled — new pods spun up by
+    # scale-service leak too, so restart is the right fix here, not capacity.
+    if "memory" in names:
+        hypotheses.append(
+            RootCauseHypothesis(
+                situation_id=situation.id,
+                description="memory pressure / leak — recycle the process",
+                confidence=0.65,
+                evidence=[f"metrics: {names}"],
+                suggested_runbook_id="restart-pod",
+            )
+        )
+
+    # Rule: resource-saturation metric names (memory handled separately above).
     if any(tok in names for tok in _SATURATION_TOKENS):
         hypotheses.append(
             RootCauseHypothesis(
@@ -74,13 +91,47 @@ def rank_hypotheses(
             )
         )
 
-    # Rule: log/error events.
+    # Rule: latency/queueing/request-surge metric names — points to capacity
+    # contention, not a wedged process, so scale rather than restart.
+    if any(tok in names for tok in ("latency", "queue_depth", "request_rate")):
+        hypotheses.append(
+            RootCauseHypothesis(
+                situation_id=situation.id,
+                description="latency/queueing under load — capacity contention",
+                confidence=0.55,
+                evidence=[f"metrics: {names}"],
+                suggested_runbook_id="scale-service",
+            )
+        )
+
+    # Rule: DB connection-pool exhaustion — recycle the process to release
+    # wedged/leaked connections back to the pool. Ranked ABOVE the
+    # latency/queue/request-rate rule (0.62 > 0.55) so db_exhaustion (which
+    # co-emits db_pool + latency, per Phase 1's fault profile) routes to
+    # restart-pod, not scale-service: new pods spun up by scaling just
+    # re-exhaust the same pool, so recycling the process is the right fix.
+    if "db_pool" in names:
+        hypotheses.append(
+            RootCauseHypothesis(
+                situation_id=situation.id,
+                description="database connection-pool exhaustion — recycle connections",
+                confidence=0.62,
+                evidence=[f"metrics: {names}"],
+                suggested_runbook_id="restart-pod",
+            )
+        )
+
+    # Rule: log/error events. Ranked ABOVE the latency/queue/request-rate rule
+    # (0.58 > 0.55) so dependency_outage (which co-emits error + latency_p99,
+    # per Phase 1's fault profile) routes to restart-pod, not scale-service: a
+    # failing dependency is fixed by recycling the process, not by spinning up
+    # new pods that hit the same down dependency.
     if any(e.kind.value in ("log",) or "error" in e.name.lower() for e in situation.member_events):
         hypotheses.append(
             RootCauseHypothesis(
                 situation_id=situation.id,
                 description="error spike in service logs",
-                confidence=0.5,
+                confidence=0.58,
                 evidence=["log/error events present"],
                 suggested_runbook_id="restart-pod",
             )
@@ -97,6 +148,35 @@ def rank_hypotheses(
                 suggested_runbook_id=None,
             )
         )
+
+    # Embedding re-scoring pass (Task 3): when a store + selector are both
+    # supplied, let the selector's retrieval fit re-score each rule-proposed
+    # candidate's confidence — decisions stay deterministic (the rules above
+    # already chose WHICH runbook), the embedding only re-scores HOW
+    # confident we are in that already-vetted choice, among the closed
+    # 3-runbook catalog. Runs once, before both sort branches below, so the
+    # (possibly embedding-computed) confidence feeds either sort and the
+    # reliability boost still applies on top of it. Off path (store or
+    # selector is None) leaves every hypothesis's rule confidence untouched
+    # and just stamps provenance — byte-identical to Phase 2 otherwise. The
+    # fallback hypothesis (suggested_runbook_id=None) is never scored.
+    for hyp in hypotheses:
+        if hyp.suggested_runbook_id is None:
+            continue
+        scored = False
+        if store is not None and selector is not None:
+            try:
+                pb = store.get(hyp.suggested_runbook_id)
+                if pb is not None:
+                    s = selector.score(situation, hyp, pb)
+                    if s is not None:
+                        hyp.confidence = min(1.0, max(0.0, s))
+                        hyp.confidence_source = "embedding"
+                        scored = True
+            except Exception:  # noqa: BLE001,S110 — fail-safe; ranking must never raise
+                pass
+        if not scored:
+            hyp.confidence_source = "rule"
 
     if reliability_provider is None:
         hypotheses.sort(key=lambda h: h.confidence, reverse=True)

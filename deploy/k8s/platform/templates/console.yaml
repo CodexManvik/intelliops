@@ -1,0 +1,55 @@
+{{/*
+console.yaml
+The React console: nginx serving the built SPA + same-origin reverse-proxy to the
+backends (read/governance/correlation/rca). Exposed via NodePort so the operator's
+browser reaches it on kind. Gated on console.enabled.
+*/}}
+{{- if .Values.console.enabled }}
+{{- $img := .Values.console.image | default (printf "%s:%s" .Values.console.repository .Values.image.tag) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: console
+  labels:
+    {{- include "intelliops.labels" . | nindent 4 }}
+    {{- include "intelliops.selectorLabels" (dict "root" . "name" "console") | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "intelliops.selectorLabels" (dict "root" . "name" "console") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "intelliops.selectorLabels" (dict "root" . "name" "console") | nindent 8 }}
+    spec:
+      containers:
+        - name: console
+          image: {{ $img | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet: { path: /, port: 8080 }
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            requests: { cpu: "10m", memory: "32Mi" }
+            limits: { cpu: "100m", memory: "128Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: console
+  labels:
+    {{- include "intelliops.labels" . | nindent 4 }}
+    {{- include "intelliops.selectorLabels" (dict "root" . "name" "console") | nindent 4 }}
+spec:
+  type: NodePort
+  selector:
+    {{- include "intelliops.selectorLabels" (dict "root" . "name" "console") | nindent 4 }}
+  ports:
+    - port: 8080
+      targetPort: 8080
+      nodePort: {{ .Values.console.nodePort }}
+{{- end }}

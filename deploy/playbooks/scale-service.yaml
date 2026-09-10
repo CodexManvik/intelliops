@@ -13,4 +13,4 @@ rollback_steps:
   - action: scale
     replicas: -2
     note: "kubectl scale deployment/${service} --replicas=-2"
-symptoms: "high CPU or memory saturation, resource exhaustion, service thrashing under sustained load, OOM kills, throttling"
+symptoms: "CPU or resource saturation, high latency under load, growing queue depth, a traffic surge or capacity shortfall — needs more replicas"

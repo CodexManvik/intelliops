@@ -135,6 +135,40 @@ To upgrade an existing release:
 helm upgrade intelliops deploy/k8s/platform/
 ```
 
+### Full stack, live posture
+
+`helm install` alone brings up the platform in the **safe** posture (dry-run,
+selector off, LLM template, health `always`, no RBAC) — nothing in the cluster is
+remediated for real. To run *everything* in-cluster with the metrics-arc AI
+features live, use the one-command bring-up and the live overlay
+([ADR-030](../architectural.md#adr-030--full-in-cluster-deployment-helm),
+[deploy/k8s/README.md](../deploy/k8s/README.md)):
+
+```bash
+GROQ_API_KEY=gsk_... ./scripts/kind-up-full.sh
+```
+
+The live overlay (`deploy/k8s/platform/values-live.yaml`) flips these — **no new
+config keys**, it reuses the same `INTELLIOPS_*` settings the services already
+read:
+
+| Setting | Safe default | Live |
+|---|---|---|
+| `INTELLIOPS_CORRELATOR_KIND` | `river` | `robust` |
+| `INTELLIOPS_DETECTION_POLICY` | `off` | `on` |
+| `INTELLIOPS_RUNBOOK_SELECTOR_MODE` | `off` | `embedding` |
+| `INTELLIOPS_REMEDIATOR_MODE` | `dry_run` | `k8s` |
+| `INTELLIOPS_SANDBOX_MODE` | `off` | `k8s` |
+| `INTELLIOPS_HEALTH_CHECK_MODE` | `always` | `k8s` |
+| `INTELLIOPS_LLM_EXPLANATION_ENDPOINT`/`_MODEL` | empty | set |
+| `rbac.create` (chart) | `false` | `true` |
+
+`rca` and `action` run the `full` image (ml + k8s extras, CPU torch + baked
+embedding model); the other five use the lean `base` image. The **LLM API key is
+never committed** — supply it at install via `--set-string llm.apiKey=…` (the
+chart creates a Secret) or pre-create a Secret and set `llm.apiKeySecretName`; it
+reaches only the `rca` pod via `secretKeyRef`, never the ConfigMap.
+
 ---
 
 ## Environment-switch reference
@@ -153,6 +187,12 @@ gated) see the [Auth at the edge](#auth-at-the-edge) section above.
 | `INTELLIOPS_CORRELATION_SEASONAL_BUCKETS` | integer | `24` | Number of hour-of-day buckets `robust`/`trained` keep independent baselines for. |
 | `INTELLIOPS_CORRELATION_ROBUST_WINDOW` | integer | `128` | Max samples kept per `(metric, hour-bucket)` window for `robust`/`trained`'s median/MAD calculation. |
 | `INTELLIOPS_CORRELATION_ROBUST_WARMUP` | integer | `30` | Samples required in a bucket before `robust`/`trained` scores it (below this, score is `0`, like `river`'s warm-up gate). |
+| `INTELLIOPS_DETECTION_POLICY` | `off`, `on` | `off` | Metric-kind-aware anomaly decision layered over the per-metric z-score (`services/correlation`). `off` = pure z-score (`score > z_threshold`) for every metric, byte-identical to pre-policy behavior (CI/test default). `on` = classify each metric by name (`ratio`/`saturation`/`latency`/`default`) and apply the matching rule — absolute thresholds for `ratio`/`saturation`, the statistical score **or** an absolute ceiling for `latency`. Note: the `latency` kind's statistical half is only genuinely seasonal when `INTELLIOPS_CORRELATOR_KIND=robust` or `trained`; under the `river` default the ceiling is doing the seasonal-false-positive-guarding work. See [ADR-027](../architectural.md#adr-027--detection-policy-per-metric-kind). |
+| `INTELLIOPS_DETECTION_RATIO_THRESHOLD` | float | `0.02` | Absolute cutoff for `ratio`-kind metrics (name contains `error_rate` / `error_ratio` / `_ratio`) when `DETECTION_POLICY=on`. A metric's raw value above this fires, regardless of z-score. |
+| `INTELLIOPS_DETECTION_SATURATION_RATIO_THRESHOLD` | float | `0.80` | Absolute cutoff for 0..1-scaled `saturation`-kind metrics (e.g. `saturation`, `utilization`, `disk_usage`) when `DETECTION_POLICY=on`. |
+| `INTELLIOPS_DETECTION_SATURATION_PERCENT_THRESHOLD` | float | `90.0` | Absolute cutoff for 0..100/percent-scaled `saturation`-kind metrics (`cpu_usage`, any `_percent` name) when `DETECTION_POLICY=on`. |
+| `INTELLIOPS_DETECTION_LATENCY_CEILING_MS` | float | `500.0` | Absolute latency ceiling (ms) for `latency`-kind metrics (`latency` / `duration` / `_ms`) when `DETECTION_POLICY=on` — fires alongside the statistical score, whichever trips first. This is the fallback that matters most under `river` (no seasonal baseline); `robust`/`trained` catch seasonal latency via their own per-hour baseline. |
+| `INTELLIOPS_HEALTH_CHECK_MODE` | `always`, `k8s` | `always` | Post-remediation health verification (`services/action`). `always` = `AlwaysHealthyChecker`, no real check (CI/test default; dry-run unaffected by anything below). `k8s` = verify against a real cluster: pod-readiness AND per-metric recovery — the metric(s) that actually fired are re-checked against the **same** `DETECTION_*` + `INTELLIOPS_CORRELATION_Z_THRESHOLD` policy/threshold correlation detects with (no separate config; detect and verify agree by construction), replacing the old hardcoded `cpu_usage < 50` check. A firing metric with no usable baseline, or a failed query, fails safe to not-recovered → rollback. The sandbox pre-flight rehearsal (`INTELLIOPS_SANDBOX_MODE=k8s`) reuses the identical per-metric check on its post-fix step. See [ADR-029](../architectural.md#adr-029--per-metric-health-verification). |
 | `INTELLIOPS_LLM_EXPLANATION_ENDPOINT` | URL or empty | `""` (empty) | RCA explanation provider selector (`services/rca`). Empty = `TemplateExplanationProvider` (deterministic, no network — CI/test default). Set to an OpenAI-compatible base URL (OpenAI, local Ollama, vLLM, …) to use `OpenAICompatibleExplanationProvider`; any call failure (timeout, non-200, bad body) falls back to the template. The explanation is advisory-only — it never affects hypothesis confidence, ordering, or the suggested runbook. |
 | `INTELLIOPS_LLM_EXPLANATION_MODEL` | string | `gpt-4o-mini` | Model name sent in the chat-completions request when an LLM endpoint is configured. |
 | `INTELLIOPS_LLM_EXPLANATION_TIMEOUT_SECONDS` | float | `10.0` | Request timeout for the LLM explanation call before falling back to the template. |
@@ -163,6 +203,52 @@ gated) see the [Auth at the edge](#auth-at-the-edge) section above.
 | `INTELLIOPS_LLM_RUNBOOK_MODEL` | string | `gpt-4o-mini` | Model name sent in the chat-completions request when the runbook author endpoint is configured. |
 | `INTELLIOPS_LLM_RUNBOOK_TIMEOUT_SECONDS` | float | `10.0` | Request timeout for the runbook-author call before it gives up (returns no draft). |
 | `INTELLIOPS_LLM_RUNBOOK_API_KEY` | string | `""` (empty) | Bearer token sent to the runbook-author endpoint, if set. |
+| `INTELLIOPS_SYSTEM_CONTEXT_PATH` | file path | `config/system_context.yaml` | Path to the curated, system-agnostic description of the target system the runbook author reads for grounding (`services/governance`). Baked into both Docker image stages at this path (`deploy/Dockerfile`), so no volume or extra config is needed to have it present; override only to point at a different mounted/baked location. See [System context for the runbook author](#system-context-for-the-runbook-author) below. |
 | `INTELLIOPS_RUNBOOK_SELECTOR_MODE` | `off`, `embedding` | `off` | Semantic runbook selection (`services/rca`). `off` = `NullRunbookSelector`, keyword-rules-only (CI/test default, selection byte-identical to before). `embedding` = when no keyword rule fires, `EmbeddingRunbookSelector` ranks the **registered** playbooks by embedding similarity of their `symptoms` field and picks the best above the threshold (requires the `ml` extra; retrieval among vetted playbooks, never an LLM choosing). See [ADR-026](../architectural.md#adr-026--semantic-runbook-selection-embedding-fallback). |
 | `INTELLIOPS_RUNBOOK_SELECTOR_MODEL` | string | `all-MiniLM-L6-v2` | `sentence-transformers` model used by the embedding selector (loaded lazily, offline, no API). |
 | `INTELLIOPS_RUNBOOK_SELECTOR_THRESHOLD` | float | `0.45` | Minimum cosine similarity for the embedding selector to accept a match; below it, the incident falls to the gap (where the AI-authoring flow can draft one). |
+
+### System context for the runbook author
+
+The AI runbook author (`INTELLIOPS_RUNBOOK_AUTHOR_MODE=openai`, itself off by
+default — see the table above) can optionally be grounded in a description of
+the real system it is drafting for, so its drafts reference actual services,
+dependencies, and known remediation quirks instead of generic advice.
+
+That description lives in `config/system_context.yaml`, read by governance's
+`SystemContextProvider` at the path in `INTELLIOPS_SYSTEM_CONTEXT_PATH`. The
+file shipped in the image is an **empty placeholder** — every field blank —
+which `SystemContextProvider` treats as **"unconfigured"**: the author still
+drafts normally, from the incident and its retrieved history of past
+decisions/outcomes alone. A missing or malformed file is handled the same
+way (logged, never raised). Filling the file in is purely additive context;
+it does not change the author's tool-calling/retrieval behavior, gate it
+behind a model, or bypass any existing safety step — a drafted playbook still
+goes through the same type-checked validation, sandbox, and human-approval
+gate as any other proposal.
+
+Schema (see the checked-in comments in `config/system_context.yaml` for the
+authoritative reference):
+
+```yaml
+system:
+  name: ""      # e.g. "Payments API"
+  summary: ""   # one line: what the system does
+
+services: []    # each entry:
+  # - name: "auth-svc"
+  #   role: "authorizes card transactions"
+  #   depends_on: ["db", "cache"]
+  #   key_metrics: ["error_rate", "latency_p99"]
+
+# actions:                       # optional free-form remediation hints
+#   restart_policy: "kill -9 then systemctl restart"
+#   rollback_window: "5 minutes max"
+
+# notes: ""                      # optional additional free-text context
+```
+
+To point at a different file (e.g. mounted from a ConfigMap or Secret volume
+instead of the baked default), set `INTELLIOPS_SYSTEM_CONTEXT_PATH` — via
+`deploy/k8s/platform/values.yaml`'s `env.SYSTEM_CONTEXT_PATH` in a Helm
+deploy, or the environment variable directly in compose/local dev.

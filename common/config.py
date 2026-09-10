@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     playbook_store_path: str = "data/playbooks"
     rbac_policy_path: str = "policies/rbac_policy.yaml"
     rca_context_path: str = "data/rca_context"
+    system_context_path: str = "config/system_context.yaml"
     hitl_poll_timeout_seconds: float = 30.0
     hitl_poll_interval_seconds: float = 0.5
     training_store_path: str = "data/training.jsonl"
@@ -83,6 +84,13 @@ class Settings(BaseSettings):
     runbook_selector_mode: str = "off"  # "off" | "embedding"
     runbook_selector_model: str = "all-MiniLM-L6-v2"
     runbook_selector_threshold: float = 0.45  # min cosine similarity to accept a match
+
+    # --- Metric-kind-aware detection policy (off by default; pure z-score unaffected) ---
+    detection_policy: str = "off"  # "off" | "on"
+    detection_ratio_threshold: float = 0.02
+    detection_saturation_ratio_threshold: float = 0.80
+    detection_saturation_percent_threshold: float = 90.0
+    detection_latency_ceiling_ms: float = 500.0
 
 
 @lru_cache

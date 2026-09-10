@@ -1342,6 +1342,269 @@ human approval when none does.
 
 ---
 
+### ADR-027 — Detection policy per metric kind
+
+**Context.** Every correlator ([ADR-019](#adr-019--pluggable-detectors-the-finetuning-loop-and-llm-assisted-rca))
+made the same anomaly decision regardless of what a metric was: `detect(event) > z_threshold`. A
+single z-score is the right question for an unbounded utilization signal against a stable
+baseline, but the wrong question for two common metric shapes. A bounded **ratio** (an error rate)
+can jump from a healthy 0.1% to a genuinely bad 5% while barely moving its own running
+mean/variance if the service has always been a little noisy, so the std-dev framing hides the
+level that actually matters. And **latency**, like the seasonal telemetry ADR-019 already
+identified, has a legitimate daily shape (busier at peak hours), so a global z-score in the
+`river` correlator flags the same 200ms tail every afternoon.
+
+**Decision.** Add a `DetectionPolicy` (`services/correlation/detection_policy.py`) that classifies
+each metric by name into one of four kinds and applies the matching rule:
+
+- **`ratio`** (name contains `error_rate` / `error_ratio` / `_ratio`) fires on an absolute
+  threshold (`event.value > detection_ratio_threshold`, default `0.02`), never the z-score. A 5%
+  error rate is bad regardless of how noisy the baseline has been.
+- **`saturation`** (`saturation` / `utilization` / `disk_usage` / `cpu_usage` / `_percent`) fires
+  on an absolute cutoff too, but the vocabulary mixes two scales: `cpu_usage` and any `_percent`
+  name are 0..100 and compared against `detection_saturation_percent_threshold` (default `90.0`);
+  every other saturation name is treated as 0..1 and compared against
+  `detection_saturation_ratio_threshold` (default `0.80`).
+- **`latency`** (`latency` / `duration` / `_ms`) fires on the statistical score or an absolute
+  ceiling (`detection_latency_ceiling_ms`, default `500.0`ms), whichever trips first. The
+  statistical half is only genuinely seasonal for the `robust`/`trained` correlators, which score
+  against a per-`(metric, hour-of-day)` baseline ([ADR-019](#adr-019--pluggable-detectors-the-finetuning-loop-and-llm-assisted-rca));
+  under the `river` default, whose baseline has no time-of-day awareness, the statistical term
+  still catches a global deviation but not a seasonal one, so the ceiling is what actually
+  protects against the seasonal false positive / false negative this kind exists to fix.
+- **`default`** (everything else) keeps the unmodified z-score — this policy narrows scope to the
+  two shapes that are provably wrong under a z-score, rather than reinventing detection for every
+  metric.
+
+`is_anomaly(event, score, z_threshold)` lives on `DetectionPolicy`; `BaseCorrelator` holds one
+instance (`_policy`, defaulting to a disabled policy so a correlator built with no policy is
+unaffected) and exposes `is_anomaly_scored(event, score)`, so all three correlators — `river`,
+`robust`, `trained` — get kind-aware detection for free. `CorrelationEngine.add()` calls
+`is_anomaly_scored` instead of comparing the raw score itself, and the engine's `reset()` factory
+forwards the same `_policy` instance into the reconstructed correlator, so a mid-stream reset
+doesn't silently fall back to the raw z-score. The policy is built from settings once
+(`detection_policy` = `off`/`on`, default `off`) alongside `CORRELATOR_KIND`, following the same
+switch pattern as [ADR-012](#adr-012--config-switched-adapter-selection-with-test-safe-defaults):
+`off` reproduces `score > z_threshold` exactly, for every kind, regardless of `event.value` — a
+config-switched-off policy is byte-identical to the pre-policy engine, so the existing correlation
+suite is untouched.
+
+**Why.** Off-by-default is the load-bearing property, not a footnote: a metric-kind classifier
+that misclassifies a name should never be able to change production behavior until someone
+deliberately opts in, so it ships exactly like every other test-safe-default switch in this
+system. The classification is honestly name-pattern-based, not schema- or unit-derived — it is a
+heuristic over conventional metric names (`error_rate`, `cpu_usage`, `latency_p99_ms`, …), not an
+inference over the values themselves, so a metric named against convention lands in `default` and
+falls back to the z-score rather than misfiring on the wrong absolute threshold. Likewise,
+"latency via the seasonal path" is only true seasonality when `CORRELATOR_KIND=robust` or
+`trained`; under the `river` default the ceiling is what guards against the seasonal false
+positive/negative this kind targets, and the docs make that explicit rather than implying every
+deployment gets seasonal latency detection for free.
+Keeping the decision on `BaseCorrelator`, not duplicated per correlator, means the four kinds and
+their thresholds are defined once and every correlator — present or future — inherits them the
+same way it already inherits `should_suppress` and `_severity_band`.
+
+---
+
+### ADR-028 — RCA metric-family rules + AI-computed confidence
+
+**Context.** RCA's `rank_hypotheses` (`services/rca/rank.py`) had only three rules — deploy,
+saturation (cpu/disk tokens), and log/error — each with a **hardcoded** confidence constant (0.8 /
+0.6 / 0.5). That was thin against the ~11 metric families Metrics Phases 1–2 added: `latency`,
+`queue_depth`, `db_pool`, `request_rate`, and `memory` had no rule at all, or worse, were
+**mis-mapped** — `memory` shared the `_SATURATION_TOKENS` match (it contains "mem"-adjacent
+saturation tokens conceptually) and fired `scale-service`, but scaling a memory leak just spins up
+new pods that leak the same way; the process needs to be **recycled**, not multiplied. And a hand-
+tuned constant is a magic number, not a measure of how well a runbook actually fits the incident in
+front of it — the user wanted the **AI to compute the confidence**, so *fit* chooses the runbook,
+not a rule author's guess made months earlier.
+
+**Decision.** A **two-layer diagnosis**. The keyword rules stay as the **candidate layer**: extended
+with a dedicated memory rule (`restart-pod`, fallback 0.65 — ranked above saturation's 0.6 so a
+leak restarts even with the selector off), a `db_pool` rule (`restart-pod`, fallback 0.62), and a
+`latency`/`queue_depth`/`request_rate` rule (`scale-service`, fallback 0.55) — each rule still only
+ever proposes one of the **closed** three runbooks (`restart-pod` / `scale-service` /
+`rollback-deploy`; no new runbook, no new remediation action). Then, when
+[ADR-026](#adr-026--semantic-runbook-selection-embedding-fallback)'s `EmbeddingRunbookSelector` is
+enabled (`RUNBOOK_SELECTOR_MODE=embedding` + the `ml` extra), its cosine machinery is exposed as a
+per-candidate `score(situation, hypothesis, playbook) -> float | None` — the fit of the incident's
+symptoms against *that specific runbook's* `symptoms` text — and **that score becomes the
+hypothesis's confidence**, stamped `confidence_source="embedding"` (mirroring
+`explanation_source`'s honesty). The rules already decided **which** runbook; the embedding only
+re-scores **how confident** we are in that already-vetted choice. Off, or on any embedding error,
+the fallback constant stands with `confidence_source="rule"` — never raises out of ranking. The
+three playbooks' `symptoms` text was sharpened alongside this (restart-pod: crash loops, wedged
+process, memory leak trending to OOM, db connection-pool exhaustion, elevated error rate;
+scale-service: CPU/resource saturation, high latency under load, growing queue depth, a traffic
+surge) so the cosine fit actually routes each family to the runbook that fixes it.
+
+**Why.** This resolves the memory→restart mis-mapping **by fit, not by a new hand-tuned constant**:
+a memory-leak incident's symptoms score higher against restart-pod's "leak, recycle" language than
+against scale-service's "saturation, capacity" language, so restart wins on the merits — the same
+correction the fallback ordering (0.65 > 0.6) already gives for free when the selector is off. The
+same multi-metric shape drives the two co-occurring fault families Meridian actually emits:
+`dependency_outage` (error + latency) and `db_exhaustion` (db_pool + latency) both route to
+`restart-pod` because the restart-family rule (0.58 / 0.62) is ranked above the latency/queue/
+request-rate rule (0.55) — recycling the process fixes a wedged dependency call or a wedged
+connection pool; scaling just spins up more pods that hit the same failure. **Off-by-default is
+byte-identical**, the same load-bearing property as ADR-026/027: with the selector off, every
+existing diagnosis (saturation→scale, error→restart, deploy→rollback) and the base suite are
+unchanged, and the pre-existing **error→restart invariant** (an `error`/`dependency_outage`
+incident must never outrank to `scale-service` just because cpu is present) holds **both** off (via
+the fallback ordering) **and** on (via the fit, tested with a stub selector). This is the same
+"retrieval, not an LLM choosing" principle as ADR-026, now applied to *confidence* instead of just
+fallback selection: **the AI chooses the runbook by fit, but only ever among vetted, rule-proposed
+candidates within the closed 3-runbook catalog** — it can raise or lower how confident a hypothesis
+is, it can never invent a candidate `select_runbook`/`store.get` wouldn't recognize. The honest
+frame stays what it has been since ADR-025/026: deterministic ranking, the HITL gate
+([ADR-003](#adr-003--governance-is-an-active-gate-not-passive-logging)), the
+[ADR-024](#adr-024--tier-2-remediation-vocabulary--a-destructive-action-denylist) denylist, and the
+[ADR-023](#adr-023--pre-flight-sandbox-rehearsal-before-remediation) sandbox still **decide and
+gate** the action; the AI **advises** (a fit-computed confidence here, an explanation via ADR-019,
+a drafted runbook via ADR-025) — it does not decide what gets executed.
+
+---
+
+### ADR-029 — Per-metric health verification
+
+**Context.** Post-remediation health verification asked Prometheus one hardcoded question
+regardless of which metric fired the incident: `services/action/app.py` `_make_health_checker`
+queried `cpu_usage` and declared the metric half of the verdict healthy when every returned series
+was `< 50`; `KubernetesHealthChecker.check` required both pod-readiness AND that predicate before
+declaring success, otherwise the caller rolled back
+([ADR-007](#adr-007--reversible-only-health-verified-remediation)). So a **memory-leak** incident
+was "verified fixed" by checking cpu — if cpu never spiked, the check passed trivially, a **false
+success**. An **error-rate spike**, a **latency** regression, a **db-pool exhaustion** were all
+verified against cpu, none against the metric that actually broke. This mattered beyond one wrong
+check: the `worked` flag this verdict feeds drives **reliability scoring** and **suppression** — a
+signature that "reliably self-heals" gets auto-remediated more readily — so a false success here
+corrupted a downstream safety signal, not just a log line. The sandbox pre-flight rehearsal
+([ADR-023](#adr-023--pre-flight-sandbox-rehearsal-before-remediation)) had the same gap one layer
+deeper: its post-fix `KubernetesHealthChecker` was constructed with the metric predicate left at
+the default `lambda: True`, so the rehearsal verified pod-readiness only and never checked a metric
+at all — the per-namespace metric query ADR-023 flagged as deferred.
+[ADR-028](#adr-028--rca-metric-family-rules--ai-computed-confidence) had already taught RCA to
+diagnose the *right* metric family; verification was the one place still checking the wrong one.
+
+**Decision.** Apply **detect-and-verify symmetry**: a metric is *recovered* when it is no longer
+anomalous by the **same** [ADR-027](#adr-027--detection-policy-per-metric-kind) `DetectionPolicy`
+rule that detected it — one rule governs both "is this firing?" and "has this recovered?". A new
+pure helper, `services/action/verify.py` `build_metric_healthy(situation, query_value, policy,
+z_threshold)`, returns a `metric_healthy()` predicate: it reads the firing metric names off
+`situation.member_events` (metric-kind events carrying a value; value-`None` log/trace events are
+skipped), re-queries each one's current value via the injected `query_value(name)` callable, and
+classifies recovery by the policy's kind rule — ratio and saturation verify from the current value
+alone (an absolute cutoff, no baseline needed); latency verifies against its ceiling, plus a
+z-score half when a baseline exists; the pure `default` kind (`memory_usage_mb`, `queue_depth`,
+`db_pool_in_use`, `request_rate`, …) has only the z-score rule, so it needs the baseline the
+Situation already carries (`Situation.baseline`, per-metric `{mean, std}` captured at detection
+time). **Every** firing metric must recover — a partial fix (error rate down, latency still
+breaching) is not healthy, keeping the `worked` signal honest. **Fail-safe to rollback everywhere
+uncertain**, matching the [ADR-007](#adr-007--reversible-only-health-verified-remediation) bias: a
+query that fails or returns `None`, or a `default`-kind metric with no usable baseline (`std <= 0`
+or absent), makes that metric not-recovered; the predicate never raises. A Situation with no
+judgeable metric events is vacuously healthy on the metric half, leaving pod-readiness as the sole
+verdict — the one case that preserves pre-Phase-4 behavior for a metric-less Situation.
+
+Both call sites now build this predicate from a shared `_make_detection_policy(settings)` helper —
+the **same** `detection_*` + `correlation_z_threshold` settings the correlation engine detects
+with, so detect and verify agree by construction with no new config. In the live path,
+`_make_health_checker` supplies a `query_value(name)` that instant-queries the FIRING metric by
+name (not cpu) and passes the policy + z-threshold into `KubernetesHealthChecker`, which builds the
+predicate fresh from the Situation it receives in `check()`. In the sandbox path,
+`NamespaceCloneSandbox`'s post-fix check gets the identical wiring, targeting the sandbox
+namespace's own `query_value`; the pre-fix rollout-wait stays pod-readiness only, since it is
+confirming the clone came up, not verifying a fix. **Honest limitation:** in this repo's
+demo/Meridian setup, Prometheus is configured with static scrape targets pointed at the production
+Service DNS names (`deploy/prometheus.yml`, `deploy/k8s/prometheus/configmap.yaml`) — there is no
+`kubernetes_sd_configs` pod discovery, and the gauges carry no namespace label — so a pod cloned
+into a throwaway `intelliops-sandbox-*` namespace is never independently scraped. The sandbox's
+per-metric query therefore typically returns `None`, which fails safe to not-recovered, and the
+rehearsal falls back to deciding on pod-readiness alone — exactly the pre-Phase-4 behavior, never a
+faked pass. The wiring is correct and future-proof: it activates fully once per-clone scraping
+exists, but the sandbox metric check is not fully live today, and the docs do not claim otherwise.
+
+This ships **on by default** within the existing `health_check_mode == "k8s"` path — no flag gates
+it. The cpu threshold moves from the old hardcoded `< 50` to the policy's saturation cutoff (90
+percent-scale) when `detection_policy=on`; every non-cpu firing metric changes from
+"cpu-based" to "the-right-metric-based." The `always` (dry-run) health mode is untouched —
+`AlwaysHealthyChecker` has nothing to verify against in dry-run — so the default dev/test posture
+does not change; the correction is live only in the real-cluster path.
+
+**Why.** A correctness fix to a safety signal should ship as a correction, not an opt-in — the old
+`cpu_usage < 50` check was never a deliberate design choice to preserve, it was the absence of a
+per-metric one, and leaving it in place behind a flag would mean choosing to keep verifying the
+wrong thing by default. Reusing [ADR-027](#adr-027--detection-policy-per-metric-kind)'s policy
+(rather than a bespoke verification rule) is what makes "recovered" mean exactly the inverse of
+"detected" — the same thresholds, the same kind classification, no drift between the two questions.
+The fail-safe-to-rollback bias is the same discipline
+[ADR-007](#adr-007--reversible-only-health-verified-remediation) already applies to the whole
+verification path: an unprovable recovery must never be mistaken for a proven one, so the one case
+with no absolute test to fall back on (a `default`-kind metric lacking a baseline) declares
+not-recovered rather than guessing. Documenting the sandbox's real behavior — wiring that is
+correct but not yet exercised end-to-end in this repo's Prometheus setup — continues the same
+honesty discipline [ADR-023](#adr-023--pre-flight-sandbox-rehearsal-before-remediation) itself set:
+say what is genuinely verified today and what is future-proofed for tomorrow, and let the fail-safe
+direction (never a faked pass) cover the gap in between.
+
+---
+
+### ADR-030 — Full in-cluster deployment (Helm)
+
+**Context.** The platform ran either in docker-compose or, for "real remediation", as compose
+services driving a kind cluster that held only the demo-app + Prometheus. To showcase the whole
+metrics arc *live and nothing-mocked* — embedding-computed confidence, LLM explanations, real pod
+remediation, per-metric health verification against real Prometheus, all behind the React console —
+everything needs to run in Kubernetes as one release. The existing Helm chart rendered the 7
+services with basic env; it had no AI/mode config, no RBAC, a single image for every service, no
+frontend, and the LLM key had nowhere safe to live.
+
+**Decision.** Extend the chart into a complete, opt-in-live deployment:
+
+- **Per-service images.** The `full` Docker target (base + the `ml` + `k8s` extras) is pinned to
+  **CPU-only torch** — torch is inference-only here (sentence-transformers `.encode` for the
+  cosine fit; no training, no CUDA), which cuts the image from ~6 GB to ~4 GB — and **bakes
+  all-MiniLM-L6-v2** so embedding works air-gapped. `rca` (embedding selection) and `action` (k8s
+  remediation) run `full`; the other five stay on the lean `base` image, preserving the
+  slim-boundary of [ADR-022](#adr-022--slim-per-service-docker-images).
+- **Live posture is opt-in.** The chart's default values keep the safe posture —
+  `REMEDIATOR_MODE=dry_run`, selector `off`, LLM template, `HEALTH_CHECK_MODE=always`, no RBAC — so
+  a plain `helm install` never touches a real cluster, exactly the default-dry-run principle of
+  [ADR-007](#adr-007--verify-then-roll-back). A `values-live.yaml` overlay flips on the robust
+  correlator, detection policy, embedding selection, k8s remediation/sandbox/health, and the LLM
+  endpoint.
+- **Scoped RBAC for remediation.** The action service patches Deployments and — for the
+  [ADR-023](#adr-023--pre-flight-sandbox-rehearsal-before-remediation) sandbox — creates and
+  deletes a throwaway namespace. In-cluster it authenticates as its pod ServiceAccount, so the
+  chart renders a ServiceAccount + a **ClusterRole** (namespace create/delete is cluster-scoped, so
+  a namespaced Role cannot grant it) + binding, scoped to exactly the verbs the adapters call,
+  gated on `rbac.create`. The k8s client picks `load_incluster_config()` in a pod and a kubeconfig
+  otherwise.
+- **The LLM key never touches git.** It is supplied at install (`--set-string llm.apiKey=…` or a
+  pre-created Secret) and reaches only the `rca` pod via `secretKeyRef` — never the ConfigMap,
+  never a committed values file.
+- **Everything folded in.** demo-app, the four Meridian services, and an in-cluster Prometheus
+  (scraping the Services by release-namespace DNS, so per-metric verification and RCA see real
+  series) are chart-managed. The React console ships as an nginx image that serves the SPA and
+  **reverse-proxies each backend same-origin** under `/api/*`; the read proxy sets
+  `proxy_buffering off` + HTTP/1.1 so the `/stream` SSE that drives the live UI is not buffered.
+  The console and read service are exposed via NodePort for the operator's browser on kind.
+
+**Why.** One `helm install` (plus a `kind-up-full.sh` that builds + loads the images and wires the
+key from the operator's environment) brings up the entire stack, and the same UI that renders mock
+data offline now renders real data live. Safety rides on the same defaults as everywhere else: the
+live features are strictly opt-in, the RBAC is minimal and cluster-scoped only where the sandbox
+genuinely requires it, and the key is handled the way secrets should be. It is the honest
+counterpart to the arc — the features are not just present in code, they run.
+
+**Alternatives rejected.** *Everything in compose* — simpler, but then remediation isn't real k8s
+and the "nothing mocked" story is thinner. *One fat image for all services* — drops the
+slim-boundary and bloats every pod with torch. *CUDA torch* — needless multi-GB weight for
+inference on short strings. *Key in a values file / ConfigMap* — a committed secret; rejected
+outright.
+
+---
+
 ## 4. Cross-cutting concerns
 
 **Traceability.** A `correlation_id` is threaded through every `AuditRecord`, so one

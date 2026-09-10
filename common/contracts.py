@@ -74,6 +74,7 @@ class RootCauseHypothesis(BaseModel):
     suggested_runbook_id: str | None = None
     explanation: str | None = None
     explanation_source: str | None = None  # "llm" | "template" — provenance of `explanation`
+    confidence_source: str | None = None  # "embedding" | "rule" — provenance of `confidence`
 
 
 class RemediationStep(BaseModel):
@@ -144,6 +145,40 @@ class ProposedPlaybook(BaseModel):
     proposed_by: str
     rationale: str | None = None
     source_situation_id: str | None = None
+    decided_by: str | None = None
+    ts: datetime
+
+
+class AuthorDecisionDisposition(str, Enum):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+
+
+class AuthorDecisionOutcome(str, Enum):
+    UNKNOWN = "unknown"
+    WORKED = "worked"
+    FAILED = "failed"
+
+
+class AuthorDecision(BaseModel):
+    """A record of one AI drafting decision — the author's own memory.
+
+    Recorded when a runbook is drafted (disposition="pending", outcome="unknown");
+    disposition is updated on human approve/reject; outcome is updated when the
+    approved runbook runs. `get_past_decisions` reads these back so the agent
+    learns from its own prior judgments. `note` is model free-text — treated as
+    untrusted when replayed (surfaced as prior/unverified reasoning, never as
+    instructions)."""
+
+    signature: str
+    proposal_id: str
+    playbook_id: str  # the ai-<sig>-<uuid> id; links to RemediationOutcome.playbook_id
+    actions: list[str] = Field(default_factory=list)
+    cited_facts: list[str] = Field(default_factory=list)
+    note: str | None = None
+    disposition: AuthorDecisionDisposition = AuthorDecisionDisposition.PENDING
+    outcome: AuthorDecisionOutcome = AuthorDecisionOutcome.UNKNOWN
     decided_by: str | None = None
     ts: datetime
 
