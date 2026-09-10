@@ -19,10 +19,16 @@ call it) but `AuthorToolbox.dispatch` does NOT execute it — Task 5's
 tool-calling loop intercepts that call itself (it needs to validate the draft,
 write the AuthorDecision, and return control to governance's proposal flow;
 none of that is a "read against a store" and doesn't belong in this toolbox).
+
+`summarize_result` (Task 3) is a separate, unrelated concern living here only
+because it needs the same per-tool knowledge of result shapes: it turns a
+tool's raw result dict into a compact one-line digest for the activity trace
+(never the raw blob). It is pure stdlib and never raises.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -56,6 +62,68 @@ ACTION_NOTES: dict[str, str] = {
     "rollback_to_revision": "roll a Deployment back to a known-good revision",
     "patch_probe": "adjust a liveness/readiness probe's timing",
 }
+
+
+_SUMMARY_TRUNCATE_CHARS = 120
+
+
+def summarize_result(name: str, result: dict) -> str:
+    """Turn one tool's raw result dict into a compact one-line digest.
+
+    Used only by the activity trace (Task 3) — the model never sees this; it
+    always gets the full `result` dict via the normal tool-message content.
+    NEVER dumps the raw blob, and NEVER raises: any failure degrades to "" so
+    a summarizer bug can never break drafting (the trace is best-effort, but
+    this belt-and-suspenders keeps the guarantee local to the one place that
+    knows each tool's result shape).
+    """
+    try:
+        if not isinstance(result, dict):
+            return ""
+        if "error" in result:
+            return f"error: {result['error']}"
+
+        if name == "get_past_outcomes":
+            by_playbook = result.get("by_playbook") or {}
+            if not by_playbook:
+                return "no history"
+            parts = [
+                f"{playbook_id} {counts.get('worked', 0)}/{counts.get('total', 0)}"
+                for playbook_id, counts in by_playbook.items()
+            ]
+            return ", ".join(parts)
+
+        if name == "get_system_context":
+            context = result.get("context", "")
+            if context == "unconfigured":
+                return "unconfigured"
+            return context[:_SUMMARY_TRUNCATE_CHARS]
+
+        if name == "get_past_decisions":
+            n = len(result.get("decisions") or [])
+            return f"{n} prior decisions"
+
+        if name == "get_human_decisions":
+            n = len(result.get("decisions") or [])
+            return f"{n} recent decisions"
+
+        if name == "get_incident_details":
+            signature = result.get("signature", "")
+            severity = result.get("severity", "")
+            return f"signature={signature} severity={severity}"
+
+        if name == "list_available_actions":
+            n = len(result.get("actions") or {})
+            return f"{n} actions"
+
+        return json.dumps(result)[:_SUMMARY_TRUNCATE_CHARS]
+    except Exception as exc:  # noqa: BLE001 — best-effort; a summarizer bug must never break drafting
+        logger.warning(
+            "summarize_result: %s raised during %r; using empty summary",
+            type(exc).__name__,
+            name,
+        )
+        return ""
 
 
 def _no_arg_schema(name: str, description: str) -> dict:
