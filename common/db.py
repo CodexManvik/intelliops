@@ -17,6 +17,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     Index,
+    Integer,
     LargeBinary,
     MetaData,
     String,
@@ -123,6 +124,42 @@ author_decisions = Table(
     Index("ix_author_decisions_signature", "signature"),
     Index("ix_author_decisions_proposal_id", "proposal_id"),
     Index("ix_author_decisions_playbook_id", "playbook_id"),
+)
+
+# The AI runbook author's agent-run trace: one header row per run (agent_runs)
+# plus an ordered log of steps (agent_run_steps) — model turns, tool calls, the
+# submit, and the final outcome. run_id is a plain indexed String (not the PK;
+# `id` autoincrement is the PK per the file's existing pattern) so a run can be
+# looked up without relying on insertion order. step_count is a promoted counter
+# on the header, bumped by PostgresTraceStore.append_step in the same
+# transaction as the step insert — kept for cheap feed rendering (recent_runs)
+# without a COUNT subquery; payload remains the source of truth on read.
+agent_runs = Table(
+    "agent_runs",
+    METADATA,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("run_id", String, nullable=False),
+    Column("signature", String, nullable=False),
+    Column("status", String, nullable=False),
+    Column("proposal_id", String, nullable=True),
+    Column("started_at", DateTime(timezone=True), nullable=False),
+    Column("finished_at", DateTime(timezone=True), nullable=True),
+    Column("step_count", Integer, nullable=False, default=0),
+    Column("payload", _JSON, nullable=False),
+    Index("ix_agent_runs_run_id", "run_id"),
+    Index("ix_agent_runs_started_at", "started_at"),
+)
+
+agent_run_steps = Table(
+    "agent_run_steps",
+    METADATA,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("run_id", String, nullable=False),
+    Column("seq", Integer, nullable=False),
+    Column("kind", String, nullable=False),
+    Column("ts", DateTime(timezone=True), nullable=False),
+    Column("payload", _JSON, nullable=False),
+    Index("ix_agent_run_steps_run_id", "run_id"),
 )
 
 

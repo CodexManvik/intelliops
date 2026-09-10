@@ -18,6 +18,7 @@ from services.governance.adapters.author_decision_store import (
     PostgresAuthorDecisionStore,
 )
 from services.governance.adapters.playbook_store import FilePlaybookStore, PostgresPlaybookStore
+from services.governance.adapters.trace_store import InMemoryTraceStore, PostgresTraceStore
 
 
 @dataclass
@@ -30,6 +31,7 @@ class Stores:
     baseline_store: object | None
     model_store: object | None
     author_decision_store: object
+    trace_store: object
 
 
 def make_stores(settings) -> Stores:
@@ -46,6 +48,7 @@ def make_stores(settings) -> Stores:
             baseline_store=PostgresBaselineStore(engine),
             model_store=PostgresModelStore(engine),
             author_decision_store=PostgresAuthorDecisionStore(engine),
+            trace_store=PostgresTraceStore(engine),
         )
     return Stores(
         audit_sink=FileAuditSink(settings.audit_store_path),
@@ -63,4 +66,8 @@ def make_stores(settings) -> Stores:
         # InMemoryApprovalStore/InMemoryModelStore above — the author's decision
         # history just doesn't survive a restart outside of Postgres.
         author_decision_store=InMemoryAuthorDecisionStore(),
+        # Same posture as author_decision_store above: no file-backed trace
+        # store exists or is needed — the agent-run trace just doesn't survive
+        # a restart outside of Postgres.
+        trace_store=InMemoryTraceStore(),
     )
