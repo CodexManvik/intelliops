@@ -187,6 +187,33 @@ def test_draft_async_none_author_gives_up_no_proposal():
     assert app.state.proposed_store.list() == []
 
 
+def test_draft_async_null_author_accepts_trace_kwarg():
+    """Regression: NullRunbookAuthor.draft must accept trace kwarg (passed by
+    _run_draft_async). Previously it raised TypeError, causing the run to report
+    "failed" instead of the correct "gave_up". This test verifies:
+    1. NullRunbookAuthor.draft accepts trace=None without raising
+    2. Async draft yields a clean "gave_up" outcome (not "failed")
+    3. No proposal is created
+    """
+    from services.governance.adapters.runbook_author import NullRunbookAuthor
+    from services.governance.app import app
+
+    c = _client(NullRunbookAuthor())
+    resp = _post_draft(c)
+    assert resp.status_code == 202
+    run_id = resp.json()["run_id"]
+    _join_run(c, run_id)
+
+    steps = app.state.trace_store.steps(run_id)
+    assert len(steps) >= 1
+    last = steps[-1]
+    assert last.kind == TraceStepKind.OUTCOME
+    # The key assertion: status must be "gave_up", not "failed"
+    assert last.detail["status"] == "gave_up"
+    assert last.detail["proposal_id"] is None
+    assert app.state.proposed_store.list() == []
+
+
 def test_draft_async_author_raises_failed_no_crash():
     from services.governance.app import app
 

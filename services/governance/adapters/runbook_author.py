@@ -148,7 +148,9 @@ def _rate_limit_delay(retry_after: float | None) -> float:
 
 
 class NullRunbookAuthor:
-    def draft(self, situation: Situation, hint: str | None = None):
+    def draft(
+        self, situation: Situation, hint: str | None = None, trace: TraceCollector | None = None
+    ):
         return None
 
 
@@ -173,7 +175,9 @@ class OpenAICompatibleRunbookAuthor:
         # hammering a rate-limited endpoint.
         self._max_attempts = max(1, max_attempts)
 
-    def draft(self, situation: Situation, hint: str | None = None):
+    def draft(
+        self, situation: Situation, hint: str | None = None, trace: TraceCollector | None = None
+    ):
         # Retry only RECOVERABLE failures:
         #   - a draft that didn't validate (a bad roll — try once more), and
         #   - HTTP 429 rate limiting (wait the server-advised delay, then retry;
