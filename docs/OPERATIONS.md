@@ -252,3 +252,18 @@ To point at a different file (e.g. mounted from a ConfigMap or Secret volume
 instead of the baked default), set `INTELLIOPS_SYSTEM_CONTEXT_PATH` — via
 `deploy/k8s/platform/values.yaml`'s `env.SYSTEM_CONTEXT_PATH` in a Helm
 deploy, or the environment variable directly in compose/local dev.
+
+---
+
+## Agent Activity
+
+The "Agent Activity" console tab displays the AI runbook author's step-by-step reasoning and tool calls when drafting a runbook. The trace shows:
+
+- The reasoning context and available tools
+- Each tool call the agent makes (runbook lookup, similarity ranking, etc.)
+- The result of each tool call
+- The final draft proposal
+
+The trace **streams live** to the console over Server-Sent Events (`GET /api/gov/agent-runs/{run_id}/stream`) and is persisted in Postgres (`agent_runs` and `agent_run_steps` tables) for audit and replay. The trace is **best-effort only** — it is an observer of the agent's decisions and never changes what the agent drafts or gates; it only populates when the AI author actually runs (author mode on, a "Draft a runbook with AI" click is made).
+
+The nginx reverse proxy disables buffering on the `/api/gov/` path to ensure SSE events reach the console immediately — see `deploy/nginx.conf` and the `proxy_buffering off` directive.
