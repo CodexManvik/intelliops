@@ -63,6 +63,16 @@ Two consequences:
 - **No change to detection, correlation, RCA ranking, or the execution path.**
 - **No auto-registration.** A drafted runbook is always a *proposal*; a human
   approves it in governance.
+- **No open internet / web-search access.** Considered and explicitly rejected:
+  web content is untrusted input (a prompt-injection vector into a component that
+  triggers production remediation), and it undercuts explainability — every fact
+  the agent uses must be first-party and citable (curated system context, our own
+  outcomes, audit trail, its own decision log). The closed 7-action vocabulary
+  also means the agent needs no external discovery of *how* to remediate. The
+  tool-calling design does leave the door open for **scoped, authenticated
+  first-party tools later** (e.g. live Prometheus reads, an internal
+  runbook/incident source) — added as bounded tools in this same framework, in
+  the same trust class as the DB — but open web access stays out.
 
 ## 4. Background: what already exists (build on this)
 
