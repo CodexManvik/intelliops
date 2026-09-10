@@ -40,7 +40,9 @@ class SystemContextProvider:
         for svc in data.get("services", []):
             deps = ", ".join(svc.get("depends_on", [])) or "none"
             mets = ", ".join(svc.get("key_metrics", [])) or "none"
-            lines.append(f"- {svc.get('name', '?')}: {svc.get('role', '')}; depends on {deps}; metrics {mets}")
+            lines.append(
+                f"- {svc.get('name', '?')}: {svc.get('role', '')}; depends on {deps}; metrics {mets}"
+            )
         actions = data.get("actions") or {}
         if actions:
             lines.append("Action notes: " + "; ".join(f"{k}={v}" for k, v in actions.items() if v))

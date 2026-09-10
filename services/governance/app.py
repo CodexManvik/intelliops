@@ -46,7 +46,7 @@ app = create_app(
 
 def _make_runbook_author(settings, stores, system_context_provider):
     if settings.runbook_author_mode == "openai" and settings.llm_runbook_endpoint:
-        toolbox_factory = lambda situation: AuthorToolbox(  # noqa: E731
+        toolbox_factory = lambda situation: AuthorToolbox(
             situation,
             system_context_provider,
             stores.training_store,

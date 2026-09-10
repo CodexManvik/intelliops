@@ -69,7 +69,9 @@ def _no_arg_schema(name: str, description: str) -> dict:
     }
 
 
-def _single_string_arg_schema(name: str, description: str, arg_name: str, arg_description: str) -> dict:
+def _single_string_arg_schema(
+    name: str, description: str, arg_name: str, arg_description: str
+) -> dict:
     return {
         "type": "function",
         "function": {
@@ -172,11 +174,11 @@ class AuthorToolbox:
 
     def __init__(
         self,
-        situation: "Situation",
-        system_context: "object | None",
-        training_store: "TrainingStore",
-        audit_sink: "AuditSink",
-        decision_store: "AuthorDecisionStore",
+        situation: Situation,
+        system_context: object | None,
+        training_store: TrainingStore,
+        audit_sink: AuditSink,
+        decision_store: AuthorDecisionStore,
     ) -> None:
         self._situation = situation
         self._system_context = system_context
@@ -206,7 +208,7 @@ class AuthorToolbox:
             return {"error": f"unknown or unhandled tool: {name}"}
         try:
             return handler(arguments)
-        except Exception as exc:  # noqa: BLE001 - deliberate: any store blip must degrade, not crash
+        except Exception as exc:
             logger.exception("author_tools.dispatch: %s raised during %r", type(exc).__name__, name)
             return {"error": type(exc).__name__}
 

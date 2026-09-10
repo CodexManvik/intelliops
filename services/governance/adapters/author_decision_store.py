@@ -22,7 +22,9 @@ class InMemoryAuthorDecisionStore:
     def by_signature(self, signature: str) -> list[AuthorDecision]:
         return [d for d in self._items if d.signature == signature]
 
-    def update_disposition(self, proposal_id: str, disposition: str | AuthorDecisionDisposition, decided_by: str) -> None:
+    def update_disposition(
+        self, proposal_id: str, disposition: str | AuthorDecisionDisposition, decided_by: str
+    ) -> None:
         disposition = AuthorDecisionDisposition(disposition)
         for i, d in enumerate(self._items):
             if d.proposal_id == proposal_id:
@@ -30,7 +32,9 @@ class InMemoryAuthorDecisionStore:
                     update={"disposition": disposition, "decided_by": decided_by}
                 )
 
-    def update_outcome(self, playbook_id: str, outcome: str | AuthorDecisionOutcome, health_after: str) -> None:
+    def update_outcome(
+        self, playbook_id: str, outcome: str | AuthorDecisionOutcome, health_after: str
+    ) -> None:
         outcome = AuthorDecisionOutcome(outcome)
         for i, d in enumerate(self._items):
             if d.playbook_id == playbook_id:
@@ -78,9 +82,9 @@ class PostgresAuthorDecisionStore:
     ) -> None:
         disposition = AuthorDecisionDisposition(disposition)
         with self._engine.begin() as conn:
-            stmt = select(
-                author_decisions.c.id, author_decisions.c.payload
-            ).where(author_decisions.c.proposal_id == proposal_id)
+            stmt = select(author_decisions.c.id, author_decisions.c.payload).where(
+                author_decisions.c.proposal_id == proposal_id
+            )
             rows = conn.execute(stmt).all()
             for row in rows:
                 decision = from_payload(row.payload, AuthorDecision)
@@ -98,9 +102,9 @@ class PostgresAuthorDecisionStore:
     ) -> None:
         outcome = AuthorDecisionOutcome(outcome)
         with self._engine.begin() as conn:
-            stmt = select(
-                author_decisions.c.id, author_decisions.c.payload
-            ).where(author_decisions.c.playbook_id == playbook_id)
+            stmt = select(author_decisions.c.id, author_decisions.c.payload).where(
+                author_decisions.c.playbook_id == playbook_id
+            )
             rows = conn.execute(stmt).all()
             for row in rows:
                 decision = from_payload(row.payload, AuthorDecision)

@@ -9,18 +9,18 @@ NOW = datetime(2026, 8, 13, tzinfo=UTC)
 
 
 def _decision(**kw):
-    base = dict(
-        signature="sig-x",
-        proposal_id="prop-1",
-        playbook_id="ai-sig-x-abc123",
-        actions=["restart", "scale"],
-        cited_facts=["restart worked 4/5 for sig-x"],
-        note=None,
-        disposition="accepted",
-        outcome="unknown",
-        decided_by=None,
-        ts=NOW,
-    )
+    base = {
+        "signature": "sig-x",
+        "proposal_id": "prop-1",
+        "playbook_id": "ai-sig-x-abc123",
+        "actions": ["restart", "scale"],
+        "cited_facts": ["restart worked 4/5 for sig-x"],
+        "note": None,
+        "disposition": "accepted",
+        "outcome": "unknown",
+        "decided_by": None,
+        "ts": NOW,
+    }
     base.update(kw)
     return AuthorDecision(**base)
 
@@ -86,9 +86,7 @@ def test_consumer_marks_outcome_worked_on_success():
 def test_consumer_marks_outcome_failed_on_non_success():
     ds = InMemoryAuthorDecisionStore()
     ds.record(_decision(playbook_id="ai-sig-y-1", signature="sig-y"))
-    bus = ScriptedBus(
-        [_raw_outcome(RemediationResult.ROLLED_BACK, playbook_id="ai-sig-y-1")]
-    )
+    bus = ScriptedBus([_raw_outcome(RemediationResult.ROLLED_BACK, playbook_id="ai-sig-y-1")])
     _run(bus, ds)
     assert ds.by_signature("sig-y")[0].outcome == "failed"
 

@@ -173,7 +173,7 @@ class AuthorDecision(BaseModel):
 
     signature: str
     proposal_id: str
-    playbook_id: str            # the ai-<sig>-<uuid> id; links to RemediationOutcome.playbook_id
+    playbook_id: str  # the ai-<sig>-<uuid> id; links to RemediationOutcome.playbook_id
     actions: list[str] = Field(default_factory=list)
     cited_facts: list[str] = Field(default_factory=list)
     note: str | None = None

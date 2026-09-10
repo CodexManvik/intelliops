@@ -114,7 +114,9 @@ def _toolbox(
         system_context=system_context,
         training_store=training_store if training_store is not None else _TrainingStub([]),
         audit_sink=audit_sink if audit_sink is not None else _AuditStub([]),
-        decision_store=decision_store if decision_store is not None else InMemoryAuthorDecisionStore(),
+        decision_store=decision_store
+        if decision_store is not None
+        else InMemoryAuthorDecisionStore(),
     )
 
 
@@ -156,10 +158,15 @@ def test_only_expected_schemas_take_parameters():
         assert props == {}
 
     # Single string-param tools: situation_id or signature.
-    for name in ("get_incident_details", "get_past_outcomes", "get_human_decisions", "get_past_decisions"):
+    for name in (
+        "get_incident_details",
+        "get_past_outcomes",
+        "get_human_decisions",
+        "get_past_decisions",
+    ):
         props = by_name[name]["parameters"]["properties"]
         assert len(props) == 1
-        (param_name, param_schema), = props.items()
+        ((param_name, param_schema),) = props.items()
         assert param_name in {"situation_id", "signature"}
         assert param_schema["type"] == "string"
 

@@ -9,18 +9,18 @@ from services.governance.adapters.author_decision_store import (
 
 
 def _decision(**kw):
-    base = dict(
-        signature="sig-x",
-        proposal_id="prop-1",
-        playbook_id="ai-sig-x-abc123",
-        actions=["restart", "scale"],
-        cited_facts=["restart worked 4/5 for sig-x"],
-        note=None,
-        disposition="pending",
-        outcome="unknown",
-        decided_by=None,
-        ts=datetime.now(UTC),
-    )
+    base = {
+        "signature": "sig-x",
+        "proposal_id": "prop-1",
+        "playbook_id": "ai-sig-x-abc123",
+        "actions": ["restart", "scale"],
+        "cited_facts": ["restart worked 4/5 for sig-x"],
+        "note": None,
+        "disposition": "pending",
+        "outcome": "unknown",
+        "decided_by": None,
+        "ts": datetime.now(UTC),
+    }
     base.update(kw)
     return AuthorDecision(**base)
 
@@ -54,8 +54,8 @@ def test_update_outcome_by_playbook_id():
 def test_updates_are_noops_when_no_match():
     s = InMemoryAuthorDecisionStore()
     s.record(_decision())
-    s.update_disposition("nope", "accepted", "x")   # no matching proposal_id
-    s.update_outcome("nope", "worked", "healthy")   # no matching playbook_id
+    s.update_disposition("nope", "accepted", "x")  # no matching proposal_id
+    s.update_outcome("nope", "worked", "healthy")  # no matching playbook_id
     d = s.by_signature("sig-x")[0]
     assert d.disposition == "pending" and d.outcome == "unknown"
 
