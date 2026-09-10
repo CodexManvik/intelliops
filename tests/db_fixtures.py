@@ -31,7 +31,8 @@ def clean_db(postgres_engine):
         conn.execute(
             text(
                 "TRUNCATE audit_records, training_records, playbooks, approvals, "
-                "correlation_baseline, author_decisions RESTART IDENTITY CASCADE"
+                "correlation_baseline, author_decisions, agent_runs, agent_run_steps "
+                "RESTART IDENTITY CASCADE"
             )
         )
     yield postgres_engine

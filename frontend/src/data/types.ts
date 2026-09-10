@@ -206,3 +206,33 @@ export interface ProposedPlaybook {
   decided_by?: string | null;
   ts: number | string;
 }
+
+/**
+ * Agent Activity — trace of the AI runbook author's reasoning (common/contracts.py
+ * TraceStep/RunSummary). One TraceStep per model turn / tool call / submit / outcome,
+ * in monotonic `seq` order for a given `run_id`.
+ */
+export type TraceStepKind = "model_turn" | "tool_call" | "submit" | "outcome";
+
+export interface TraceStep {
+  run_id: string;
+  seq: number; // monotonically increasing from 0
+  kind: TraceStepKind;
+  ts: number | string;
+  text?: string | null; // model_turn: the reasoning
+  tool?: string | null; // tool_call: the tool name
+  arguments?: Record<string, unknown> | null; // tool_call: the arguments
+  result_summary?: string | null; // tool_call: the result
+  detail?: Record<string, unknown> | null; // submit: draft detail; outcome: {status, proposal_id}
+}
+
+export type RunStatus = "running" | "succeeded" | "failed" | "gave_up";
+
+export interface RunSummary {
+  run_id: string;
+  started_at: number | string;
+  status: string; // "running" | "succeeded" | "failed" | "gave_up"
+  signature: string;
+  step_count: number;
+  proposal_id?: string | null;
+}

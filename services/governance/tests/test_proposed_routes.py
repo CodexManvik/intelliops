@@ -247,3 +247,36 @@ def test_approve_succeeds_when_decision_store_raises():
     resp = c.post(f"/playbooks/proposed/{pid}/approve", json={"decided_by": "oncall-alice"})
     assert resp.status_code == 200
     assert resp.json()["status"] == "approved"
+
+
+def test_finalize_proposal_called_directly_matches_sync_endpoint_shape():
+    # _finalize_proposal is the factored helper both the sync
+    # POST /playbooks/proposed endpoint AND the async draft-and-trace worker
+    # (POST /playbooks/draft-async, task 5) call after a successful draft.
+    # Calling it directly (bypassing the HTTP/RBAC layer entirely) proves the
+    # helper itself — not just the route wrapping it — normalizes the
+    # playbook, stores the proposal, writes the audit record, and records the
+    # pending AuthorDecision.
+    from services.governance.app import _finalize_proposal
+
+    decision_store = InMemoryAuthorDecisionStore()
+    c = _client(_StubAuthor((_draft_playbook(), "r", ["fact-1"])), decision_store=decision_store)
+    situation = Situation.model_validate(_situation_json())
+
+    proposal = _finalize_proposal(
+        situation,
+        (_draft_playbook(), "because cpu", ["fact-1"]),
+        "oncall-alice",
+    )
+
+    assert proposal.playbook.hitl_mode == HitlMode.HITL  # forced
+    assert proposal.playbook.id != "ai-supplied-id"  # server-assigned
+    assert proposal.source_situation_id == "sit-1"
+    assert c.app.state.proposed_store.get(proposal.id) is proposal
+
+    decisions = decision_store.by_signature("sig-1")
+    assert len(decisions) == 1
+    assert decisions[0].proposal_id == proposal.id
+    assert decisions[0].playbook_id == proposal.playbook.id
+    assert decisions[0].disposition == AuthorDecisionDisposition.PENDING
+    assert decisions[0].cited_facts == ["fact-1"]
