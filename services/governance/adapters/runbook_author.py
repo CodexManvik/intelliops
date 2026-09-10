@@ -408,15 +408,21 @@ class RunbookAuthorAgent:
                     result = self._handle_tool_call(call, toolbox)
                     if result.get("_submitted"):
                         if trace is not None:
-                            playbook, rationale, cited_facts = result["_submitted"]
-                            trace.submit(
-                                {
-                                    "name": playbook.name,
-                                    "actions": [s.action for s in playbook.steps],
-                                    "rationale": rationale,
-                                    "cited_facts": cited_facts,
-                                }
-                            )
+                            try:
+                                playbook, rationale, cited_facts = result["_submitted"]
+                                trace.submit(
+                                    {
+                                        "name": playbook.name,
+                                        "actions": [s.action for s in playbook.steps],
+                                        "rationale": rationale,
+                                        "cited_facts": cited_facts,
+                                    }
+                                )
+                            except Exception:
+                                logger.warning(
+                                    "runbook author agent: submit trace recording failed; draft continues",
+                                    exc_info=True,
+                                )
                         return result["_submitted"]
                     if trace is not None:
                         self._trace_tool_call(trace, call, result["content"])
