@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from uuid import uuid4
@@ -32,6 +33,7 @@ from services.governance.adapters.runbook_author import (
     RunbookAuthorAgent,
 )
 from services.governance.adapters.system_context import SystemContextProvider
+from services.governance.consumer import run_consumer
 from services.governance.rbac import RbacPolicy
 
 logger = logging.getLogger("intelliops.governance")
@@ -85,11 +87,23 @@ _init_state()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # State is initialized at import time via _init_state(); the lifespan exists
-    # only to dispose the engine on shutdown, matching rca/action/feedback.
+    # State is initialized at import time via _init_state(). The lifespan starts
+    # the remediation.outcomes consumer (closes the AI author's learning loop —
+    # see services/governance/consumer.py) and disposes the engine on shutdown,
+    # matching feedback's lifespan.
+    stop_event = threading.Event()
+    thread = threading.Thread(
+        target=run_consumer,
+        args=(app.state.bus, app.state.author_decision_store, stop_event),
+        daemon=True,
+    )
+    thread.start()
+    app.state.consumer_stop = stop_event
+    app.state.consumer_thread = thread
     try:
         yield
     finally:
+        stop_event.set()
         engine = getattr(app.state, "db_engine", None)
         if engine is not None:
             engine.dispose()
