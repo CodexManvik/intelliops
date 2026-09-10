@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from uuid import uuid4
@@ -14,6 +15,8 @@ from common.config import get_settings
 from common.contracts import (
     ApprovalRequest,
     AuditRecord,
+    AuthorDecision,
+    AuthorDecisionDisposition,
     HitlMode,
     Playbook,
     ProposedPlaybook,
@@ -22,12 +25,16 @@ from common.contracts import (
 )
 from common.stores import make_stores
 from services.base import create_app, db_ready
+from services.governance.adapters.author_tools import AuthorToolbox
 from services.governance.adapters.proposed_store import InMemoryProposedPlaybookStore
 from services.governance.adapters.runbook_author import (
     NullRunbookAuthor,
-    OpenAICompatibleRunbookAuthor,
+    RunbookAuthorAgent,
 )
+from services.governance.adapters.system_context import SystemContextProvider
 from services.governance.rbac import RbacPolicy
+
+logger = logging.getLogger("intelliops.governance")
 
 app = create_app(
     "governance-service",
@@ -35,12 +42,20 @@ app = create_app(
 )  # default: only /health is exempt
 
 
-def _make_runbook_author(settings):
+def _make_runbook_author(settings, stores, system_context_provider):
     if settings.runbook_author_mode == "openai" and settings.llm_runbook_endpoint:
-        return OpenAICompatibleRunbookAuthor(
+        toolbox_factory = lambda situation: AuthorToolbox(  # noqa: E731
+            situation,
+            system_context_provider,
+            stores.training_store,
+            stores.audit_sink,
+            stores.author_decision_store,
+        )
+        return RunbookAuthorAgent(
             settings.llm_runbook_endpoint,
             settings.llm_runbook_model,
             api_key=settings.llm_runbook_api_key,
+            toolbox_factory=toolbox_factory,
             timeout_seconds=settings.llm_runbook_timeout_seconds,
         )
     return NullRunbookAuthor()
@@ -52,6 +67,8 @@ def _init_state() -> None:
     app.state.db_engine = stores.engine
     app.state.audit_sink = stores.audit_sink
     app.state.playbook_store = stores.playbook_store
+    app.state.training_store = stores.training_store
+    app.state.author_decision_store = stores.author_decision_store
     app.state.rbac = RbacPolicy.from_file(settings.rbac_policy_path)
     # Use the approval store make_stores built (Postgres when STORE_BACKEND=postgres).
     # Previously this hardcoded InMemoryApprovalStore(), so approvals never persisted
@@ -59,7 +76,8 @@ def _init_state() -> None:
     # ("approval not found") because the action-created approval had vanished.
     app.state.approval_store = stores.approval_store
     app.state.proposed_store = InMemoryProposedPlaybookStore()
-    app.state.runbook_author = _make_runbook_author(settings)
+    system_context_provider = SystemContextProvider(settings.system_context_path)
+    app.state.runbook_author = _make_runbook_author(settings, stores, system_context_provider)
 
 
 _init_state()
@@ -221,7 +239,13 @@ def propose_playbook(body: ProposeRequest) -> ProposedPlaybook:
     drafted = app.state.runbook_author.draft(body.situation, body.hint)
     if drafted is None:
         raise HTTPException(status_code=422, detail="author could not produce a valid runbook")
-    playbook, rationale = drafted
+    # RunbookAuthorAgent returns a 3-tuple (playbook, rationale, cited_facts);
+    # NullRunbookAuthor/older stubs may still return a 2-tuple — back-compat.
+    if len(drafted) == 3:
+        playbook, rationale, cited_facts = drafted
+    else:
+        playbook, rationale = drafted
+        cited_facts = []
     # normalize: force HITL and a server-assigned id (the AI never sets these).
     normalized = playbook.model_copy(
         update={
@@ -248,6 +272,23 @@ def propose_playbook(body: ProposeRequest) -> ProposedPlaybook:
             correlation_id=body.situation.id,
         )
     )
+    # Best-effort: the author's own memory of this drafting decision. A store
+    # blip here must never fail the proposal itself (the operator already has
+    # a valid proposal to review) — log and move on.
+    try:
+        app.state.author_decision_store.record(
+            AuthorDecision(
+                signature=body.situation.signature,
+                proposal_id=proposal.id,
+                playbook_id=normalized.id,
+                actions=[s.action for s in normalized.steps],
+                cited_facts=cited_facts,
+                note=None,
+                ts=datetime.now(UTC),
+            )
+        )
+    except Exception:
+        logger.warning("failed to record author decision for %s", proposal.id, exc_info=True)
     return proposal
 
 
@@ -280,6 +321,14 @@ def approve_proposed(proposal_id: str, body: ProposalDecision) -> ProposedPlaybo
             correlation_id=proposal_id,
         )
     )
+    try:
+        app.state.author_decision_store.update_disposition(
+            proposal_id, AuthorDecisionDisposition.ACCEPTED, body.decided_by
+        )
+    except Exception:
+        logger.warning(
+            "failed to update author decision disposition for %s", proposal_id, exc_info=True
+        )
     return updated
 
 
@@ -303,6 +352,14 @@ def reject_proposed(proposal_id: str, body: ProposalDecision) -> ProposedPlayboo
             correlation_id=proposal_id,
         )
     )
+    try:
+        app.state.author_decision_store.update_disposition(
+            proposal_id, AuthorDecisionDisposition.REJECTED, body.decided_by
+        )
+    except Exception:
+        logger.warning(
+            "failed to update author decision disposition for %s", proposal_id, exc_info=True
+        )
     return updated
 
 
