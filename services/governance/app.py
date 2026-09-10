@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
+import json
 import logging
 import threading
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import text
 
@@ -42,10 +44,20 @@ from services.governance.rbac import RbacPolicy
 
 logger = logging.getLogger("intelliops.governance")
 
+
+def _auth_exempt(method: str, path: str) -> bool:
+    # /agent-runs/{run_id}/stream is reached by the browser EventSource API,
+    # which cannot set the Authorization header; it authenticates via
+    # ?token= inside the route instead (see _stream_authorized below,
+    # mirroring services/read/app.py's _auth_exempt/_stream_authorized).
+    return method == "GET" and path.startswith("/agent-runs/") and path.endswith("/stream")
+
+
 app = create_app(
     "governance-service",
+    auth_exempt=_auth_exempt,
     readiness=lambda: db_ready(getattr(app.state, "db_engine", None)),
-)  # default: only /health is exempt
+)
 
 
 def _make_runbook_author(settings, stores, system_context_provider):
@@ -437,6 +449,85 @@ def get_agent_run(run_id: str) -> dict:
         if run_id not in known:
             raise HTTPException(status_code=404, detail="run not found")
     return {"run_id": run_id, "steps": [s.model_dump(mode="json") for s in steps]}
+
+
+def _stream_authorized(request: Request) -> bool:
+    # Mirrors services/read/app.py's _stream_authorized. EventSource cannot
+    # set the Authorization header, so this route authenticates via the
+    # ?token= query param instead of the header-based auth middleware.
+    settings = get_settings()
+    if settings.auth_mode != "token":
+        return True
+    token = request.query_params.get("token", "")
+    return bool(settings.auth_token) and hmac.compare_digest(token, settings.auth_token)
+
+
+@app.get("/agent-runs/{run_id}/stream")
+async def stream_agent_run(run_id: str, request: Request):
+    if not _stream_authorized(request):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    hub = app.state.agent_run_hub
+    store = app.state.trace_store
+
+    async def gen():
+        # SUBSCRIBE BEFORE READING STORED STEPS. This is the correctness
+        # crux: if we read the store first and subscribe second, a step
+        # published in the gap between those two calls would be lost — never
+        # in the stored-steps snapshot we already read, and never delivered
+        # because we weren't subscribed yet when it was published. Subscribing
+        # first means the queue buffers every live step from this point
+        # onward (including ones we're about to also see in the replay); the
+        # seq de-dup below skips any live step whose seq we already replayed.
+        q = hub.subscribe(run_id)
+        try:
+            yield ": connected\n\n"
+            max_seq = -1
+            # Best-effort replay: a trace_store outage degrades to "no stored
+            # steps" rather than failing the whole stream (matches the
+            # best-effort guards on the other /agent-runs* endpoints above).
+            try:
+                stored = store.steps(run_id)
+            except Exception:
+                logger.warning("trace_store.steps failed for %s stream", run_id, exc_info=True)
+                stored = []
+            for step in stored:
+                yield f"data: {json.dumps(step.model_dump(mode='json'))}\n\n"
+                max_seq = max(max_seq, step.seq)
+            if hub.is_ended(run_id):
+                # The run already finished before this client connected — the
+                # stored steps above are the entire run. A live subscriber
+                # would wait forever for an `outcome` step that was published
+                # (and already captured in the store) before we subscribed,
+                # so close now instead of hanging on the queue.
+                return
+            while True:
+                try:
+                    step = await asyncio.wait_for(q.get(), timeout=15.0)
+                except TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
+                if step.seq <= max_seq:
+                    # Already delivered via the replay above (it was
+                    # published in the subscribe/replay race window) — skip
+                    # to avoid a duplicate step reaching the client.
+                    continue
+                max_seq = step.seq
+                yield f"data: {json.dumps(step.model_dump(mode='json'))}\n\n"
+                if step.kind == "outcome":
+                    # Terminal step: the run is done, close the stream.
+                    return
+        finally:
+            hub.unsubscribe(run_id, q)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.get("/playbooks/proposed/{proposal_id}")
