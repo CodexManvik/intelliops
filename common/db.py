@@ -105,6 +105,26 @@ model_artifacts = Table(
     Column("updated_at", DateTime(timezone=True), nullable=False),
 )
 
+# The AI runbook author's memory of its own drafting decisions. disposition and
+# outcome are promoted typed columns (queried/updated directly by proposal_id /
+# playbook_id) that must stay consistent with the JSONB payload — updates are
+# read-modify-write within one transaction (see PostgresAuthorDecisionStore).
+author_decisions = Table(
+    "author_decisions",
+    METADATA,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("signature", String, nullable=False),
+    Column("proposal_id", String, nullable=False),
+    Column("playbook_id", String, nullable=False),
+    Column("disposition", String, nullable=False),
+    Column("outcome", String, nullable=False),
+    Column("ts", DateTime(timezone=True), nullable=False),
+    Column("payload", _JSON, nullable=False),
+    Index("ix_author_decisions_signature", "signature"),
+    Index("ix_author_decisions_proposal_id", "proposal_id"),
+    Index("ix_author_decisions_playbook_id", "playbook_id"),
+)
+
 
 def make_engine(database_url: str) -> Engine:
     return create_engine(database_url, future=True, pool_pre_ping=True)

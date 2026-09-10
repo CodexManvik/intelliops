@@ -1,6 +1,11 @@
 from datetime import UTC, datetime
+
 from common.contracts import AuthorDecision
-from services.governance.adapters.author_decision_store import InMemoryAuthorDecisionStore
+from common.interfaces import AuthorDecisionStore
+from services.governance.adapters.author_decision_store import (
+    InMemoryAuthorDecisionStore,
+    PostgresAuthorDecisionStore,
+)
 
 
 def _decision(**kw):
@@ -53,3 +58,20 @@ def test_updates_are_noops_when_no_match():
     s.update_outcome("nope", "worked", "healthy")   # no matching playbook_id
     d = s.by_signature("sig-x")[0]
     assert d.disposition == "pending" and d.outcome == "unknown"
+
+
+def test_inmemory_satisfies_protocol():
+    assert isinstance(InMemoryAuthorDecisionStore(), AuthorDecisionStore)
+
+
+def test_postgres_store_satisfies_protocol_and_shape():
+    # No live DB in this environment (unit-test tier) — assert the adapter's
+    # shape (constructible from a bare engine handle, satisfies the same
+    # Protocol as InMemory, exposes the 4 required methods) and leave live-DB
+    # behavior to tests/test_postgres_author_decisions.py (@pytest.mark.postgres,
+    # a real throwaway Postgres via testcontainers), matching how
+    # PostgresTrainingStore is covered.
+    store = PostgresAuthorDecisionStore(engine=object())
+    assert isinstance(store, AuthorDecisionStore)
+    for name in ("record", "by_signature", "update_disposition", "update_outcome"):
+        assert callable(getattr(store, name))
