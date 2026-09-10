@@ -6,8 +6,10 @@ import type {
   OutcomeRow,
   Playbook,
   ProposedPlaybook,
+  RunSummary,
   Situation,
   SystemInfo,
+  TraceStep,
 } from "./types";
 
 const READ = import.meta.env.VITE_READ_URL ?? "http://localhost:8007";
@@ -77,6 +79,28 @@ export const rejectProposal = (id: string, decidedBy: string) =>
 
 export function openStream(): EventSource {
   const url = new URL(`${READ}/stream`);
+  if (AUTH_TOKEN) url.searchParams.set("token", AUTH_TOKEN);
+  return new EventSource(url.toString()); // no withCredentials — conflicts with wildcard CORS
+}
+
+/* ---------------------------------------------------------------------------
+   Agent Activity — AI runbook author trace (Task 7)
+--------------------------------------------------------------------------- */
+
+export const draftAsync = (situation: Situation, requestedBy: string) =>
+  postJSON<{ run_id: string }>(`${GOV}/playbooks/draft-async`, {
+    situation,
+    requested_by: requestedBy,
+  });
+
+export const loadAgentRuns = () =>
+  getJSON<{ runs: RunSummary[] }>(`${GOV}/agent-runs`).then((r) => r.runs);
+
+export const loadAgentRun = (runId: string) =>
+  getJSON<{ run_id: string; steps: TraceStep[] }>(`${GOV}/agent-runs/${runId}`).then((r) => r.steps);
+
+export function openAgentRunStream(runId: string): EventSource {
+  const url = new URL(`${GOV}/agent-runs/${runId}/stream`);
   if (AUTH_TOKEN) url.searchParams.set("token", AUTH_TOKEN);
   return new EventSource(url.toString()); // no withCredentials — conflicts with wildcard CORS
 }
