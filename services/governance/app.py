@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import threading
 from contextlib import asynccontextmanager
@@ -9,6 +10,7 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import text
 
@@ -33,6 +35,8 @@ from services.governance.adapters.runbook_author import (
     RunbookAuthorAgent,
 )
 from services.governance.adapters.system_context import SystemContextProvider
+from services.governance.adapters.trace_collector import TraceCollector
+from services.governance.agent_run_hub import AgentRunHub
 from services.governance.consumer import run_consumer
 from services.governance.rbac import RbacPolicy
 
@@ -78,6 +82,13 @@ def _init_state() -> None:
     # ("approval not found") because the action-created approval had vanished.
     app.state.approval_store = stores.approval_store
     app.state.proposed_store = InMemoryProposedPlaybookStore()
+    app.state.trace_store = stores.trace_store
+    app.state.agent_run_hub = AgentRunHub()
+    # run_id -> Thread for each in-flight/completed draft-async run, so tests
+    # (and any other caller that needs determinism) can join a specific run's
+    # thread rather than sleeping/polling. Best-effort bookkeeping only — it
+    # is never read by the request/response path itself.
+    app.state.draft_threads = {}
     system_context_provider = SystemContextProvider(settings.system_context_path)
     app.state.runbook_author = _make_runbook_author(settings, stores, system_context_provider)
 
@@ -100,6 +111,10 @@ async def lifespan(app: FastAPI):
     thread.start()
     app.state.consumer_stop = stop_event
     app.state.consumer_thread = thread
+    # The draft-async worker threads publish trace steps via AgentRunHub from
+    # OFF the event loop; bind_loop hands the hub the running loop so it can
+    # marshal delivery back via call_soon_threadsafe (see agent_run_hub.py).
+    app.state.agent_run_hub.bind_loop(asyncio.get_running_loop())
     try:
         yield
     finally:
@@ -246,15 +261,20 @@ def graduate_playbook(playbook_id: str, body: Graduate) -> Playbook:
     return updated
 
 
-@app.post("/playbooks/proposed")
-def propose_playbook(body: ProposeRequest) -> ProposedPlaybook:
-    if not app.state.rbac.check(body.requested_by, "approve", "playbook:*"):
-        raise HTTPException(status_code=403, detail="requester lacks permission")
-    drafted = app.state.runbook_author.draft(body.situation, body.hint)
-    if drafted is None:
-        raise HTTPException(status_code=422, detail="author could not produce a valid runbook")
-    # RunbookAuthorAgent returns a 3-tuple (playbook, rationale, cited_facts);
-    # NullRunbookAuthor/older stubs may still return a 2-tuple — back-compat.
+def _finalize_proposal(
+    situation: Situation, drafted: tuple, requested_by: str
+) -> ProposedPlaybook:
+    """Turn a raw `runbook_author.draft(...)` result into a stored, audited
+    ProposedPlaybook. The ONE place that does this — both the sync
+    `POST /playbooks/proposed` endpoint and the async draft-and-trace worker
+    thread (`POST /playbooks/draft-async`) call this after a successful draft,
+    so their observable results (normalization, storage, audit, best-effort
+    AuthorDecision) are identical.
+
+    `drafted` is the non-None return of `RunbookAuthor.draft(...)`: a 3-tuple
+    (playbook, rationale, cited_facts) — RunbookAuthorAgent's shape — or,
+    for back-compat with older stubs, a 2-tuple (playbook, rationale).
+    """
     if len(drafted) == 3:
         playbook, rationale, cited_facts = drafted
     else:
@@ -264,7 +284,7 @@ def propose_playbook(body: ProposeRequest) -> ProposedPlaybook:
     normalized = playbook.model_copy(
         update={
             "hitl_mode": HitlMode.HITL,
-            "id": f"ai-{body.situation.signature}-{uuid4().hex[:6]}",
+            "id": f"ai-{situation.signature}-{uuid4().hex[:6]}",
         }
     )
     proposal = ProposedPlaybook(
@@ -272,18 +292,18 @@ def propose_playbook(body: ProposeRequest) -> ProposedPlaybook:
         playbook=normalized,
         proposed_by="runbook-author",
         rationale=rationale,
-        source_situation_id=body.situation.id,
+        source_situation_id=situation.id,
         ts=datetime.now(UTC),
     )
     app.state.proposed_store.add(proposal)
     app.state.audit_sink.write(
         AuditRecord(
-            actor=body.requested_by,
+            actor=requested_by,
             action="propose",
             resource=f"proposal:{proposal.id}",
             decision="allow",
             ts=datetime.now(UTC),
-            correlation_id=body.situation.id,
+            correlation_id=situation.id,
         )
     )
     # Best-effort: the author's own memory of this drafting decision. A store
@@ -292,7 +312,7 @@ def propose_playbook(body: ProposeRequest) -> ProposedPlaybook:
     try:
         app.state.author_decision_store.record(
             AuthorDecision(
-                signature=body.situation.signature,
+                signature=situation.signature,
                 proposal_id=proposal.id,
                 playbook_id=normalized.id,
                 actions=[s.action for s in normalized.steps],
@@ -304,6 +324,119 @@ def propose_playbook(body: ProposeRequest) -> ProposedPlaybook:
     except Exception:
         logger.warning("failed to record author decision for %s", proposal.id, exc_info=True)
     return proposal
+
+
+@app.post("/playbooks/proposed")
+def propose_playbook(body: ProposeRequest) -> ProposedPlaybook:
+    if not app.state.rbac.check(body.requested_by, "approve", "playbook:*"):
+        raise HTTPException(status_code=403, detail="requester lacks permission")
+    drafted = app.state.runbook_author.draft(body.situation, body.hint)
+    if drafted is None:
+        raise HTTPException(status_code=422, detail="author could not produce a valid runbook")
+    return _finalize_proposal(body.situation, drafted, body.requested_by)
+
+
+def _run_draft_async(run_id: str, situation: Situation, hint: str | None, requested_by: str) -> None:
+    """Runs in a daemon thread. Drives the author's tool-calling draft loop,
+    streaming/storing its trace via `sink`, then finalizes exactly like the
+    sync endpoint on success. Never raises — any author exception is caught
+    and recorded as a "failed" terminal outcome so the thread always ends
+    cleanly and `mark_ended` always fires.
+    """
+
+    def sink(step) -> None:
+        # Each half is independently best-effort: a hub blip must never skip
+        # the durable store write, and vice versa.
+        try:
+            app.state.agent_run_hub.publish(run_id, step)
+        except Exception:
+            logger.warning("agent_run_hub.publish failed for %s", run_id, exc_info=True)
+        try:
+            app.state.trace_store.append_step(step)
+        except Exception:
+            logger.warning("trace_store.append_step failed for %s", run_id, exc_info=True)
+
+    collector = TraceCollector(run_id, sink)
+    drafted = None
+    status = "gave_up"
+    try:
+        drafted = app.state.runbook_author.draft(situation, hint, trace=collector)
+    except Exception:
+        logger.exception("runbook author raised during draft-async run %s", run_id)
+        status = "failed"
+
+    try:
+        if drafted is not None:
+            proposal = _finalize_proposal(situation, drafted, requested_by)
+            collector.outcome("succeeded", proposal.id)
+            try:
+                app.state.trace_store.finish_run(run_id, "succeeded", proposal.id, datetime.now(UTC))
+            except Exception:
+                logger.warning("trace_store.finish_run failed for %s", run_id, exc_info=True)
+        else:
+            collector.outcome(status)
+            try:
+                app.state.trace_store.finish_run(run_id, status, None, datetime.now(UTC))
+            except Exception:
+                logger.warning("trace_store.finish_run failed for %s", run_id, exc_info=True)
+    finally:
+        try:
+            app.state.agent_run_hub.mark_ended(run_id)
+        except Exception:
+            logger.warning("agent_run_hub.mark_ended failed for %s", run_id, exc_info=True)
+
+
+@app.post("/playbooks/draft-async")
+def draft_playbook_async(body: ProposeRequest) -> JSONResponse:
+    if not app.state.rbac.check(body.requested_by, "approve", "playbook:*"):
+        raise HTTPException(status_code=403, detail="requester lacks permission")
+    run_id = f"run-{uuid4().hex[:8]}"
+    try:
+        app.state.trace_store.start_run(run_id, body.situation.signature, datetime.now(UTC))
+    except Exception:
+        logger.warning("trace_store.start_run failed for %s", run_id, exc_info=True)
+    thread = threading.Thread(
+        target=_run_draft_async,
+        args=(run_id, body.situation, body.hint, body.requested_by),
+        daemon=True,
+    )
+    app.state.draft_threads[run_id] = thread
+    thread.start()
+    return JSONResponse({"run_id": run_id}, status_code=202)
+
+
+@app.get("/agent-runs")
+def list_agent_runs() -> dict:
+    try:
+        runs = app.state.trace_store.recent_runs(50)
+    except Exception:
+        logger.warning("trace_store.recent_runs failed", exc_info=True)
+        return {"runs": []}
+    return {"runs": [r.model_dump(mode="json") for r in runs]}
+
+
+@app.get("/agent-runs/{run_id}")
+def get_agent_run(run_id: str) -> dict:
+    try:
+        steps = app.state.trace_store.steps(run_id)
+    except Exception:
+        logger.warning("trace_store.steps failed for %s", run_id, exc_info=True)
+        steps = []
+    if not steps:
+        # steps() returns [] both for "run exists but has no steps yet" and
+        # "run_id unknown". Disambiguate via recent_runs' header list — if the
+        # run isn't there either, this run_id was never started (or its store
+        # blew up on write): treat as not found. A best-effort recent_runs
+        # failure here (already logged above/below) degrades safely to "not
+        # found" rather than crashing this endpoint.
+        try:
+            known = {r.run_id for r in app.state.trace_store.recent_runs(1000)}
+        except Exception:
+            logger.warning("trace_store.recent_runs failed for %s lookup", run_id, exc_info=True)
+            known = set()
+        if run_id not in known:
+            raise HTTPException(status_code=404, detail="run not found")
+    return {"run_id": run_id, "steps": [s.model_dump(mode="json") for s in steps]}
 
 
 @app.get("/playbooks/proposed/{proposal_id}")
