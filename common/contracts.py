@@ -177,8 +177,8 @@ class AuthorDecision(BaseModel):
     actions: list[str] = Field(default_factory=list)
     cited_facts: list[str] = Field(default_factory=list)
     note: str | None = None
-    disposition: str = "pending"     # "pending" | "accepted" | "rejected"
-    outcome: str = "unknown"         # "unknown" | "worked" | "failed"
+    disposition: AuthorDecisionDisposition = AuthorDecisionDisposition.PENDING
+    outcome: AuthorDecisionOutcome = AuthorDecisionOutcome.UNKNOWN
     decided_by: str | None = None
     ts: datetime
 

@@ -24,7 +24,7 @@ from common.contracts import (
 )
 
 if TYPE_CHECKING:
-    from common.contracts import AuthorDecision
+    from common.contracts import AuthorDecision, AuthorDecisionDisposition, AuthorDecisionOutcome
 
 
 @runtime_checkable
@@ -204,6 +204,6 @@ class AuthorDecisionStore(Protocol):
 
     def by_signature(self, signature: str) -> list["AuthorDecision"]: ...
 
-    def update_disposition(self, proposal_id: str, disposition: str, decided_by: str) -> None: ...
+    def update_disposition(self, proposal_id: str, disposition: "str | AuthorDecisionDisposition", decided_by: str) -> None: ...
 
-    def update_outcome(self, playbook_id: str, outcome: str, health_after: str) -> None: ...
+    def update_outcome(self, playbook_id: str, outcome: "str | AuthorDecisionOutcome", health_after: str) -> None: ...

@@ -6,7 +6,7 @@ leaves less signal, never wrong signal)."""
 
 from __future__ import annotations
 
-from common.contracts import AuthorDecision
+from common.contracts import AuthorDecision, AuthorDecisionDisposition, AuthorDecisionOutcome
 
 
 class InMemoryAuthorDecisionStore:
@@ -19,14 +19,16 @@ class InMemoryAuthorDecisionStore:
     def by_signature(self, signature: str) -> list[AuthorDecision]:
         return [d for d in self._items if d.signature == signature]
 
-    def update_disposition(self, proposal_id: str, disposition: str, decided_by: str) -> None:
+    def update_disposition(self, proposal_id: str, disposition: str | AuthorDecisionDisposition, decided_by: str) -> None:
+        disposition = AuthorDecisionDisposition(disposition)
         for i, d in enumerate(self._items):
             if d.proposal_id == proposal_id:
                 self._items[i] = d.model_copy(
                     update={"disposition": disposition, "decided_by": decided_by}
                 )
 
-    def update_outcome(self, playbook_id: str, outcome: str, health_after: str) -> None:
+    def update_outcome(self, playbook_id: str, outcome: str | AuthorDecisionOutcome, health_after: str) -> None:
+        outcome = AuthorDecisionOutcome(outcome)
         for i, d in enumerate(self._items):
             if d.playbook_id == playbook_id:
                 self._items[i] = d.model_copy(update={"outcome": outcome})
