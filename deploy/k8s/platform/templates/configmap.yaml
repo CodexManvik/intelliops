@@ -56,3 +56,9 @@ data:
   INTELLIOPS_RUNBOOK_AUTHOR_MODE: {{ .Values.env.RUNBOOK_AUTHOR_MODE | quote }}
   INTELLIOPS_LLM_RUNBOOK_ENDPOINT: {{ .Values.env.LLM_RUNBOOK_ENDPOINT | quote }}
   INTELLIOPS_LLM_RUNBOOK_MODEL: {{ .Values.env.LLM_RUNBOOK_MODEL | quote }}
+  # Curated, system-agnostic description of the target system the runbook
+  # author reads for grounding (baked into the image at this path — see
+  # deploy/Dockerfile `COPY config/ ./config/`). Empty/all-placeholder file is
+  # safe and reads as "unconfigured" (agent drafts from incident + history
+  # alone); fill it in per target to make drafts system-aware.
+  INTELLIOPS_SYSTEM_CONTEXT_PATH: {{ .Values.env.SYSTEM_CONTEXT_PATH | quote }}
