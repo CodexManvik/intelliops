@@ -484,7 +484,7 @@ class RunbookAuthorAgent:
             arguments = json.loads(raw_arguments) if raw_arguments else {}
             if not isinstance(arguments, dict):
                 arguments = {}
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, TypeError):
             arguments = {}
         # AuthorToolbox.dispatch never raises (it degrades to {"error": ...}
         # internally), but a fake toolbox in tests might — guard anyway so a

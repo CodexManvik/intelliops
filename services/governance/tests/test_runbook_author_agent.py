@@ -424,3 +424,55 @@ def test_submit_with_wrong_types_triggers_corrective_round(bad_field):
     result = agent.draft(_situation())
 
     assert result is not None
+
+
+# ---------------------------------------------------------------------------
+# 7. Non-submit tool with non-string arguments (TypeError in json.loads) should
+#    degrade gracefully to an error result, not crash the loop.
+# ---------------------------------------------------------------------------
+
+
+def test_read_tool_with_non_string_arguments_degrades_gracefully():
+    # A client that passes already-parsed arguments (dict or int) instead of
+    # a JSON string should not crash the loop. The arguments are treated as
+    # empty {} and dispatch() is called (which returns {"ok": True} for
+    # unconfigured tools). The model can then submit after.
+    bad_call = {
+        "id": "call-1",
+        "type": "function",
+        "function": {"name": "get_system_context", "arguments": {"already": "parsed"}},
+    }
+    client = _FakeChatClient(
+        [
+            _tool_calls_response([bad_call]),
+            _tool_calls_response([_submit_call("call-2")]),
+        ]
+    )
+    agent = _agent(client, max_rounds=6)
+    result = agent.draft(_situation())
+
+    assert result is not None
+    playbook, _rationale, _facts = result
+    assert playbook.steps[0].action == "restart"
+
+
+def test_read_tool_with_int_arguments_degrades_gracefully():
+    # Even an int (completely wrong type) should degrade to empty args without
+    # crashing the loop.
+    bad_call = {
+        "id": "call-1",
+        "type": "function",
+        "function": {"name": "get_past_decisions", "arguments": 12345},
+    }
+    client = _FakeChatClient(
+        [
+            _tool_calls_response([bad_call]),
+            _tool_calls_response([_submit_call("call-2")]),
+        ]
+    )
+    agent = _agent(client, max_rounds=6)
+    result = agent.draft(_situation())
+
+    assert result is not None
+    playbook, _rationale, _facts = result
+    assert playbook.steps[0].action == "restart"
