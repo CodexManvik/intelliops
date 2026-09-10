@@ -113,10 +113,24 @@ def test_stream_replays_stored_steps_for_ended_run():
     store.start_run(run_id, "sig-1", NOW)
     store.append_step(_step(run_id, 0, TraceStepKind.MODEL_TURN, text="investigating"))
     store.append_step(
-        _step(run_id, 1, TraceStepKind.TOOL_CALL, tool="get_situation", arguments={"id": "s1"}, result_summary="ok", text=None)
+        _step(
+            run_id,
+            1,
+            TraceStepKind.TOOL_CALL,
+            tool="get_situation",
+            arguments={"id": "s1"},
+            result_summary="ok",
+            text=None,
+        )
     )
     store.append_step(
-        _step(run_id, 2, TraceStepKind.OUTCOME, text=None, detail={"status": "succeeded", "proposal_id": "prop-1"})
+        _step(
+            run_id,
+            2,
+            TraceStepKind.OUTCOME,
+            text=None,
+            detail={"status": "succeeded", "proposal_id": "prop-1"},
+        )
     )
     store.finish_run(run_id, "succeeded", "prop-1", NOW)
     # The run is over — mark_ended is what tells gen() to stop after replay

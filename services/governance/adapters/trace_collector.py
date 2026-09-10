@@ -23,8 +23,13 @@ class TraceCollector:
 
     def _emit(self, kind: str, **fields) -> None:
         try:
-            step = TraceStep(run_id=self._run_id, seq=self._seq, kind=TraceStepKind(kind),
-                             ts=datetime.now(UTC), **fields)
+            step = TraceStep(
+                run_id=self._run_id,
+                seq=self._seq,
+                kind=TraceStepKind(kind),
+                ts=datetime.now(UTC),
+                **fields,
+            )
             self._seq += 1
             if self._sink is not None:
                 self._sink(step)
@@ -37,8 +42,12 @@ class TraceCollector:
         self._emit("model_turn", text=text[:_TEXT_CAP])
 
     def tool_call(self, tool: str, arguments: dict, result_summary: str) -> None:
-        self._emit("tool_call", tool=tool, arguments=arguments,
-                   result_summary=(result_summary or "")[:_TEXT_CAP])
+        self._emit(
+            "tool_call",
+            tool=tool,
+            arguments=arguments,
+            result_summary=(result_summary or "")[:_TEXT_CAP],
+        )
 
     def submit(self, detail: dict) -> None:
         self._emit("submit", detail=detail)

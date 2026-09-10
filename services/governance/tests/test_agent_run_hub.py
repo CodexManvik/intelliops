@@ -5,7 +5,9 @@ from common.contracts import TraceStep, TraceStepKind
 from services.governance.agent_run_hub import AgentRunHub
 
 
-def _step(run_id: str = "run-1", seq: int = 0, kind: TraceStepKind = TraceStepKind.MODEL_TURN) -> TraceStep:
+def _step(
+    run_id: str = "run-1", seq: int = 0, kind: TraceStepKind = TraceStepKind.MODEL_TURN
+) -> TraceStep:
     return TraceStep(run_id=run_id, seq=seq, kind=kind, ts=datetime.now(UTC), text="thinking")
 
 

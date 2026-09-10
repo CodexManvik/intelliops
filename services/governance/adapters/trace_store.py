@@ -47,9 +47,7 @@ class InMemoryTraceStore:
             update={"step_count": entry["summary"].step_count + 1}
         )
 
-    def finish_run(
-        self, run_id: str, status: str, proposal_id: str | None, ts: datetime
-    ) -> None:
+    def finish_run(self, run_id: str, status: str, proposal_id: str | None, ts: datetime) -> None:
         entry = self._runs.get(run_id)
         if entry is None:
             return
@@ -131,14 +129,10 @@ class PostgresTraceStore:
                 .values(step_count=new_count, payload=to_payload(summary))
             )
 
-    def finish_run(
-        self, run_id: str, status: str, proposal_id: str | None, ts: datetime
-    ) -> None:
+    def finish_run(self, run_id: str, status: str, proposal_id: str | None, ts: datetime) -> None:
         with self._engine.begin() as conn:
             row = conn.execute(
-                select(agent_runs.c.id, agent_runs.c.payload).where(
-                    agent_runs.c.run_id == run_id
-                )
+                select(agent_runs.c.id, agent_runs.c.payload).where(agent_runs.c.run_id == run_id)
             ).one_or_none()
             if row is None:
                 return
@@ -167,11 +161,7 @@ class PostgresTraceStore:
         return [from_payload(row.payload, TraceStep) for row in rows]
 
     def recent_runs(self, limit: int = 50) -> list[RunSummary]:
-        stmt = (
-            select(agent_runs.c.payload)
-            .order_by(agent_runs.c.started_at.desc())
-            .limit(limit)
-        )
+        stmt = select(agent_runs.c.payload).order_by(agent_runs.c.started_at.desc()).limit(limit)
         with self._engine.connect() as conn:
             rows = conn.execute(stmt).all()
         return [from_payload(row.payload, RunSummary) for row in rows]

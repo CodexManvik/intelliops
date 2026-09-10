@@ -249,6 +249,7 @@ class TrainingRecord(BaseModel):
 
 class TraceStepKind(str, Enum):
     """The kind of step in a trace of the AI runbook author's reasoning."""
+
     MODEL_TURN = "model_turn"
     TOOL_CALL = "tool_call"
     SUBMIT = "submit"
@@ -269,7 +270,9 @@ class TraceStep(BaseModel):
     tool: str | None = None  # for tool_call: the tool name
     arguments: dict | None = None  # for tool_call: the arguments
     result_summary: str | None = None  # for tool_call: the result
-    detail: dict | None = None  # for submit: the draft detail; for outcome: {"status": str, "proposal_id": str|None}
+    detail: dict | None = (
+        None  # for submit: the draft detail; for outcome: {"status": str, "proposal_id": str|None}
+    )
 
 
 class RunSummary(BaseModel):

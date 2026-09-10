@@ -1,4 +1,3 @@
-from common.contracts import TraceStep
 from services.governance.adapters.trace_collector import TraceCollector
 
 
@@ -7,7 +6,9 @@ def test_records_ordered_steps_with_monotonic_seq():
     c = TraceCollector("run-1", sink=seen.append)
     c.model_turn("thinking about disk io")
     c.tool_call("get_past_outcomes", {"signature": "sig-x"}, "restart 4/5")
-    c.submit({"name": "Fix", "actions": ["restart"], "rationale": "r", "cited_facts": ["restart 4/5"]})
+    c.submit(
+        {"name": "Fix", "actions": ["restart"], "rationale": "r", "cited_facts": ["restart 4/5"]}
+    )
     c.outcome("succeeded", proposal_id="prop-1")
     assert [s.kind for s in seen] == ["model_turn", "tool_call", "submit", "outcome"]
     assert [s.seq for s in seen] == [0, 1, 2, 3]
@@ -28,6 +29,7 @@ def test_text_is_truncated():
 def test_never_raises_when_sink_raises():
     def boom(_step):
         raise RuntimeError("sink down")
+
     c = TraceCollector("run-1", sink=boom)
     # must not propagate
     c.model_turn("t")
@@ -37,5 +39,5 @@ def test_never_raises_when_sink_raises():
 
 def test_no_sink_is_a_noop():
     c = TraceCollector("run-1")  # sink=None
-    c.model_turn("t")            # does not raise, does nothing
+    c.model_turn("t")  # does not raise, does nothing
     c.outcome("gave_up")

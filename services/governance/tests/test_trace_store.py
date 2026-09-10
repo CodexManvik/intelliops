@@ -39,8 +39,16 @@ def test_inmemory_round_trip_orders_steps_and_reports_recent_runs():
     s = InMemoryTraceStore()
     s.start_run("run-1", "sig-x", NOW)
     s.append_step(_step("run-1", 0, text="thinking"))
-    s.append_step(_step("run-1", 1, kind=TraceStepKind.TOOL_CALL, tool="get_past_outcomes",
-                         arguments={"signature": "sig-x"}, result_summary="restart 4/5"))
+    s.append_step(
+        _step(
+            "run-1",
+            1,
+            kind=TraceStepKind.TOOL_CALL,
+            tool="get_past_outcomes",
+            arguments={"signature": "sig-x"},
+            result_summary="restart 4/5",
+        )
+    )
     s.append_step(_step("run-1", 2, kind=TraceStepKind.SUBMIT, detail={"name": "Fix"}))
 
     got = s.steps("run-1")

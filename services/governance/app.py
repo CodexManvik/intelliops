@@ -273,9 +273,7 @@ def graduate_playbook(playbook_id: str, body: Graduate) -> Playbook:
     return updated
 
 
-def _finalize_proposal(
-    situation: Situation, drafted: tuple, requested_by: str
-) -> ProposedPlaybook:
+def _finalize_proposal(situation: Situation, drafted: tuple, requested_by: str) -> ProposedPlaybook:
     """Turn a raw `runbook_author.draft(...)` result into a stored, audited
     ProposedPlaybook. The ONE place that does this — both the sync
     `POST /playbooks/proposed` endpoint and the async draft-and-trace worker
@@ -348,7 +346,9 @@ def propose_playbook(body: ProposeRequest) -> ProposedPlaybook:
     return _finalize_proposal(body.situation, drafted, body.requested_by)
 
 
-def _run_draft_async(run_id: str, situation: Situation, hint: str | None, requested_by: str) -> None:
+def _run_draft_async(
+    run_id: str, situation: Situation, hint: str | None, requested_by: str
+) -> None:
     """Runs in a daemon thread. Drives the author's tool-calling draft loop,
     streaming/storing its trace via `sink`, then finalizes exactly like the
     sync endpoint on success. Never raises — any author exception is caught
@@ -382,7 +382,9 @@ def _run_draft_async(run_id: str, situation: Situation, hint: str | None, reques
             proposal = _finalize_proposal(situation, drafted, requested_by)
             collector.outcome("succeeded", proposal.id)
             try:
-                app.state.trace_store.finish_run(run_id, "succeeded", proposal.id, datetime.now(UTC))
+                app.state.trace_store.finish_run(
+                    run_id, "succeeded", proposal.id, datetime.now(UTC)
+                )
             except Exception:
                 logger.warning("trace_store.finish_run failed for %s", run_id, exc_info=True)
         else:
