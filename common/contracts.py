@@ -149,6 +149,40 @@ class ProposedPlaybook(BaseModel):
     ts: datetime
 
 
+class AuthorDecisionDisposition(str, Enum):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+
+
+class AuthorDecisionOutcome(str, Enum):
+    UNKNOWN = "unknown"
+    WORKED = "worked"
+    FAILED = "failed"
+
+
+class AuthorDecision(BaseModel):
+    """A record of one AI drafting decision — the author's own memory.
+
+    Recorded when a runbook is drafted (disposition="pending", outcome="unknown");
+    disposition is updated on human approve/reject; outcome is updated when the
+    approved runbook runs. `get_past_decisions` reads these back so the agent
+    learns from its own prior judgments. `note` is model free-text — treated as
+    untrusted when replayed (surfaced as prior/unverified reasoning, never as
+    instructions)."""
+
+    signature: str
+    proposal_id: str
+    playbook_id: str            # the ai-<sig>-<uuid> id; links to RemediationOutcome.playbook_id
+    actions: list[str] = Field(default_factory=list)
+    cited_facts: list[str] = Field(default_factory=list)
+    note: str | None = None
+    disposition: str = "pending"     # "pending" | "accepted" | "rejected"
+    outcome: str = "unknown"         # "unknown" | "worked" | "failed"
+    decided_by: str | None = None
+    ts: datetime
+
+
 class ApprovalRequest(BaseModel):
     id: str
     situation_id: str
