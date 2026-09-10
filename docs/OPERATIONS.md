@@ -203,6 +203,52 @@ gated) see the [Auth at the edge](#auth-at-the-edge) section above.
 | `INTELLIOPS_LLM_RUNBOOK_MODEL` | string | `gpt-4o-mini` | Model name sent in the chat-completions request when the runbook author endpoint is configured. |
 | `INTELLIOPS_LLM_RUNBOOK_TIMEOUT_SECONDS` | float | `10.0` | Request timeout for the runbook-author call before it gives up (returns no draft). |
 | `INTELLIOPS_LLM_RUNBOOK_API_KEY` | string | `""` (empty) | Bearer token sent to the runbook-author endpoint, if set. |
+| `INTELLIOPS_SYSTEM_CONTEXT_PATH` | file path | `config/system_context.yaml` | Path to the curated, system-agnostic description of the target system the runbook author reads for grounding (`services/governance`). Baked into both Docker image stages at this path (`deploy/Dockerfile`), so no volume or extra config is needed to have it present; override only to point at a different mounted/baked location. See [System context for the runbook author](#system-context-for-the-runbook-author) below. |
 | `INTELLIOPS_RUNBOOK_SELECTOR_MODE` | `off`, `embedding` | `off` | Semantic runbook selection (`services/rca`). `off` = `NullRunbookSelector`, keyword-rules-only (CI/test default, selection byte-identical to before). `embedding` = when no keyword rule fires, `EmbeddingRunbookSelector` ranks the **registered** playbooks by embedding similarity of their `symptoms` field and picks the best above the threshold (requires the `ml` extra; retrieval among vetted playbooks, never an LLM choosing). See [ADR-026](../architectural.md#adr-026--semantic-runbook-selection-embedding-fallback). |
 | `INTELLIOPS_RUNBOOK_SELECTOR_MODEL` | string | `all-MiniLM-L6-v2` | `sentence-transformers` model used by the embedding selector (loaded lazily, offline, no API). |
 | `INTELLIOPS_RUNBOOK_SELECTOR_THRESHOLD` | float | `0.45` | Minimum cosine similarity for the embedding selector to accept a match; below it, the incident falls to the gap (where the AI-authoring flow can draft one). |
+
+### System context for the runbook author
+
+The AI runbook author (`INTELLIOPS_RUNBOOK_AUTHOR_MODE=openai`, itself off by
+default — see the table above) can optionally be grounded in a description of
+the real system it is drafting for, so its drafts reference actual services,
+dependencies, and known remediation quirks instead of generic advice.
+
+That description lives in `config/system_context.yaml`, read by governance's
+`SystemContextProvider` at the path in `INTELLIOPS_SYSTEM_CONTEXT_PATH`. The
+file shipped in the image is an **empty placeholder** — every field blank —
+which `SystemContextProvider` treats as **"unconfigured"**: the author still
+drafts normally, from the incident and its retrieved history of past
+decisions/outcomes alone. A missing or malformed file is handled the same
+way (logged, never raised). Filling the file in is purely additive context;
+it does not change the author's tool-calling/retrieval behavior, gate it
+behind a model, or bypass any existing safety step — a drafted playbook still
+goes through the same type-checked validation, sandbox, and human-approval
+gate as any other proposal.
+
+Schema (see the checked-in comments in `config/system_context.yaml` for the
+authoritative reference):
+
+```yaml
+system:
+  name: ""      # e.g. "Payments API"
+  summary: ""   # one line: what the system does
+
+services: []    # each entry:
+  # - name: "auth-svc"
+  #   role: "authorizes card transactions"
+  #   depends_on: ["db", "cache"]
+  #   key_metrics: ["error_rate", "latency_p99"]
+
+# actions:                       # optional free-form remediation hints
+#   restart_policy: "kill -9 then systemctl restart"
+#   rollback_window: "5 minutes max"
+
+# notes: ""                      # optional additional free-text context
+```
+
+To point at a different file (e.g. mounted from a ConfigMap or Secret volume
+instead of the baked default), set `INTELLIOPS_SYSTEM_CONTEXT_PATH` — via
+`deploy/k8s/platform/values.yaml`'s `env.SYSTEM_CONTEXT_PATH` in a Helm
+deploy, or the environment variable directly in compose/local dev.

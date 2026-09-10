@@ -1,0 +1,31 @@
+# System context: curated, system-agnostic description of the target system.
+# This file is filled in when the target system is configured.
+# While empty/all-placeholder, it reads as "unconfigured" — the runbook author
+# then drafts from incident + experience alone.
+
+system:
+  # Name of the target system (e.g., "Payments API", "Order Processing").
+  name: ""
+  # One-line summary of the system's function and responsibilities.
+  summary: ""
+
+# List of key services/components in the system.
+services: []
+  # Each service entry has the following fields:
+  # - name: unique identifier (e.g., "auth-svc")
+  # - role: what this service does (e.g., "authorizes card transactions")
+  # - depends_on: list of service names this depends on (e.g., ["db", "cache"])
+  # - key_metrics: list of metrics to monitor (e.g., ["error_rate", "latency_p99"])
+  # Example:
+  # - name: "auth-svc"
+  #   role: "authorizes card transactions"
+  #   depends_on: ["db", "cache"]
+  #   key_metrics: ["error_rate", "latency_p99"]
+
+# Action notes: system-specific remediation hints (key-value pairs).
+# actions:
+#   restart_policy: "kill -9 then systemctl restart"
+#   rollback_window: "5 minutes max"
+
+# Additional notes or context for the runbook author.
+# notes: ""

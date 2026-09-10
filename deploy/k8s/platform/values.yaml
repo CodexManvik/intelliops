@@ -65,6 +65,11 @@ env:
   RUNBOOK_AUTHOR_MODE: "off"        # "openai" in values-live (AI-authored runbook drafts)
   LLM_RUNBOOK_ENDPOINT: ""          # set in values-live (author LLM base URL)
   LLM_RUNBOOK_MODEL: ""             # set in values-live
+  # Path (inside the image) to the curated system-context file the runbook
+  # author reads for grounding. Baked into both image stages at this path
+  # (deploy/Dockerfile); the shipped file is an empty placeholder, which is
+  # safe (reads as "unconfigured") — nothing here needs a secret.
+  SYSTEM_CONTEXT_PATH: "config/system_context.yaml"
 
 # RBAC for the action service's k8s remediation + sandbox (cluster-scoped: it
 # creates/deletes throwaway sandbox namespaces). Off by default (dry-run needs none).

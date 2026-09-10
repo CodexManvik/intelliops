@@ -7,7 +7,7 @@ so implementations are swappable and tests can bind fakes (see ADR-005).
 from __future__ import annotations
 
 from collections.abc import Iterator
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from common.contracts import (
     ApprovalRequest,
@@ -22,6 +22,9 @@ from common.contracts import (
     TelemetryEvent,
     TrainingRecord,
 )
+
+if TYPE_CHECKING:
+    from common.contracts import AuthorDecision, AuthorDecisionDisposition, AuthorDecisionOutcome
 
 
 @runtime_checkable
@@ -186,3 +189,25 @@ class RunbookSelector(Protocol):
     def select(
         self, situation: Situation, hypothesis: RootCauseHypothesis, store: PlaybookStore
     ) -> tuple[str, float] | None: ...
+
+
+@runtime_checkable
+class AuthorDecisionStore(Protocol):
+    """The AI runbook author's memory of its own drafting decisions.
+
+    Recorded when a runbook is drafted; disposition updated on human approve/reject;
+    outcome updated when the approved runbook runs. Never raises on a missing target —
+    updates are no-ops when nothing matches (a missed update leaves less signal,
+    never wrong signal)."""
+
+    def record(self, decision: AuthorDecision) -> None: ...
+
+    def by_signature(self, signature: str) -> list[AuthorDecision]: ...
+
+    def update_disposition(
+        self, proposal_id: str, disposition: str | AuthorDecisionDisposition, decided_by: str
+    ) -> None: ...
+
+    def update_outcome(
+        self, playbook_id: str, outcome: str | AuthorDecisionOutcome, health_after: str
+    ) -> None: ...

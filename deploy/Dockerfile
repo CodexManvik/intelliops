@@ -15,6 +15,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY common/ ./common/
 COPY services/ ./services/
 COPY policies/ ./policies/
+COPY config/ ./config/
 COPY deploy/playbooks/ ./data/playbooks/
 # Alembic config + migration scripts, so the one-shot `migrate` compose service
 # can run `alembic upgrade head` against Postgres before the store services boot.
@@ -38,6 +39,7 @@ RUN uv sync --frozen --no-dev --extra ml --extra k8s --no-install-project
 COPY common/ ./common/
 COPY services/ ./services/
 COPY policies/ ./policies/
+COPY config/ ./config/
 COPY deploy/playbooks/ ./data/playbooks/
 COPY alembic.ini ./alembic.ini
 COPY alembic/ ./alembic/

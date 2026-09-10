@@ -244,3 +244,16 @@ def test_failure_paths_return_none_never_raise(resp, raise_http):
     client = _FakeClient(resp, raise_http=raise_http)
     author = OpenAICompatibleRunbookAuthor("http://x", "m", http_client=client)
     assert author.draft(_situation()) is None
+
+
+def test_malformed_200_body_is_retried_as_invalid_not_terminal():
+    # Regression pin for the Task 5 shared-HTTP-helper refactor: a malformed
+    # 200 body (missing/invalid content) is a BAD ROLL — same bucket as an
+    # unparsable JSON draft — and must still be retried within max_attempts,
+    # not treated as a terminal failure like a transport error or 5xx.
+    seq = [_FakeResp(200, {"choices": []}), _FakeResp(200, _content(_VALID_DRAFT))]
+    client = _FakeClient(resp_sequence=seq)
+    author = OpenAICompatibleRunbookAuthor("http://x", "m", http_client=client, max_attempts=3)
+    result = author.draft(_situation())
+    assert result is not None
+    assert client.calls == 2  # it retried past the malformed body
