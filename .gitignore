@@ -33,4 +33,4 @@ models/
 .claude/
 .superpowers/
 deploy/.kubeconfig
-stream-d-
+stream-d-implementation-spec.md

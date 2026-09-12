@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
-import { AUDIT_ENTRIES } from "../data/incidents";
-import type { AuditActionType, AuditStatus, AuditEntry } from "../data/incidents";
+import { AUDIT_ENTRIES } from "../data/audit";
+import type { AuditActionType, AuditStatus, AuditEntry } from "../data/audit";
 
 // ─── Badges ───────────────────────────────────────────────────────────────────
 
