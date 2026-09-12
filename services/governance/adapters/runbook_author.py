@@ -34,6 +34,7 @@ from common.contracts import Playbook, Situation
 
 if TYPE_CHECKING:
     from services.governance.adapters.author_tools import AuthorToolbox
+    from services.governance.adapters.trace_collector import TraceCollector
 
 logger = logging.getLogger("intelliops.governance.runbook_author")
 
@@ -147,7 +148,9 @@ def _rate_limit_delay(retry_after: float | None) -> float:
 
 
 class NullRunbookAuthor:
-    def draft(self, situation: Situation, hint: str | None = None):
+    def draft(
+        self, situation: Situation, hint: str | None = None, trace: TraceCollector | None = None
+    ):
         return None
 
 
@@ -172,7 +175,9 @@ class OpenAICompatibleRunbookAuthor:
         # hammering a rate-limited endpoint.
         self._max_attempts = max(1, max_attempts)
 
-    def draft(self, situation: Situation, hint: str | None = None):
+    def draft(
+        self, situation: Situation, hint: str | None = None, trace: TraceCollector | None = None
+    ):
         # Retry only RECOVERABLE failures:
         #   - a draft that didn't validate (a bad roll — try once more), and
         #   - HTTP 429 rate limiting (wait the server-advised delay, then retry;
@@ -354,16 +359,22 @@ class RunbookAuthorAgent:
         self._max_rounds = max(1, max_rounds)
 
     def draft(
-        self, situation: Situation, hint: str | None = None
+        self,
+        situation: Situation,
+        hint: str | None = None,
+        trace: TraceCollector | None = None,
     ) -> tuple[Playbook, str, list[str]] | None:
         try:
-            return self._run(situation, hint)
+            return self._run(situation, hint, trace)
         except Exception:
             logger.exception("runbook author agent: unhandled exception; no draft")
             return None
 
     def _run(
-        self, situation: Situation, hint: str | None
+        self,
+        situation: Situation,
+        hint: str | None,
+        trace: TraceCollector | None = None,
     ) -> tuple[Playbook, str, list[str]] | None:
         if self._toolbox_factory is None:
             logger.info("runbook author agent: no toolbox_factory configured; no draft")
@@ -376,6 +387,14 @@ class RunbookAuthorAgent:
             message, outcome = self._call_model(messages)
             if outcome != "ok":
                 return None  # rate-limit budget exhausted or a terminal HTTP failure
+
+            # Record the assistant's reasoning content (if any) exactly once,
+            # before branching — this covers BOTH the tool-call branch (content
+            # that accompanies tool calls) and the plain-content branch. This
+            # is a side-channel read only: it never alters `messages` or
+            # control flow, so trace=None is a pure no-op here.
+            if trace is not None and message.get("content"):
+                trace.model_turn(message["content"])
 
             tool_calls = message.get("tool_calls")
             if tool_calls:
@@ -392,7 +411,25 @@ class RunbookAuthorAgent:
                 for call in tool_calls:
                     result = self._handle_tool_call(call, toolbox)
                     if result.get("_submitted"):
+                        if trace is not None:
+                            try:
+                                playbook, rationale, cited_facts = result["_submitted"]
+                                trace.submit(
+                                    {
+                                        "name": playbook.name,
+                                        "actions": [s.action for s in playbook.steps],
+                                        "rationale": rationale,
+                                        "cited_facts": cited_facts,
+                                    }
+                                )
+                            except Exception:
+                                logger.warning(
+                                    "runbook author agent: submit trace recording failed; draft continues",
+                                    exc_info=True,
+                                )
                         return result["_submitted"]
+                    if trace is not None:
+                        self._trace_tool_call(trace, call, result["content"])
                     messages.append(
                         {
                             "role": "tool",
@@ -414,6 +451,26 @@ class RunbookAuthorAgent:
             "runbook author agent: exhausted %d rounds without a valid submit", self._max_rounds
         )
         return None
+
+    @staticmethod
+    def _trace_tool_call(trace: TraceCollector, call: dict, result_content: dict) -> None:
+        """Record one non-submit tool call on the trace. Best-effort: mirrors
+        the same defensive name/arguments parsing `_handle_tool_call` does, so
+        a malformed call can never raise here either — this must never affect
+        `messages` or control flow, only the side-channel trace.
+        """
+        from services.governance.adapters.author_tools import summarize_result
+
+        function = call.get("function", {}) or {}
+        name = function.get("name", "")
+        raw_arguments = function.get("arguments") or "{}"
+        try:
+            arguments = json.loads(raw_arguments) if raw_arguments else {}
+            if not isinstance(arguments, dict):
+                arguments = {}
+        except (json.JSONDecodeError, TypeError):
+            arguments = {}
+        trace.tool_call(name, arguments, summarize_result(name, result_content))
 
     def _call_model(self, messages: list[dict]) -> tuple[dict | None, str]:
         """POST one round, honoring the 429 backoff within this round's attempt budget.

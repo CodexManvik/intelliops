@@ -120,3 +120,6 @@ postgres:
   user: intelliops
   password: intelliops
   db: intelliops
+  # Durable storage size for the StatefulSet's PVC (issue #55). The DB survives
+  # a pod reschedule now; size to taste (audit/approval/training/trace rows).
+  storage: 1Gi

@@ -1,6 +1,6 @@
 import * as api from "./api";
 import * as mock from "./mock";
-import type { LlmProbe, ProposedPlaybook, Situation, SystemInfo } from "./types";
+import type { LlmProbe, ProposedPlaybook, RunSummary, Situation, SystemInfo, TraceStep } from "./types";
 
 const LIVE = import.meta.env.VITE_DATA_MODE === "live";
 
@@ -8,6 +8,12 @@ const LIVE = import.meta.env.VITE_DATA_MODE === "live";
 // freshly-drafted proposal are reflected back when the queue reloads, without
 // a server. Reset on page load, same lifespan as the rest of the mock store.
 const _mockProposals: ProposedPlaybook[] = [...mock.proposals];
+
+// mock mode: agent runs/steps, seeded from mock.ts and appended to by the
+// mock draftAsync below (see draftAsync) so a freshly-triggered draft shows
+// up immediately in the Agent Activity feed without a server.
+const _mockRuns: RunSummary[] = [...mock.agentRunSummaries];
+const _mockSteps: Record<string, TraceStep[]> = { ...mock.agentRunSteps };
 
 export const loadSituations = LIVE
   ? api.loadSituations
@@ -87,4 +93,57 @@ export const rejectProposal = LIVE
       p.status = "rejected";
       p.decided_by = decidedBy;
       return p;
+    };
+
+/* ---------------------------------------------------------------------------
+   Agent Activity — AI runbook author trace (Task 7)
+--------------------------------------------------------------------------- */
+
+export const draftAsync = LIVE
+  ? api.draftAsync
+  : async (situation: Situation, _requestedBy: string): Promise<{ run_id: string }> => {
+      // mock mode: fabricate a run the same shape draft-async would start,
+      // already terminal (mock has no LLM/agent loop to run live) — the UI
+      // then loads its stored steps rather than streaming.
+      const run_id = `run-mock-${Date.now().toString(36)}`;
+      _mockRuns.unshift({
+        run_id,
+        started_at: Date.now(),
+        status: "succeeded",
+        signature: situation.signature,
+        step_count: mock.agentRunSteps["run-mock0001"].length,
+        proposal_id: "prop-demo0001",
+      });
+      _mockSteps[run_id] = mock.agentRunSteps["run-mock0001"].map((s) => ({ ...s, run_id }));
+      return { run_id };
+    };
+
+export const loadAgentRuns = LIVE ? api.loadAgentRuns : async (): Promise<RunSummary[]> => _mockRuns;
+
+export const loadAgentRun = LIVE
+  ? api.loadAgentRun
+  : async (runId: string): Promise<TraceStep[]> => _mockSteps[runId] ?? [];
+
+// mock mode: no server to stream from — every mock run is already terminal
+// (see draftAsync above), so AgentActivity should never need to open a
+// stream there. This stub exists so the same call-site works if it ever is
+// called in mock mode: an EventSource-shaped object that immediately closes
+// and never fires — the view falls back to loadAgentRun for stored steps.
+export const openAgentRunStream = LIVE
+  ? api.openAgentRunStream
+  : (_runId: string): EventSource => {
+      const target = new EventTarget();
+      const stub = Object.assign(target, {
+        readyState: 2, // CLOSED
+        url: "",
+        withCredentials: false,
+        CONNECTING: 0 as const,
+        OPEN: 1 as const,
+        CLOSED: 2 as const,
+        onopen: null,
+        onmessage: null,
+        onerror: null,
+        close: () => {},
+      });
+      return stub as unknown as EventSource;
     };

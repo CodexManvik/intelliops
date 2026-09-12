@@ -13,9 +13,10 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { Bezel, Eyebrow, SevChip, StatusChip, timeAgo, motion as m } from "../components/primitives";
-import { loadSituations, loadSituationDetail, decideApproval, loadMetrics, loadOutcomes, proposePlaybook } from "../data/source";
+import { loadSituations, loadSituationDetail, decideApproval, loadMetrics, loadOutcomes, draftAsync } from "../data/source";
 import { useLiveData } from "../hooks/useLiveData";
 import { pushToast } from "../hooks/useToast";
+import type { View } from "../components/Shell";
 import type { Situation, SituationStatus, Metrics, OutcomeRow } from "../data/types";
 
 const LIVE = import.meta.env.VITE_DATA_MODE === "live";
@@ -107,7 +108,13 @@ function MetricCard({
   );
 }
 
-export function Incidents() {
+export function Incidents({
+  onView,
+  onFocusRun,
+}: {
+  onView?: (v: View) => void;
+  onFocusRun?: (id: string) => void;
+} = {}) {
   const { data: seed } = useLiveData(loadSituations, [] as Situation[]);
   const { data: metrics } = useLiveData(loadMetrics, {
     alertsIngested: 0, situationsOpen: 0, noiseReductionPct: 0, mttrMinutes: 0,
@@ -210,8 +217,10 @@ export function Incidents() {
     if (proposing || !sel) return;
     setProposing(true);
     try {
-      await proposePlaybook(sel, "oncall-alice");
-      pushToast("success", "Draft created — review in Governance");
+      const { run_id } = await draftAsync(sel, "oncall-alice");
+      pushToast("success", "Drafting… see Agent Activity");
+      onFocusRun?.(run_id);
+      onView?.("agent-activity");
     } catch (e) {
       pushToast("error", `Draft failed: ${e instanceof Error ? e.message : "unknown"}`);
     } finally {

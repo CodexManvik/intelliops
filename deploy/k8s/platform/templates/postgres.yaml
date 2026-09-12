@@ -1,18 +1,42 @@
 {{/*
 postgres.yaml
-Renders a Deployment and a Service for the Postgres instance used as the data store.
-Image is configured via values.postgres.image (default postgres:16).
-Credentials and database name are taken from values.postgres.user/password/db.
+Renders a Secret, a StatefulSet (with a volumeClaimTemplate for durable storage),
+and a headless Service for the Postgres instance used as the data store.
+
+- Credentials live in a Secret (NOT the shared ConfigMap) — issue #57.
+- A StatefulSet + volumeClaimTemplate gives Postgres a real PersistentVolumeClaim,
+  so the database survives a pod reschedule/restart (issue #55). The prior plain
+  Deployment had no volume, so any restart wiped audit/approval/learning/trace state.
+Image is configured via values.postgres.image (default postgres:16); the PVC size
+via values.postgres.storage (default 1Gi).
 */}}
 ---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-credentials
+  labels:
+    {{- include "intelliops.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  POSTGRES_USER: {{ .Values.postgres.user | quote }}
+  POSTGRES_PASSWORD: {{ .Values.postgres.password | quote }}
+  POSTGRES_DB: {{ .Values.postgres.db | quote }}
+  # The app-side connection string (password embedded) lives here too, NOT in the
+  # ConfigMap — every service picks it up via `envFrom: secretRef` (issue #57).
+  # psycopg (v3) driver + the plain `postgres` Service host.
+  INTELLIOPS_DATABASE_URL: {{ printf "postgresql+psycopg://%s:%s@postgres:5432/%s" .Values.postgres.user .Values.postgres.password .Values.postgres.db | quote }}
+---
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: postgres
   labels:
     {{- include "intelliops.labels" . | nindent 4 }}
     {{- include "intelliops.selectorLabels" (dict "root" . "name" "postgres") | nindent 4 }}
 spec:
+  # The headless Service below gives the single pod a stable network identity.
+  serviceName: postgres
   replicas: 1
   selector:
     matchLabels:
@@ -28,13 +52,28 @@ spec:
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 5432
+          # Credentials come from the Secret, never the ConfigMap.
+          envFrom:
+            - secretRef:
+                name: postgres-credentials
+          # postgres:16 puts PGDATA under /var/lib/postgresql/data; the initdb
+          # subdir avoids the "lost+found" clash some volumes create at the mount root.
           env:
-            - name: POSTGRES_USER
-              value: {{ .Values.postgres.user | quote }}
-            - name: POSTGRES_PASSWORD
-              value: {{ .Values.postgres.password | quote }}
-            - name: POSTGRES_DB
-              value: {{ .Values.postgres.db | quote }}
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "intelliops.labels" . | nindent 10 }}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.postgres.storage | default "1Gi" | quote }}
 ---
 apiVersion: v1
 kind: Service
@@ -44,6 +83,9 @@ metadata:
     {{- include "intelliops.labels" . | nindent 4 }}
     {{- include "intelliops.selectorLabels" (dict "root" . "name" "postgres") | nindent 4 }}
 spec:
+  # Headless: the StatefulSet pod is addressed directly by the plain `postgres`
+  # Service name (matches the DATABASE_URL host used across the platform).
+  clusterIP: None
   selector:
     {{- include "intelliops.selectorLabels" (dict "root" . "name" "postgres") | nindent 4 }}
   ports:

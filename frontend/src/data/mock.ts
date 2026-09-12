@@ -5,9 +5,11 @@ import type {
   OutcomeRow,
   Playbook,
   ProposedPlaybook,
+  RunSummary,
   ServiceHealth,
   Situation,
   SystemInfo,
+  TraceStep,
 } from "./types";
 
 /**
@@ -268,6 +270,78 @@ export const proposals: ProposedPlaybook[] = [
     ts: mins(1),
   },
 ];
+
+/**
+ * Agent Activity — a seeded mock run of the AI runbook author, so the tab
+ * renders without a live governance backend. Mirrors the real trace shape:
+ * model_turn (reasoning) → tool_call(s) (grounding lookups) → submit (the
+ * draft) → outcome (terminal). Ties to the demo proposal above via
+ * proposal_id so "review in Governance" is a real link even in mock mode.
+ */
+export const agentRunSummaries: RunSummary[] = [
+  {
+    run_id: "run-mock0001",
+    started_at: mins(1),
+    status: "succeeded",
+    signature: "c72d10b9",
+    step_count: 5,
+    proposal_id: "prop-demo0001",
+  },
+];
+
+export const agentRunSteps: Record<string, TraceStep[]> = {
+  "run-mock0001": [
+    {
+      run_id: "run-mock0001",
+      seq: 0,
+      kind: "model_turn",
+      ts: mins(1),
+      text:
+        "payments-worker is showing sustained memory growth with CPU flat — this looks like a leak rather " +
+        "than load. Before drafting a fix I should check whether a similar pattern has been remediated " +
+        "before and confirm the container's current resource limits.",
+    },
+    {
+      run_id: "run-mock0001",
+      seq: 1,
+      kind: "tool_call",
+      ts: mins(1),
+      tool: "search_past_decisions",
+      arguments: { query: "memory pressure payments-worker", limit: 3 },
+      result_summary: "2 prior decisions found — both raised mem_limit and held (no rollback).",
+    },
+    {
+      run_id: "run-mock0001",
+      seq: 2,
+      kind: "tool_call",
+      ts: mins(1),
+      tool: "get_resource_limits",
+      arguments: { container: "payments-worker" },
+      result_summary: "cpu_limit=250m mem_limit=512Mi — mem_limit is the binding constraint.",
+    },
+    {
+      run_id: "run-mock0001",
+      seq: 3,
+      kind: "submit",
+      ts: mins(1),
+      detail: {
+        name: "Raise memory ceiling · payments-worker",
+        actions: ["patch_resource_limits(mem_limit=768Mi)", "wait(settle)"],
+        rationale:
+          "Memory pressure on payments-worker matches an OOM-adjacent pattern seen before; raising the " +
+          "memory ceiling is reversible and sandbox-rehearsable, so it drafts as hitl rather than auto.",
+        cited_facts: ["past decision: mem_limit raise held with no rollback (x2)", "current mem_limit: 512Mi"],
+      },
+    },
+    {
+      run_id: "run-mock0001",
+      seq: 4,
+      kind: "outcome",
+      ts: mins(1),
+      detail: { status: "succeeded", proposal_id: "prop-demo0001" },
+    },
+  ],
+};
 
 /** A sparkline series for the noise-reduction / MTTR cards. */
 export function series(n: number, base: number, drift: number, seed = 7): number[] {

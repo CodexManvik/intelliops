@@ -18,6 +18,7 @@ import pytest
 
 from common.contracts import HitlMode, Playbook, Situation, SituationStatus
 from services.governance.adapters.runbook_author import RunbookAuthorAgent
+from services.governance.adapters.trace_collector import TraceCollector
 
 
 def _situation():
@@ -476,3 +477,128 @@ def test_read_tool_with_int_arguments_degrades_gracefully():
     assert result is not None
     playbook, _rationale, _facts = result
     assert playbook.steps[0].action == "restart"
+
+
+# ---------------------------------------------------------------------------
+# 8. Trace threading (Task 3): an optional TraceCollector is recorded at hook
+# points inside the loop, but NEVER fed back into `messages` and NEVER changes
+# what draft() returns. The terminal `outcome` step is emitted by the CALLER
+# of draft() (Task 4) — draft's own trace always ends at `submit` on success,
+# or simply stops (no submit step) on budget exhaustion/failure.
+# ---------------------------------------------------------------------------
+
+
+def _trace():
+    """A TraceCollector wired to a plain list sink, for assertions."""
+    sink: list = []
+    return TraceCollector("run-1", sink=sink.append), sink
+
+
+def test_trace_records_model_turn_tool_call_then_submit_in_order():
+    client = _FakeChatClient(
+        [
+            _tool_calls_response(
+                [_read_tool_call("call-1", "get_past_decisions", {"signature": "sig-1"})]
+            ),
+            _tool_calls_response([_submit_call("call-2")]),
+        ]
+    )
+    # give the first response some assistant content alongside the tool call,
+    # so we can assert model_turn captured it
+    client._responses[0]._body["choices"][0]["message"]["content"] = "checking history first"
+
+    agent = _agent(client)
+    trace, sink = _trace()
+    result = agent.draft(_situation(), trace=trace)
+
+    assert result is not None
+    playbook, rationale, cited_facts = result
+
+    kinds = [step.kind.value for step in sink]
+    assert kinds == ["model_turn", "tool_call", "submit"]
+
+    model_turn_step = sink[0]
+    assert model_turn_step.text == "checking history first"
+
+    tool_call_step = sink[1]
+    assert tool_call_step.tool == "get_past_decisions"
+    assert tool_call_step.arguments == {"signature": "sig-1"}
+    assert isinstance(tool_call_step.result_summary, str)
+    assert tool_call_step.result_summary  # non-empty: FakeToolbox returns {"ok": True}
+
+    submit_step = sink[2]
+    assert submit_step.detail["name"] == playbook.name
+    assert submit_step.detail["actions"] == [s.action for s in playbook.steps]
+    assert submit_step.detail["rationale"] == rationale
+    assert submit_step.detail["cited_facts"] == cited_facts
+
+    # draft() never emits the terminal outcome step itself — that's the
+    # caller's job (Task 4)
+    assert "outcome" not in kinds
+
+
+def test_trace_budget_exhaustion_records_turns_but_no_submit():
+    responses = [
+        _tool_calls_response([_read_tool_call(f"call-{i}", "get_system_context")])
+        for i in range(10)
+    ]
+    client = _FakeChatClient(responses)
+    agent = _agent(client, max_rounds=4)
+    trace, sink = _trace()
+    result = agent.draft(_situation(), trace=trace)
+
+    assert result is None
+    kinds = [step.kind.value for step in sink]
+    assert "submit" not in kinds
+    assert "outcome" not in kinds
+    # one tool_call per round (no assistant content in these fixtures, so no
+    # model_turn steps) — 4 rounds, 4 tool calls
+    assert kinds.count("tool_call") == 4
+
+
+def test_trace_none_default_is_byte_identical_to_no_trace():
+    # Reuses the happy-path shape from test_happy_path_reads_then_submits:
+    # trace omitted entirely (the default) must yield the exact same draft as
+    # today, with no behavior change from adding the parameter.
+    client = _FakeChatClient(
+        [
+            _tool_calls_response(
+                [_read_tool_call("call-1", "get_past_decisions", {"signature": "sig-1"})]
+            ),
+            _tool_calls_response([_submit_call("call-2")]),
+        ]
+    )
+    agent = _agent(client)
+    result = agent.draft(_situation(), hint="check past decisions")
+
+    assert result is not None
+    playbook, rationale, cited_facts = result
+    assert isinstance(playbook, Playbook)
+    assert playbook.steps[0].action == "restart"
+    assert playbook.hitl_mode == HitlMode.HITL
+    assert rationale == "because"
+    assert cited_facts == ["fact-1"]
+
+
+def test_trace_error_result_still_traced_and_loop_continues_to_submit():
+    def factory(situation):
+        return FakeToolbox(situation, canned={"get_past_outcomes": {"error": "TimeoutError"}})
+
+    client = _FakeChatClient(
+        [
+            _tool_calls_response(
+                [_read_tool_call("call-1", "get_past_outcomes", {"signature": "sig-1"})]
+            ),
+            _tool_calls_response([_submit_call("call-2")]),
+        ]
+    )
+    agent = _agent(client, toolbox_factory=factory)
+    trace, sink = _trace()
+    result = agent.draft(_situation(), trace=trace)
+
+    assert result is not None
+    tool_call_steps = [s for s in sink if s.kind.value == "tool_call"]
+    assert len(tool_call_steps) == 1
+    assert tool_call_steps[0].tool == "get_past_outcomes"
+    assert tool_call_steps[0].result_summary == "error: TimeoutError"
+    assert any(s.kind.value == "submit" for s in sink)
