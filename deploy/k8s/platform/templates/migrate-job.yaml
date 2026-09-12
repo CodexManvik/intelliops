@@ -46,3 +46,7 @@ spec:
           envFrom:
             - configMapRef:
                 name: intelliops-env
+            # INTELLIOPS_DATABASE_URL now lives in the Secret (issue #57) — the
+            # migration needs it, so pull the secret in too.
+            - secretRef:
+                name: postgres-credentials

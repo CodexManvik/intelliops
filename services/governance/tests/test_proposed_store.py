@@ -7,9 +7,22 @@ from common.contracts import (
     ProposedPlaybookStatus,
     RemediationStep,
 )
+from common.db import proposed_playbooks
 from services.governance.adapters.proposed_store import InMemoryProposedPlaybookStore
 
 NOW = datetime(2026, 9, 4, tzinfo=UTC)
+
+
+def test_proposed_playbooks_table_shape():
+    # No DB needed — just the table metadata (issue #56: proposals must be
+    # persistable, mirroring author_decisions' promoted-column style).
+    assert proposed_playbooks.name == "proposed_playbooks"
+    cols = {c.name for c in proposed_playbooks.columns}
+    assert cols == {"id", "proposal_id", "status", "source_situation_id", "ts", "payload"}
+    assert proposed_playbooks.c.id.primary_key
+    assert proposed_playbooks.c.proposal_id.nullable is False
+    assert proposed_playbooks.c.status.nullable is False
+    assert proposed_playbooks.c.payload.nullable is False
 
 
 def _prop(pid="prop-1", status=ProposedPlaybookStatus.PROPOSED):

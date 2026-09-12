@@ -162,6 +162,27 @@ agent_run_steps = Table(
     Index("ix_agent_run_steps_run_id", "run_id"),
 )
 
+# AI runbook proposals awaiting human approval (issue #56). Previously only an
+# in-memory dict — a governance restart mid-review silently lost every pending
+# proposal. proposal_id is a plain indexed String (not the PK; `id` autoincrement
+# is the PK per the file's existing pattern, matching author_decisions) so a
+# proposal can be looked up without relying on insertion order. status is a
+# promoted typed column kept consistent with the JSONB payload by doing every
+# update as a read-modify-write within one transaction (see
+# PostgresProposedPlaybookStore.set_status).
+proposed_playbooks = Table(
+    "proposed_playbooks",
+    METADATA,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("proposal_id", String, nullable=False),
+    Column("status", String, nullable=False),
+    Column("source_situation_id", String, nullable=True),
+    Column("ts", DateTime(timezone=True), nullable=False),
+    Column("payload", _JSON, nullable=False),
+    Index("ix_proposed_playbooks_proposal_id", "proposal_id"),
+    Index("ix_proposed_playbooks_status", "status"),
+)
+
 
 def make_engine(database_url: str) -> Engine:
     return create_engine(database_url, future=True, pool_pre_ping=True)

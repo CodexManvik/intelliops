@@ -1605,6 +1605,79 @@ outright.
 
 ---
 
+### ADR-031 — Bus delivery is at-most-once (a documented, deferred limitation)
+
+**Context.** A 2026-09-12 production-readiness review correctly found that event delivery is
+**at-most-once**, not the "durable closed loop" the design implies. In `common/bus.py`,
+`RedisBus.consume` calls `xack` on the entry *before* it `yield`s the entry to the handler; the
+Kafka binding auto-commits offsets before processing. So a crash, a validation error, a DB failure,
+or a downstream (governance) outage *after* the ack but *before* the handler commits **permanently
+loses** that event — a dropped `remediation.outcomes` silently never closes the learning loop for
+that run; a dropped `situations.detected` drops an incident. A related consequence: the Read
+service's in-memory projection is rebuilt from the bus on restart, but the consumer group resumes
+past its prior acks, so a cold-started Read model misses every already-acked event and shows an
+empty/partial console until new traffic arrives (issue #58).
+
+**Decision.** For the capstone milestone this is **accepted and documented, not fixed** — a
+deliberate scope decision, recorded so it is not mistaken for an oversight. The consume loop's
+comment was corrected to state the at-most-once semantics honestly (it previously overclaimed
+"at-least-once"). The production fix is a self-contained arc, tracked in **issue #53**: move the
+`xack` to *after* the handler returns (at-least-once), give each event a stable id and each consumer
+an idempotency record so redelivery is safe, add a per-topic dead-letter queue for
+poison messages, and — for handlers that both write to Postgres and emit a follow-on event — use a
+transactional outbox so the DB write and the emit commit atomically. The Read cold-start rebuild
+(#58) is the same theme: a snapshot/checkpoint or a replay-from-`0` on cold start.
+
+**Consequences.** The demo's closed loop works because nothing crashes mid-handler in practice, and
+the k8s consumers are made *resilient to Redis blips* (the retry-reconnect in `consume` — see the
+live-bring-up fixes) even though they are not yet *durable across a mid-handler crash*. A reviewer
+evaluating production-readiness should treat durable delivery as the top follow-up; a reviewer
+evaluating the *design* sees the boundary is clean (one `BusClient` protocol) and the fix does not
+require reshaping the services, only the delivery contract behind them.
+
+---
+
+### ADR-032 — Stateful-by-design hardening: durable Postgres, bounded Redis, secret credentials
+
+**Context.** The same review flagged three operational gaps that were cheap to close and
+undermined the "durable state" claim on the Helm path specifically (compose was already fine):
+(1) the Helm Postgres was a plain `Deployment` with **no volume**, so any pod reschedule wiped the
+audit / approval / training / trace database (issue #55); (2) Redis Streams had **no size cap**, so
+`telemetry.raw` grew until Redis OOMed (issue #54); (3) the AI runbook **proposal** awaiting human
+approval was stored **in memory only** (`InMemoryProposedPlaybookStore` hardcoded), lost on a
+governance restart (issue #56) — an inconsistency, since the *approval* store had already been
+Postgres-backed for exactly this reason; and (4) the Postgres credentials (including the
+password-bearing `DATABASE_URL`) lived in `values.yaml` and the shared **ConfigMap**, where the
+file's own comment said "secrets should be moved to a Secret" (issue #57).
+
+**Decision.** Close all four in one change, keeping the demo posture (off-by-default, no new
+required inputs):
+- **Postgres → StatefulSet + `volumeClaimTemplate`** with a headless Service. The pod keeps the
+  stable `postgres` name (so `DATABASE_URL`'s host is unchanged), gains a real PVC
+  (`postgres.storage`, default `1Gi`), and `PGDATA` is a subdir of the mount. The DB now survives
+  a reschedule.
+- **Redis Streams bounded** by an approximate per-stream cap: `xadd` uses `MAXLEN ~ N`
+  (`bus_stream_maxlen`, default `100_000`; `0` disables it for tests). Approximate trimming is
+  cheap and only drops already-old entries — consumer groups and redelivery are unaffected.
+- **Proposals persisted**: a `PostgresProposedPlaybookStore` + `proposed_playbooks` table +
+  Alembic `0007`, wired through `make_stores` exactly like the approval / author-decision stores;
+  governance now uses `stores.proposed_store` instead of constructing an in-memory one.
+- **Credentials in a Secret**: a `postgres-credentials` Secret carries `POSTGRES_*` and the
+  password-bearing `INTELLIOPS_DATABASE_URL`; the ConfigMap no longer contains it; every service
+  and the migrate Job pick it up via `envFrom: secretRef`.
+
+**Consequences.** The Helm "live" path is now stateful-by-design for the data the platform claims
+to keep, and secrets are out of the ConfigMap. Two related items are **deliberately still deferred**
+(tracked, not silent): baseline workload hardening — resource limits, security contexts, and
+NetworkPolicies on the core services (issue #57, part 2) — and splitting the `full` image so
+`action`/`correlation` don't inherit the torch stack (issue #61; the slim-boundary already keeps
+those imports lazy, so it is a packaging optimization, not a correctness issue). Real
+**identity/authz** (the caller-supplied-`decided_by` RBAC gap, issue #59, and the browser
+shared-token / SSE-token-in-URL design, issue #60) is a separate, larger arc scoped out of this
+milestone and documented under §6.
+
+---
+
 ## 4. Cross-cutting concerns
 
 **Traceability.** A `correlation_id` is threaded through every `AuditRecord`, so one
@@ -1680,9 +1753,15 @@ in-region/on-prem for sovereign-cloud requirements.
   check (`hmac.compare_digest`) wired once in `create_app`, with `/health` + `/ready` always
   exempt. Internal service-to-service calls authenticate (they send the token), and the React
   console authenticates with the same shared token — so under `token` mode the read endpoints are
-  gated and there's no public read surface. The honest limits: a **shared** token (not per-user)
-  and the frontend token is baked into the client bundle; per-user tokens / an IdP are the deferred
-  production path. See [docs/OPERATIONS.md](docs/OPERATIONS.md).
+  gated and there's no public read surface. The honest limits (flagged by the 2026-09-12
+  production-readiness review, tracked as issues #59/#60): the token authenticates a **shared
+  client, not an actor** — RBAC checks trust a **caller-supplied** `decided_by`/`actor` in the
+  request body, so any client that can reach Governance can approve *as* another actor; the
+  frontend token is **baked into the client bundle**; and SSE carries the token **in the URL query
+  string** (EventSource cannot set headers). The production path — real identity (OIDC/JWT or an
+  authenticated BFF, actor derived from verified claims), scoped service identities, and SSE via
+  same-origin cookies or short-lived tickets — is a deferred arc, out of the current milestone.
+  See [docs/OPERATIONS.md](docs/OPERATIONS.md).
 - **Real-time console + live pipeline view.** The console no longer polls alone: the read-service
   exposes a Server-Sent Events endpoint (`GET /stream`), fed by a stdlib thread→async pub/sub
   inside `ReadModel`, that nudges the console to re-fetch within about a second of a backend change
@@ -1722,6 +1801,11 @@ in-region/on-prem for sovereign-cloud requirements.
   not scheduled or outcome-driven yet; automating it is a later maturity milestone.
 - **Kafka in production.** Redis Streams runs dev and demo; the Kafka `BusClient` binding is
   deferred behind the same interface.
+- **Durable event delivery.** Bus delivery is currently **at-most-once** — the consumer acks
+  before the handler runs, so a mid-handler crash loses that event, and a cold-started Read
+  projection misses already-acked events ([ADR-031](#adr-031--bus-delivery-is-at-most-once-a-documented-deferred-limitation),
+  issues #53/#58). At-least-once + idempotency + a DLQ + a transactional outbox is the tracked
+  production fix, deliberately deferred for the capstone.
 - **Simulation controls in production.** The `/break`, `/fix`, `/reset`, `/reset-baseline`, and
   `/reset-approvals` endpoints ([ADR-011](#adr-011--a-live-breakable-demo-harness-with-explicit-simulation-controls))
   must be gated or removed when pointed at a real system. (Under `AUTH_MODE=token` they are gated

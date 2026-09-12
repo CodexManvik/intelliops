@@ -64,6 +64,10 @@ spec:
           envFrom:
             - configMapRef:
                 name: intelliops-env
+            # INTELLIOPS_DATABASE_URL (password-bearing) comes from the Secret,
+            # not the ConfigMap (issue #57).
+            - secretRef:
+                name: postgres-credentials
           env:
             - name: SERVICE_MODULE
               value: {{ .module | quote }}

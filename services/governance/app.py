@@ -31,7 +31,6 @@ from common.contracts import (
 from common.stores import make_stores
 from services.base import create_app, db_ready
 from services.governance.adapters.author_tools import AuthorToolbox
-from services.governance.adapters.proposed_store import InMemoryProposedPlaybookStore
 from services.governance.adapters.runbook_author import (
     NullRunbookAuthor,
     RunbookAuthorAgent,
@@ -93,7 +92,12 @@ def _init_state() -> None:
     # and were lost on every governance restart — the console's Approve then 404'd
     # ("approval not found") because the action-created approval had vanished.
     app.state.approval_store = stores.approval_store
-    app.state.proposed_store = InMemoryProposedPlaybookStore()
+    # Use the proposed_store make_stores built (Postgres when STORE_BACKEND=postgres).
+    # Previously this hardcoded InMemoryProposedPlaybookStore(), so AI runbook
+    # proposals awaiting human approval never persisted and were lost on every
+    # governance restart mid-review (issue #56) — same class of bug PR #49 fixed
+    # for the approval store above.
+    app.state.proposed_store = stores.proposed_store
     app.state.trace_store = stores.trace_store
     app.state.agent_run_hub = AgentRunHub()
     # run_id -> Thread for each in-flight/completed draft-async run, so tests
