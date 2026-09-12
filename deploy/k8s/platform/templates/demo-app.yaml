@@ -1,0 +1,57 @@
+{{/*
+demo-app.yaml
+The demo target workload remediation acts on. Runs the shared BASE image
+(launches services.demo_app.app via SERVICE_MODULE/PORT). Gated on demoApp.enabled.
+*/}}
+{{- if .Values.demoApp.enabled }}
+{{- $img := .Values.demoApp.image | default (printf "%s:%s" .Values.image.repository .Values.image.tag) }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-app
+  labels:
+    {{- include "intelliops.labels" . | nindent 4 }}
+    {{- include "intelliops.selectorLabels" (dict "root" . "name" "demo-app") | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "intelliops.selectorLabels" (dict "root" . "name" "demo-app") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "intelliops.selectorLabels" (dict "root" . "name" "demo-app") | nindent 8 }}
+    spec:
+      containers:
+        - name: demo-app
+          image: {{ $img | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: SERVICE_MODULE
+              value: {{ .Values.demoApp.module | quote }}
+            - name: PORT
+              value: {{ .Values.demoApp.port | quote }}
+          ports:
+            - containerPort: {{ .Values.demoApp.port }}
+          readinessProbe:
+            httpGet: { path: /health, port: {{ .Values.demoApp.port }} }
+            initialDelaySeconds: 2
+            periodSeconds: 3
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits: { cpu: "250m", memory: "128Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-app
+  labels:
+    {{- include "intelliops.labels" . | nindent 4 }}
+    {{- include "intelliops.selectorLabels" (dict "root" . "name" "demo-app") | nindent 4 }}
+spec:
+  selector:
+    {{- include "intelliops.selectorLabels" (dict "root" . "name" "demo-app") | nindent 4 }}
+  ports:
+    - port: {{ .Values.demoApp.port }}
+      targetPort: {{ .Values.demoApp.port }}
+{{- end }}

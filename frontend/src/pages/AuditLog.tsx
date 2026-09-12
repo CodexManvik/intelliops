@@ -6,7 +6,7 @@ import type { AuditActionType, AuditStatus, AuditEntry } from "../data/audit";
 
 const STATUS_STYLE: Record<AuditStatus, { bg: string; text: string; label: string }> = {
   success: { bg: "#F0FDF4", text: "#16A34A", label: "success" },
-  failed:  { bg: "#FEF2F2", text: "#DC2626", label: "failed"  },
+  failed:  { bg: "#FEF2F2", text: "#EC3038", label: "failed"  },
   pending: { bg: "#FFFBEB", text: "#D97706", label: "pending" },
 };
 

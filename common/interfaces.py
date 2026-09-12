@@ -7,13 +7,14 @@ so implementations are swappable and tests can bind fakes (see ADR-005).
 from __future__ import annotations
 
 from collections.abc import Iterator
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from common.contracts import (
     ApprovalRequest,
     AuditRecord,
     EnrichmentContext,
     Playbook,
+    PreflightResult,
     RemediationPlan,
     RemediationTarget,
     RootCauseHypothesis,
@@ -21,6 +22,9 @@ from common.contracts import (
     TelemetryEvent,
     TrainingRecord,
 )
+
+if TYPE_CHECKING:
+    from common.contracts import AuthorDecision, AuthorDecisionDisposition, AuthorDecisionOutcome
 
 
 @runtime_checkable
@@ -150,3 +154,60 @@ class ExplanationProvider(Protocol):
         context: EnrichmentContext,
         situation: Situation,
     ) -> str: ...
+
+    def explain_with_source(
+        self,
+        hypothesis: RootCauseHypothesis,
+        context: EnrichmentContext,
+        situation: Situation,
+    ) -> tuple[str, str]: ...
+
+
+@runtime_checkable
+class Sandbox(Protocol):
+    """Rehearses a remediation plan on an isolated copy and reports a verdict."""
+
+    def rehearse(self, situation: Situation, plan: RemediationPlan) -> PreflightResult: ...
+
+
+@runtime_checkable
+class RunbookAuthor(Protocol):
+    """Drafts a typed Playbook for a gap. Returns None when it cannot (fail-to-
+    nothing) — never raises. The caller forces hitl_mode=HITL and a server id."""
+
+    def draft(
+        self, situation: Situation, hint: str | None = None
+    ) -> tuple[Playbook, str | None] | None: ...
+
+
+@runtime_checkable
+class RunbookSelector(Protocol):
+    """Selects a runbook for a situation by semantic similarity among the
+    registered playbooks. Returns (playbook_id, score) or None. Ranks only
+    existing playbooks — never fabricates an id. Never raises."""
+
+    def select(
+        self, situation: Situation, hypothesis: RootCauseHypothesis, store: PlaybookStore
+    ) -> tuple[str, float] | None: ...
+
+
+@runtime_checkable
+class AuthorDecisionStore(Protocol):
+    """The AI runbook author's memory of its own drafting decisions.
+
+    Recorded when a runbook is drafted; disposition updated on human approve/reject;
+    outcome updated when the approved runbook runs. Never raises on a missing target —
+    updates are no-ops when nothing matches (a missed update leaves less signal,
+    never wrong signal)."""
+
+    def record(self, decision: AuthorDecision) -> None: ...
+
+    def by_signature(self, signature: str) -> list[AuthorDecision]: ...
+
+    def update_disposition(
+        self, proposal_id: str, disposition: str | AuthorDecisionDisposition, decided_by: str
+    ) -> None: ...
+
+    def update_outcome(
+        self, playbook_id: str, outcome: str | AuthorDecisionOutcome, health_after: str
+    ) -> None: ...

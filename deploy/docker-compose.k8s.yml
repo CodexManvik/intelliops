@@ -14,6 +14,7 @@ services:
     environment:
       INTELLIOPS_REMEDIATOR_MODE: k8s
       INTELLIOPS_HEALTH_CHECK_MODE: k8s
+      INTELLIOPS_SANDBOX_MODE: k8s
       INTELLIOPS_PROMETHEUS_URL: http://host.docker.internal:30090
       KUBECONFIG: /kubeconfig
     volumes:
@@ -34,6 +35,11 @@ services:
   ingestion:
     environment:
       INTELLIOPS_PROMETHEUS_URL: http://host.docker.internal:30090
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+  meridian-gateway:
+    environment:
+      INTELLIOPS_MERIDIAN_OPS_TARGET_MODE: k8s
     extra_hosts:
       - "host.docker.internal:host-gateway"
 

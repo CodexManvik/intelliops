@@ -43,6 +43,18 @@ def test_metrics_endpoint():
     assert "successRate" in m and "mttrMinutes" in m
 
 
+def test_situation_detail_and_system_endpoints():
+    c = _client(ReadModel())
+    r = c.get("/situations/does-not-exist")
+    assert r.status_code == 404
+    r = c.get("/system")
+    assert r.status_code == 200
+    body = r.json()
+    assert "correlator_kind" in body
+    assert "llm" in body and "provider" in body["llm"]
+    assert body["llm"]["endpoint_configured"] in (True, False)
+
+
 def test_reset_endpoint_clears_model():
     from datetime import UTC, datetime
 

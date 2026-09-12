@@ -7,3 +7,15 @@ nodes:
       - containerPort: 30090   # prometheus NodePort
         hostPort: 30090
         protocol: TCP
+      - containerPort: 30808   # meridian-gateway NodePort
+        hostPort: 30808
+        protocol: TCP
+      - containerPort: 30811   # meridian-validation NodePort
+        hostPort: 30811
+        protocol: TCP
+      - containerPort: 30812   # meridian-aggregation NodePort
+        hostPort: 30812
+        protocol: TCP
+      - containerPort: 30813   # meridian-reporting NodePort
+        hostPort: 30813
+        protocol: TCP

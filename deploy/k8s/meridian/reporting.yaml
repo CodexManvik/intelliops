@@ -1,0 +1,43 @@
+# deploy/k8s/meridian/reporting.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: meridian-reporting
+  namespace: intelliops-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: meridian-reporting }
+  template:
+    metadata:
+      labels: { app: meridian-reporting }
+    spec:
+      containers:
+        - name: meridian-reporting
+          image: intelliops-demo-app:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - { name: SERVICE_MODULE, value: "services.meridian.reporting.app:app" }
+            - { name: PORT, value: "8000" }
+          ports: [{ containerPort: 8000 }]
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 2
+            periodSeconds: 3
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits: { cpu: "250m", memory: "128Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: meridian-reporting
+  namespace: intelliops-demo
+  labels: { app: meridian-reporting }
+spec:
+  type: NodePort
+  selector: { app: meridian-reporting }
+  ports:
+    - port: 8000
+      targetPort: 8000
+      nodePort: 30813

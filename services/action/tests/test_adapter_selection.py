@@ -10,6 +10,12 @@ class _S:
     health_check_mode = "always"
     k8s_namespace = "intelliops-demo"
     prometheus_url = "http://localhost:9090"
+    detection_policy = "on"
+    detection_ratio_threshold = 0.02
+    detection_saturation_ratio_threshold = 0.80
+    detection_saturation_percent_threshold = 90.0
+    detection_latency_ceiling_ms = 500.0
+    correlation_z_threshold = 3.0
 
 
 def test_dry_run_defaults():

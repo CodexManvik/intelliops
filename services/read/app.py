@@ -18,6 +18,19 @@ from services.read.consumer import run_consumer
 from services.read.projection import ReadModel
 
 
+def _redact_endpoint(endpoint: str) -> str:
+    """Show the host but never any embedded credential."""
+    if not endpoint:
+        return ""
+    try:
+        from urllib.parse import urlparse
+
+        p = urlparse(endpoint)
+        return f"{p.scheme}://{p.hostname}" + (f":{p.port}" if p.port else "")
+    except Exception:  # noqa: BLE001
+        return "configured"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
@@ -57,6 +70,34 @@ def situations() -> list[dict]:
 def outcomes() -> list[dict]:
     model = getattr(app.state, "model", None)
     return model.outcomes() if model else []
+
+
+@app.get("/situations/{sid}")
+def situation_detail(sid: str) -> dict:
+    model = getattr(app.state, "model", None)
+    detail = model.situation(sid) if model else None
+    if detail is None:
+        raise HTTPException(status_code=404, detail="situation not found")
+    return detail
+
+
+@app.get("/system")
+def system() -> dict:
+    settings = get_settings()
+    endpoint = settings.llm_explanation_endpoint
+    return {
+        "correlator_kind": settings.correlator_kind,
+        "bus_backend": settings.bus_backend,
+        "store_backend": settings.store_backend,
+        "remediator_mode": settings.remediator_mode,
+        "auth_mode": settings.auth_mode,
+        "llm": {
+            "provider": "openai-compatible" if endpoint else "template",
+            "endpoint_configured": bool(endpoint),
+            "endpoint": _redact_endpoint(endpoint),
+            "model": settings.llm_explanation_model,
+        },
+    }
 
 
 @app.get("/metrics")

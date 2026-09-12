@@ -19,12 +19,17 @@ echo "→ Applying manifests…"
 kubectl create namespace intelliops-demo --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -f "$HERE/deploy/k8s/demo-app/"
 kubectl apply -f "$HERE/deploy/k8s/prometheus/"
+kubectl apply -f "$HERE/deploy/k8s/meridian/"
 
 echo "→ Waiting for rollouts…"
 kubectl -n intelliops-demo rollout status deploy/demo-app --timeout=120s
 kubectl -n intelliops-demo rollout status deploy/prometheus --timeout=120s
+for svc in gateway validation aggregation reporting; do
+  kubectl -n intelliops-demo rollout status deploy/meridian-$svc --timeout=120s
+done
 
 echo "✓ Cluster up."
 echo "  Prometheus: http://localhost:30090"
+echo "  Meridian is in-cluster: gateway :30808, validation :30811, aggregation :30812, reporting :30813"
 echo "  kubeconfig: run 'kind get kubeconfig --name $CLUSTER > /tmp/intelliops.kubeconfig'"
 echo "  Then start the stack with the k8s overlay (see deploy/k8s/README.md)."

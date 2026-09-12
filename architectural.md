@@ -962,6 +962,720 @@ automation principle the whole system is built on. *Async LLM calls* — the RCA
 consumer is a synchronous daemon thread, not an async event loop; a sync `httpx.Client`
 matches the actual call site instead of introducing an event loop for one provider.
 
+### ADR-020 — Meridian sample production system
+
+**Context.** Every incident IntelliOps had ever detected, diagnosed, and remediated was against
+`demo-app` — a single-endpoint toy target whose only job is to expose one `cpu_usage` gauge and
+flip it via `/break`/`/fix`. That is enough to prove the loop closes, but it is not a credible
+"we connected a real system" story for a PPO panel: a real target has multiple independently
+faulting services, a service topology RCA can reason about, and traffic that looks like a product,
+not a probe. The instruction was to make Meridian's faults **genuinely real** — detected off real
+metrics, diagnosed by the unmodified RCA rules, gated by the unmodified governance path — rather
+than build a second demo harness that fakes the interesting part. Three verified facts shaped
+every decision below: (1) the correlator's z-score baseline is keyed on metric *name* only, so a
+service pinned "broken" from boot never spikes — each Meridian service needed the same
+toggle-at-runtime pattern `demo-app` already uses; (2) `CorrelationEngine` groups anomalies by time
+window, not by service, so concurrent faults on two services merge into one Situation; (3) RCA's
+`rank_hypotheses` maps by metric-name token and a recent-deploy match, not by value, so getting
+three *different* diagnoses out of one rule set requires engineering which signal each fault
+raises, not just how large it is.
+
+**Decision.** Build Meridian as a small, realistic **Deloitte-style financial/audit reporting
+platform** — four backend services (`gateway`, `validation`, `aggregation`, `reporting`) built from
+one shared factory (`services/meridian/common.py`'s `make_meridian_service()`, mirroring
+`services.base.create_app`), plus a client-portal + ops-panel UI served by the gateway — and wire
+IntelliOps to observe it through **additive-only** changes:
+
+- **A distinct `service`-labeled Prometheus scrape job per Meridian backend**
+  (`deploy/prometheus.yml`), alongside the untouched `demo-app` job, so RCA can attribute an
+  incident to the right service.
+- **The ingestion query broadened to an instant-vector selector, in compose only.**
+  `INTELLIOPS_PROMETHEUS_QUERY: '{__name__=~"cpu_usage|meridian_error_rate"}'` is set on the
+  `ingestion` service's compose environment; `common/config.py`'s default stays the bare
+  `cpu_usage` query. No ingestion code changed — `PrometheusSource` already treats its configured
+  query as an opaque PromQL string, and a regex selector is still a valid instant-vector query.
+  This was the design's single riskiest unknown and was verified live against a real Prometheus
+  before being relied on (see [docs/MERIDIAN.md §5](../docs/MERIDIAN.md#5-verified-live--the-real-end-to-end-run)):
+  `resultType: vector`, each Meridian service its own series, its `service` label intact.
+- **A shared named volume (`rca-context`) mounted on both `rca` and `meridian-gateway`.** Before
+  this, `rca-service` had no mount for its on-disk deploy-context file, so `recent_deploys()` was
+  always empty and `rollback-deploy` could never fire for anyone. The gateway's new
+  `POST /api/ops/deploy` writes `deploys.json` into the shared volume; RCA's existing enrichment
+  step reads the same file unmodified.
+- **A time-window constraint honored by the UI, not fought in the detector.** Rather than teach
+  `CorrelationEngine` to group by service (a real change to a component every other service also
+  depends on, for a sample-system-only need), the Meridian Operations panel enforces **sequential
+  fault injection**: firing a new fault is disabled while one is active, with an explicit banner
+  naming the ~15-second window and a Clear action. The constraint is real and was confirmed live
+  (a stale fault overlapping a new one inside the window caused a genuine situation merge during
+  verification) — the UI encodes the operational discipline the detector's current design requires,
+  rather than papering over it.
+- **No new playbooks, no IntelliOps service code changes.** `scale-service`, `restart-pod`, and
+  `rollback-deploy` are already `${service}`-templated, so they target Meridian by name with zero
+  registry changes. Meridian imports only the shared platform utilities
+  (`services.base.create_app`, `common.auth`, `common.config`, `common.db`) — never IntelliOps
+  domain logic.
+
+**Why.** The additive-wiring shape follows directly from the project's own design principle that
+new behavior lives behind a switch defaulting to current behavior
+([ADR-012](#adr-012--config-switched-adapter-selection-with-test-safe-defaults)): a fresh
+`docker compose up` without Meridian, and the full `pytest` suite, must see the exact same
+ingestion query and the exact same RCA rules they saw before this effort — and they do, because the
+query override lives in one compose service's environment block, not in a code default. Choosing a
+compose-level query override over a code change to `PrometheusSource`'s query mechanism (a
+documented fallback in the original design) kept this a zero-Python-diff change to a service nobody
+on this effort owned outright. Enforcing sequential injection in the UI, instead of adding
+per-service grouping to `CorrelationEngine`, was the narrower fix for the actual need: Meridian
+needs *demonstrable, distinct* incidents for a scripted demo, not a general-purpose multi-tenant
+correlator, and changing the shared correlator's grouping semantics would have been a much larger,
+riskier change for a benefit only this sample system currently needs. The `error`-fault
+baseline-hold (keep `cpu_usage` at 18.0 while raising `meridian_error_rate`) is the same kind of
+narrow, verified engineering: without it, `scale-service`'s 0.6 confidence would always beat
+`restart-pod`'s 0.5 and the demo would never show a diverse diagnosis, so the fault mechanism itself
+was built to raise exactly one signal at a time.
+
+**Consequences.** (+) IntelliOps now has a second, structurally different target — four
+independently-faultable services instead of one, a real cross-service rollback story, and a UI a
+non-engineer can drive — with a genuinely diverse diagnosis proven live: `scale-service`,
+`restart-pod`, and `rollback-deploy` all fired correctly across three sequential, real scenarios
+(see [docs/MERIDIAN.md §5](../docs/MERIDIAN.md#5-verified-live--the-real-end-to-end-run)). (+) The
+regex-selector approach required zero changes to `PrometheusSource`, `ingestion-service`, or any
+other IntelliOps code path. (+) The rollback-deploy path is now real for the first time — the
+`rca-context` volume gap existed before Meridian and is now fixed for any future service that wants
+the same deploy-aware RCA rule. (−) **Sequential injection is a real, load-bearing constraint, not
+a cosmetic UI choice** — it exists because `CorrelationEngine` groups by time window, not by
+service, and that grouping was deliberately left unchanged. A future multi-tenant or
+concurrent-incident demo would need to revisit that grouping, not just add another UI guard. (−)
+The `crash` fault type has no dedicated RCA rule in `rank_hypotheses` today — it is detected but not
+richly diagnosed (it lands in the generic low-confidence fallback unless it happens to co-occur
+with a saturation-token metric), a known, documented gap rather than a hidden one. (−) Only the
+gateway has real domain business logic wired in; `validation`/`aggregation`/`reporting` are fully
+faultable and independently observed but their domain endpoints are scaffolded, not yet real
+request handlers. (−) The demo's remediation is dry-run by default, same as the rest of the system
+— Meridian does not currently have a `REMEDIATOR_MODE=k8s` path of its own.
+
+**Alternatives rejected.** *Teaching `CorrelationEngine` to group by service instead of enforcing
+sequential injection* — would let Meridian run concurrent scenarios, but changes grouping semantics
+every other service and test in the system depends on, for a benefit scoped to one sample system;
+rejected in favor of an honestly-documented UI constraint. *A code-level multi-query ingestion
+enhancement (`_make_source` polling `cpu_usage` and `meridian_error_rate` as two separate queries)*
+— named in the original design as the fallback if the regex selector broke; not needed once the
+selector was verified live to return a correct instant vector, so the simpler compose-only override
+shipped instead. *A second Postgres/Redis for Meridian* — unnecessary; Meridian's two tables
+(`meridian_submissions`, `meridian_reports`) live on the existing `common.db.METADATA` and share the
+existing bus. *Faking Meridian's metrics from canned incident scripts instead of a real toggleable
+gauge* — would have been faster to build but would not exercise the real scrape → ingest → detect
+path this effort exists to prove; rejected as contrary to the entire point of a "sample production
+system." *A cyan/Geist-themed Meridian UI matching the console* — rejected deliberately: a visually
+distinct light enterprise theme makes the demo's two systems ("the client's app" vs. "IntelliOps
+watching it") legible at a glance, which matters for an audience seeing both for the first time.
+
+### ADR-021 — Evidence exposure & honesty pass
+
+**Context.** An adversarial audit set out to answer one question: if someone opened the console
+and asked "prove this is real," could it? The engine underneath was genuinely real — 414+ tests,
+a live correlator, RCA rules running against real telemetry, real (dry-run) remediation — but the
+read-model *projection* (`services/read/projection.py`) that feeds the console was throwing away
+every rich signal at the exact boundary where a human would look for proof. Member telemetry
+events were collapsed to a bare count. A hypothesis's supporting evidence and its LLM (or
+template) explanation were computed and then discarded. The correlator's peak z-score was computed
+against a real baseline and then reset without ever being attached to the emitted `Situation`. The
+remediation outcome was appended to a global outcomes list but never joined back onto the situation
+it belonged to, so a resolved incident's own record couldn't say what actually happened to it. On
+top of the missing evidence, two UI bugs made the console actively misleading rather than merely
+uninformative: the approve/reject gate reappeared on a situation that had already been decided, and
+the outcome panel rendered hardcoded `"healthy"` / `"aborted"` text regardless of what the backend
+reported. Separately, the LLM-assisted explanation path ([ADR-019](#adr-019--pluggable-detectors-the-finetuning-loop-and-llm-assisted-rca))
+was dormant and invisible by default — nothing in the compose stack or the console told an operator
+whether an explanation came from a real model or the offline template, or how to turn a real one on.
+
+**Decision.** Fix this by widening the read-model projection, not by touching engine logic —
+`CorrelationEngine`, `rank_hypotheses`, and the remediation playbooks are unchanged. Every new
+field is an additive, optional contract field with a test-safe default, the same discipline that
+keeps contract changes cheap and keeps the existing suite green
+([ADR-006](#adr-006--monorepo-with-a-shared-common-library),
+[ADR-012](#adr-012--config-switched-adapter-selection-with-test-safe-defaults)). Concretely:
+
+- The projection now carries each member event's real `name`, `value`, `labels`, and `kind`
+  instead of a count, and attaches the correlator's peak z-score plus the baseline it was measured
+  against to the `Situation` it belongs to.
+- A diagnosed situation's ranked hypotheses keep their evidence list and their explanation text
+  (labeled by source — LLM or template) all the way to the read model, instead of being summarized
+  away.
+- The real remediation outcome — result, executed steps, and mode (dry-run vs. live) — is joined
+  onto its situation by id, alongside a stage timeline, and the read model resolves a readable
+  title instead of the raw signature.
+- Three new read-only introspection endpoints expose the internals directly: read's
+  `GET /situations/{id}` (the full per-incident record) and `GET /system` (live correlator
+  baselines, configured backends, remediation mode, LLM provider status), plus correlation's
+  `GET /baseline`. Governance's `GET /audit` already existed and needed no change.
+- The LLM explanation provider becomes live-configurable instead of boot-time-only: RCA gets
+  `POST /config/llm` and `POST /config/llm/test`, backed by a `ProviderHolder` — a small
+  lock-guarded holder the daemon consumer re-reads every iteration and the request thread writes
+  to, so swapping providers takes effect without a restart. Both endpoints sit behind the existing
+  edge auth ([ADR-017](#adr-017--edge-authentication)) and the response never echoes the
+  `api_key` back, configured or not.
+- The console's drill-down and a new System view are built on top of these endpoints; the
+  reappearing-approve-gate and hardcoded-outcome-text bugs are fixed as part of the same pass,
+  since they were found during the same audit and are console-side, not projection-side.
+
+**Why.** The rule this pass enforces is simple: no fabricated numbers in live mode, and every
+number or claim the console shows must trace to a real source — a metric, a stored evidence
+record, a stored outcome, or a value explicitly labeled as a dry-run simulation. Widening the
+projection rather than changing the engine keeps the blast radius small and testable: the engine's
+own 414+ tests are untouched, and the new fields default to shapes the existing tests and mock mode
+already produce, so nothing that passed before this pass can start failing because of it. This
+followed the same reasoning as [ADR-012](#adr-012--config-switched-adapter-selection-with-test-safe-defaults) —
+new behavior is additive and defaults to the old behavior — and the same contract discipline as
+[ADR-006](#adr-006--monorepo-with-a-shared-common-library), where shared shapes live in one place
+so a change to them is one edit reviewed once rather than drift across services. The LLM stays
+**off by default** — an offline template explanation ships out of the box, which is the honest
+default for a system with no API key configured — and turning it on is opt-in, either via the
+compose environment variables or live from the console's System view, never assumed.
+
+### ADR-022 — Slim per-service Docker images
+
+**Context.** All 13 compose services built from the same `Dockerfile`, so all 13 shipped the same
+dependency set — including `numpy`, `scikit-learn`, `river`, `joblib`, and the `kubernetes` client,
+libraries only `correlation` (trained/robust anomaly detection) and `action` (the k8s remediator
+adapter) actually import at runtime. Every other service — `ingestion`, `rca`, `governance`,
+`feedback`, `read`, `migrate`, and the four Meridian sample-system services — paid for ~270MB of
+ML and k8s dependencies it never used, pushing every image, base or not, to ~1.5GB. Worse, the
+bloat wasn't confined to a `pyproject.toml` line: `common/stores.py` unconditionally imported
+`adapters/__init__.py`, which eagerly imported the trained correlator module, which imported
+`numpy` and `river` at module scope — so even a service that only touched `common.stores` for its
+audit-log adapter pulled in the ML stack transitively, with no explicit import anywhere in that
+service's own code to point at. A per-service dependency split was impossible until that leak was
+closed, because the "boundary" it needed to respect didn't hold even in principle.
+
+**Decision.** Fix the leak, then split the dependency graph and the build to match it:
+
+- **Break the transitive leak.** `common/stores.py`'s adapter wiring no longer eagerly imports the
+  trained/robust correlator at module load. The correlator's own `numpy`/`river` imports move to
+  lazy, function-scope imports inside the adapters that actually construct a trained model — the
+  same lazy-import pattern the codebase already used elsewhere for optional heavy deps. A
+  subprocess-based `test_import_boundary.py` (Task 1) asserts `common.stores` can be imported in a
+  process with no `numpy`/`river` installed, so the boundary is a running test, not a convention.
+- **Split the dependency graph.** `pyproject.toml` moves `numpy`, `scikit-learn`, `river`, and
+  `joblib` into an `ml` extra and the `kubernetes` client into a `k8s` extra; `pyyaml` (previously
+  pulled in transitively) is pinned explicitly in the base dependency set since base no longer
+  guarantees it arrives as a side effect of the ML stack. `uv.lock` is regenerated so both `uv sync
+  --frozen` (base) and `uv sync --frozen --extra ml --extra k8s` (full) resolve from the same lock
+  file with no version drift.
+- **Multi-stage build, targeted per service.** `deploy/Dockerfile` gains a shared `builder-base`
+  stage and two leaves: `base` (`uv sync --frozen --no-dev --no-install-project`, no extras) and
+  `full` (the same, plus `--extra ml --extra k8s`). `deploy/docker-compose.yml`'s service anchor
+  builds `target: base`; only `correlation` and `action` override to `target: full`. Every other
+  service — including `migrate` and the four Meridian services, which inherit the anchor —
+  gets the slim image for free.
+- **Verification gate.** CI's `slim-boundary` job builds a base-only venv and imports all 11
+  base-target services plus `common.stores.make_stores`, asserting none of `numpy`/`scipy`/
+  `sklearn`/`river`/`joblib`/`kubernetes` land in `sys.modules`, plus two grep-lints guarding
+  against a regression (no heavy-dep references in `services/feedback/`; no module-scope
+  sklearn/joblib import in the trained correlator). The `compose-smoke` job builds all 13 images
+  and asserts `migrate` exits 0 and every service's `/ready` (7 core services) or `/health`
+  (5 Meridian/demo-app services) returns 200 — proof the split doesn't just build, it boots.
+
+**Why.** The measured result: base-target images are **619MB**, down from **~1.5GB** (a ~59%,
+~900MB drop), confirmed both by `docker images` after a full `docker compose build` and by a
+runtime check (`python -c "import services.rca.app"` inside the built image, then asserting
+`sklearn`/`kubernetes`/`numpy`/`river`/`joblib` are absent from `sys.modules`). `correlation` and
+`action` stay at ~1.5GB on the `full` target, which is correct — they need the libraries they
+carry. This is the same discipline as [ADR-012](#adr-012--config-switched-adapter-selection-with-test-safe-defaults):
+optional behavior (there, a live vs. test-safe adapter; here, ML/k8s dependencies) stays behind an
+explicit, test-verified boundary rather than an implicit one a future change could silently
+reopen — the difference is ADR-012's boundary is a runtime config switch, while this one is a
+build-time dependency graph, but both are enforced by a test that fails loudly if the boundary is
+crossed rather than a convention that quietly erodes. Fixing the import leak first, rather than
+just splitting `pyproject.toml` and hoping the Dockerfile stages sorted themselves out, was the
+load-bearing step: a dependency split on top of an unfixed transitive leak would have left every
+"slim" image still pulling in the full ML stack at import time, silently defeating the whole
+effort.
+
+---
+
+### ADR-023 — Pre-flight sandbox rehearsal before remediation
+
+**Context.** [ADR-007](#adr-007--reversible-only-health-verified-remediation) makes remediation
+reversible and health-verified, but the first time a fix touched a real pod was still
+**production**: `execute_remediation` ran the gates, then executed on the live target, then
+health-checked, then rolled back if unhealthy. There was no *trial* step. `dry_run` mode
+rehearses nothing — `DryRunRemediator.execute` literally logs and returns `True`. Kubernetes
+server-side dry-run is admission-only (it validates the manifest against the API server; it
+never schedules a pod, so it produces no health signal). Neither answers the question a human
+approver actually has: *will this fix work?*
+
+**Decision.** Add a **pre-flight rehearsal** that runs on an isolated copy **before** the human
+approves (and before an `auto` playbook executes). A `Sandbox` interface has two config-switched
+adapters ([ADR-012](#adr-012--config-switched-adapter-selection-with-test-safe-defaults)):
+`NullSandbox` (default, `SANDBOX_MODE=off`, passes through — base demo/tests byte-identical) and
+`NamespaceCloneSandbox` (`SANDBOX_MODE=k8s`). The clone sandbox copies the target Deployment
+(plus, best-effort, its Service and referenced ConfigMaps) into a throwaway
+`intelliops-sandbox-<id>` namespace, waits for the clone's rollout, applies the **same typed
+`RemediationPlan`** to the clone via a reused `KubernetesRemediator`, watches the clone's pod
+recover via the reused `KubernetesHealthChecker`, tears the namespace down, and returns a
+`PreflightResult` (passed / detail / mode / sandbox_namespace). The gate is inserted **before**
+the HITL approval wait: a failed rehearsal **blocks** an `auto` playbook (returns a
+`preflight-failed` outcome, never executes); for `hitl` it **advises** — the verdict rides onto
+the `ApprovalRequest` so the human decides with it in hand. The verdict is additive on every
+`RemediationOutcome` and surfaces in the incident timeline.
+
+**Why.** The rehearsal converts "trust the fix" into "try the fix safely, then trust it." It is
+**fail-safe by construction** — the sandbox never raises out of `execute_remediation`; any error
+is a `PreflightResult(passed=False)`, and the throwaway namespace is always torn down in a
+`finally` — mirroring the never-raise discipline of the k8s remediator/health adapters. The
+honest limit, documented rather than hidden: the clone shares the same kind node (it is *isolated*,
+not *production-grade isolated*), and pod-readiness is the primary pass signal (the demo's
+`cpu_usage` series is per-metric-name, not per-namespace, so a clone's metric series isn't
+reliably distinguishable — a per-namespace metric query is deferred). The live path runs only on
+a real kind cluster and is a documented manual step; everything else (the gate logic, the
+`NullSandbox` path, the contract/projection/UI plumbing, fail-safety, teardown) is unit-tested.
+Critically, the sandbox catches an action's **effect, not its blast radius** — a clean `delete`
+would pass a rehearsal and then destroy production — which is exactly why the vocabulary widening
+in [ADR-024](#adr-024--tier-2-remediation-vocabulary--a-destructive-action-denylist) needs a
+denylist too, not just the sandbox.
+
+---
+
+### ADR-024 — Tier-2 remediation vocabulary + a destructive-action denylist
+
+**Context.** [ADR-013](#adr-013--structured-remediationplan-is-what-made-real-k8s-remediation-safe)
+made `RemediationStep.action` a **closed `Literal`** — the core safety property: an AI or a
+misconfigured playbook literally cannot express an action outside the set, because
+`model_validate` rejects it. But the set was only four verbs (`restart` / `scale` /
+`rollback_deploy` / `wait`), thin for a credible remediation catalog. Widening it naïvely would
+either reintroduce unsafe actions or break the "every action is typed and rehearsable" guarantee
+[ADR-023](#adr-023--pre-flight-sandbox-rehearsal-before-remediation) just established.
+
+**Decision.** Widen the `Literal` to **seven** Deployment-scoped, sandbox-rehearsable verbs (add
+`patch_resource_limits`, `rollback_to_revision`, `patch_probe`) — each one typed
+(`AppsV1Api`-only), each with a same-shape rollback so [ADR-007](#adr-007--reversible-only-health-verified-remediation)
+still holds, each fully rehearsable by the ADR-023 clone (the sandbox was extended to seed the
+clone's ReplicaSet history so `rollback_to_revision` can rehearse truthfully). **Node** actions
+(`cordon`/`uncordon`) and **HPA** actions are deliberately **excluded** — a node is cluster-scoped
+and can't be cloned into a sandbox (the widest blast radius in tier-2, and the sandbox guarantee
+wouldn't hold); an HPA needs a different API and only partially rehearses. Catastrophic actions
+(`delete`, `exec`, scale-to-zero, secret access, any cluster-scoped mutation) stay **permanently**
+out of the `Literal`. Alongside the widening, add a **defense-in-depth denylist gate** in
+`execute_remediation` that runs **before the sandbox** and refuses dangerous *shapes* of allowed
+verbs: `denied:unsafe-scale` (a delta that would zero a deployment), `denied:unsafe-limits`
+(implausibly small ceilings, or a no-op patch), `denied:unsafe-probe` (a defeated/malformed
+probe), `denied:unsafe-revision` (an indeterminate rollback target).
+
+**Why.** The `Literal` is the primary guard and the denylist is belt-and-suspenders — for tier-2
+verbs a name-blocklist would be redundant (the `Literal` already excludes bad *names*), so the
+gate's real value is guarding dangerous *shapes*, and it is positioned where it will also guard
+the AI-authored runbooks of [ADR-025](#adr-025--ai-authored-runbooks-propose--approve) and any
+future open field. It runs before the sandbox on purpose: the sandbox catches *effect*, not
+*blast radius* (ADR-023), so a dangerous-but-valid-looking step must be refused by a hard gate
+*before* a rehearsal could lull an operator into approving it. The safety invariant survives the
+widening intact: still a closed `Literal` (grown by exactly three vetted verbs), still one typed
+API call + a same-shape rollback per action, still every action sandbox-rehearsable, and the
+default path unchanged.
+
+---
+
+### ADR-025 — AI-authored runbooks (propose → approve)
+
+**Context.** Every playbook in the registry was human-authored and seeded. When RCA diagnosed a
+situation with no matching playbook, the incident simply had no suggested remediation — a **gap**.
+Closing that gap with an LLM is tempting, but letting a model *choose or execute* an action would
+throw away the entire safety story ([ADR-007](#adr-007--reversible-only-health-verified-remediation),
+[ADR-013](#adr-013--structured-remediationplan-is-what-made-real-k8s-remediation-safe)) — a
+model must never be the thing that acts.
+
+**Decision.** Add a **propose → approve lifecycle**, entirely human-initiated: a human on a gap
+incident requests an AI draft; governance calls a `RunbookAuthor` (a `NullRunbookAuthor` default
+plus an `OpenAICompatibleRunbookAuthor`, mirroring the LLM-explanation adapter pattern of
+[ADR-019](#adr-019--pluggable-detectors-the-finetuning-loop-and-llm-assisted-rca)) that returns a
+**typed `Playbook`** parsed via `model_validate`; the draft is stored as a `ProposedPlaybook`
+(status `proposed`) — **not** the live registry; a human with `approve` RBAC reviews it and
+approves (→ the inner `Playbook` is `register()`-ed into the live `PlaybookStore`) or rejects,
+both RBAC-gated and audited exactly like the existing decide/graduate flows. On propose,
+`hitl_mode` is **forced to HITL** and the `id` is **server-assigned** — an AI can neither grant
+itself auto-execution nor overwrite an existing playbook.
+
+**Why.** *The AI proposes, a human disposes, and the type system guards.* The load-bearing
+guarantee is inherited for free from [ADR-024](#adr-024--tier-2-remediation-vocabulary--a-destructive-action-denylist)'s
+closed `Literal`: the AI's output is text, and the *only* path from that text to the store or the
+registry runs through `Playbook.model_validate`, which rejects any out-of-set action — so an
+unsafe draft can never even become a proposal. The author is **fail-to-nothing** (any LLM failure
+— unreachable, non-JSON, invalid Playbook — returns `None`, never raises), off by default
+(`RUNBOOK_AUTHOR_MODE=off` → base suite/CI never hit an endpoint), and the **only** route that
+reaches the live registry is the RBAC-gated approve route. Crucially there is **no execution-path
+change** — an approved AI-authored playbook enters the same registry and is thereafter subject to
+every existing gate: the denylist, the ADR-023 sandbox, and the HITL approval it is forced into.
+
+---
+
+### ADR-026 — Semantic runbook selection (embedding fallback)
+
+**Context.** Runbook *selection* was pure keyword matching in `rca/rank.py`: `if "cpu" in
+metric_name` → `scale-service`, and so on. That is brittle — a metric named
+`container_memory_working_set_bytes`, or a hypothesis worded "the service is thrashing under
+load," shares no literal token with the saturation rule, so a perfectly good runbook is missed
+and the incident falls into the gap. Real AIOps needs *semantic* matching — but, per the same
+principle as [ADR-025](#adr-025--ai-authored-runbooks-propose--approve), an LLM must not be the
+thing that picks the action.
+
+**Decision.** Make selection **rules-first, semantic-fallback**. The keyword rules stay primary
+(fast, high-precision, fully auditable); when no rule fires, an `EmbeddingRunbookSelector` (a
+local `sentence-transformers` `all-MiniLM-L6-v2` model, cosine similarity) ranks the
+**registered** playbooks by embedding their new curated `symptoms` field against the incident's
+symptoms + hypothesis, and picks the best match above a threshold (default 0.45); below → the gap
+→ the ADR-025 authoring flow. A `RunbookSelector` interface with a `NullRunbookSelector` default
+(`RUNBOOK_SELECTOR_MODE=off`) keeps selection byte-identical to the keyword-only behavior; the
+embedding model is opt-in via the `ml` extra, imported **lazily** so the slim-image boundary of
+[ADR-022](#adr-022--slim-per-service-docker-images) holds.
+
+**Why.** This is **retrieval — semantic matching among human-vetted playbooks — not an LLM
+choosing the fix.** It can only ever return the id of a *registered* playbook (it ranks
+`store.list()`) or `None`; it never fabricates a runbook or an action, and a plain threshold
+comparison (not a model) makes the binding decision — so it is deterministic given the vectors
+and adds genuine semantic reach with no hallucination risk. It is **fail-safe** (any model/encode
+error → `None`, never raises out of `diagnose`), the rules stay primary (the selector isn't
+consulted when a rule fires), and a semantic match records its provenance
+(`semantic match: <id> (<score>)`) on the hypothesis evidence so the operator sees *why* — the
+same honesty as the LLM/template explanation provenance. Together with ADR-025, this closes the
+gap from both sides: match an existing runbook when one fits semantically, or draft a new one for
+human approval when none does.
+
+---
+
+### ADR-027 — Detection policy per metric kind
+
+**Context.** Every correlator ([ADR-019](#adr-019--pluggable-detectors-the-finetuning-loop-and-llm-assisted-rca))
+made the same anomaly decision regardless of what a metric was: `detect(event) > z_threshold`. A
+single z-score is the right question for an unbounded utilization signal against a stable
+baseline, but the wrong question for two common metric shapes. A bounded **ratio** (an error rate)
+can jump from a healthy 0.1% to a genuinely bad 5% while barely moving its own running
+mean/variance if the service has always been a little noisy, so the std-dev framing hides the
+level that actually matters. And **latency**, like the seasonal telemetry ADR-019 already
+identified, has a legitimate daily shape (busier at peak hours), so a global z-score in the
+`river` correlator flags the same 200ms tail every afternoon.
+
+**Decision.** Add a `DetectionPolicy` (`services/correlation/detection_policy.py`) that classifies
+each metric by name into one of four kinds and applies the matching rule:
+
+- **`ratio`** (name contains `error_rate` / `error_ratio` / `_ratio`) fires on an absolute
+  threshold (`event.value > detection_ratio_threshold`, default `0.02`), never the z-score. A 5%
+  error rate is bad regardless of how noisy the baseline has been.
+- **`saturation`** (`saturation` / `utilization` / `disk_usage` / `cpu_usage` / `_percent`) fires
+  on an absolute cutoff too, but the vocabulary mixes two scales: `cpu_usage` and any `_percent`
+  name are 0..100 and compared against `detection_saturation_percent_threshold` (default `90.0`);
+  every other saturation name is treated as 0..1 and compared against
+  `detection_saturation_ratio_threshold` (default `0.80`).
+- **`latency`** (`latency` / `duration` / `_ms`) fires on the statistical score or an absolute
+  ceiling (`detection_latency_ceiling_ms`, default `500.0`ms), whichever trips first. The
+  statistical half is only genuinely seasonal for the `robust`/`trained` correlators, which score
+  against a per-`(metric, hour-of-day)` baseline ([ADR-019](#adr-019--pluggable-detectors-the-finetuning-loop-and-llm-assisted-rca));
+  under the `river` default, whose baseline has no time-of-day awareness, the statistical term
+  still catches a global deviation but not a seasonal one, so the ceiling is what actually
+  protects against the seasonal false positive / false negative this kind exists to fix.
+- **`default`** (everything else) keeps the unmodified z-score — this policy narrows scope to the
+  two shapes that are provably wrong under a z-score, rather than reinventing detection for every
+  metric.
+
+`is_anomaly(event, score, z_threshold)` lives on `DetectionPolicy`; `BaseCorrelator` holds one
+instance (`_policy`, defaulting to a disabled policy so a correlator built with no policy is
+unaffected) and exposes `is_anomaly_scored(event, score)`, so all three correlators — `river`,
+`robust`, `trained` — get kind-aware detection for free. `CorrelationEngine.add()` calls
+`is_anomaly_scored` instead of comparing the raw score itself, and the engine's `reset()` factory
+forwards the same `_policy` instance into the reconstructed correlator, so a mid-stream reset
+doesn't silently fall back to the raw z-score. The policy is built from settings once
+(`detection_policy` = `off`/`on`, default `off`) alongside `CORRELATOR_KIND`, following the same
+switch pattern as [ADR-012](#adr-012--config-switched-adapter-selection-with-test-safe-defaults):
+`off` reproduces `score > z_threshold` exactly, for every kind, regardless of `event.value` — a
+config-switched-off policy is byte-identical to the pre-policy engine, so the existing correlation
+suite is untouched.
+
+**Why.** Off-by-default is the load-bearing property, not a footnote: a metric-kind classifier
+that misclassifies a name should never be able to change production behavior until someone
+deliberately opts in, so it ships exactly like every other test-safe-default switch in this
+system. The classification is honestly name-pattern-based, not schema- or unit-derived — it is a
+heuristic over conventional metric names (`error_rate`, `cpu_usage`, `latency_p99_ms`, …), not an
+inference over the values themselves, so a metric named against convention lands in `default` and
+falls back to the z-score rather than misfiring on the wrong absolute threshold. Likewise,
+"latency via the seasonal path" is only true seasonality when `CORRELATOR_KIND=robust` or
+`trained`; under the `river` default the ceiling is what guards against the seasonal false
+positive/negative this kind targets, and the docs make that explicit rather than implying every
+deployment gets seasonal latency detection for free.
+Keeping the decision on `BaseCorrelator`, not duplicated per correlator, means the four kinds and
+their thresholds are defined once and every correlator — present or future — inherits them the
+same way it already inherits `should_suppress` and `_severity_band`.
+
+---
+
+### ADR-028 — RCA metric-family rules + AI-computed confidence
+
+**Context.** RCA's `rank_hypotheses` (`services/rca/rank.py`) had only three rules — deploy,
+saturation (cpu/disk tokens), and log/error — each with a **hardcoded** confidence constant (0.8 /
+0.6 / 0.5). That was thin against the ~11 metric families Metrics Phases 1–2 added: `latency`,
+`queue_depth`, `db_pool`, `request_rate`, and `memory` had no rule at all, or worse, were
+**mis-mapped** — `memory` shared the `_SATURATION_TOKENS` match (it contains "mem"-adjacent
+saturation tokens conceptually) and fired `scale-service`, but scaling a memory leak just spins up
+new pods that leak the same way; the process needs to be **recycled**, not multiplied. And a hand-
+tuned constant is a magic number, not a measure of how well a runbook actually fits the incident in
+front of it — the user wanted the **AI to compute the confidence**, so *fit* chooses the runbook,
+not a rule author's guess made months earlier.
+
+**Decision.** A **two-layer diagnosis**. The keyword rules stay as the **candidate layer**: extended
+with a dedicated memory rule (`restart-pod`, fallback 0.65 — ranked above saturation's 0.6 so a
+leak restarts even with the selector off), a `db_pool` rule (`restart-pod`, fallback 0.62), and a
+`latency`/`queue_depth`/`request_rate` rule (`scale-service`, fallback 0.55) — each rule still only
+ever proposes one of the **closed** three runbooks (`restart-pod` / `scale-service` /
+`rollback-deploy`; no new runbook, no new remediation action). Then, when
+[ADR-026](#adr-026--semantic-runbook-selection-embedding-fallback)'s `EmbeddingRunbookSelector` is
+enabled (`RUNBOOK_SELECTOR_MODE=embedding` + the `ml` extra), its cosine machinery is exposed as a
+per-candidate `score(situation, hypothesis, playbook) -> float | None` — the fit of the incident's
+symptoms against *that specific runbook's* `symptoms` text — and **that score becomes the
+hypothesis's confidence**, stamped `confidence_source="embedding"` (mirroring
+`explanation_source`'s honesty). The rules already decided **which** runbook; the embedding only
+re-scores **how confident** we are in that already-vetted choice. Off, or on any embedding error,
+the fallback constant stands with `confidence_source="rule"` — never raises out of ranking. The
+three playbooks' `symptoms` text was sharpened alongside this (restart-pod: crash loops, wedged
+process, memory leak trending to OOM, db connection-pool exhaustion, elevated error rate;
+scale-service: CPU/resource saturation, high latency under load, growing queue depth, a traffic
+surge) so the cosine fit actually routes each family to the runbook that fixes it.
+
+**Why.** This resolves the memory→restart mis-mapping **by fit, not by a new hand-tuned constant**:
+a memory-leak incident's symptoms score higher against restart-pod's "leak, recycle" language than
+against scale-service's "saturation, capacity" language, so restart wins on the merits — the same
+correction the fallback ordering (0.65 > 0.6) already gives for free when the selector is off. The
+same multi-metric shape drives the two co-occurring fault families Meridian actually emits:
+`dependency_outage` (error + latency) and `db_exhaustion` (db_pool + latency) both route to
+`restart-pod` because the restart-family rule (0.58 / 0.62) is ranked above the latency/queue/
+request-rate rule (0.55) — recycling the process fixes a wedged dependency call or a wedged
+connection pool; scaling just spins up more pods that hit the same failure. **Off-by-default is
+byte-identical**, the same load-bearing property as ADR-026/027: with the selector off, every
+existing diagnosis (saturation→scale, error→restart, deploy→rollback) and the base suite are
+unchanged, and the pre-existing **error→restart invariant** (an `error`/`dependency_outage`
+incident must never outrank to `scale-service` just because cpu is present) holds **both** off (via
+the fallback ordering) **and** on (via the fit, tested with a stub selector). This is the same
+"retrieval, not an LLM choosing" principle as ADR-026, now applied to *confidence* instead of just
+fallback selection: **the AI chooses the runbook by fit, but only ever among vetted, rule-proposed
+candidates within the closed 3-runbook catalog** — it can raise or lower how confident a hypothesis
+is, it can never invent a candidate `select_runbook`/`store.get` wouldn't recognize. The honest
+frame stays what it has been since ADR-025/026: deterministic ranking, the HITL gate
+([ADR-003](#adr-003--governance-is-an-active-gate-not-passive-logging)), the
+[ADR-024](#adr-024--tier-2-remediation-vocabulary--a-destructive-action-denylist) denylist, and the
+[ADR-023](#adr-023--pre-flight-sandbox-rehearsal-before-remediation) sandbox still **decide and
+gate** the action; the AI **advises** (a fit-computed confidence here, an explanation via ADR-019,
+a drafted runbook via ADR-025) — it does not decide what gets executed.
+
+---
+
+### ADR-029 — Per-metric health verification
+
+**Context.** Post-remediation health verification asked Prometheus one hardcoded question
+regardless of which metric fired the incident: `services/action/app.py` `_make_health_checker`
+queried `cpu_usage` and declared the metric half of the verdict healthy when every returned series
+was `< 50`; `KubernetesHealthChecker.check` required both pod-readiness AND that predicate before
+declaring success, otherwise the caller rolled back
+([ADR-007](#adr-007--reversible-only-health-verified-remediation)). So a **memory-leak** incident
+was "verified fixed" by checking cpu — if cpu never spiked, the check passed trivially, a **false
+success**. An **error-rate spike**, a **latency** regression, a **db-pool exhaustion** were all
+verified against cpu, none against the metric that actually broke. This mattered beyond one wrong
+check: the `worked` flag this verdict feeds drives **reliability scoring** and **suppression** — a
+signature that "reliably self-heals" gets auto-remediated more readily — so a false success here
+corrupted a downstream safety signal, not just a log line. The sandbox pre-flight rehearsal
+([ADR-023](#adr-023--pre-flight-sandbox-rehearsal-before-remediation)) had the same gap one layer
+deeper: its post-fix `KubernetesHealthChecker` was constructed with the metric predicate left at
+the default `lambda: True`, so the rehearsal verified pod-readiness only and never checked a metric
+at all — the per-namespace metric query ADR-023 flagged as deferred.
+[ADR-028](#adr-028--rca-metric-family-rules--ai-computed-confidence) had already taught RCA to
+diagnose the *right* metric family; verification was the one place still checking the wrong one.
+
+**Decision.** Apply **detect-and-verify symmetry**: a metric is *recovered* when it is no longer
+anomalous by the **same** [ADR-027](#adr-027--detection-policy-per-metric-kind) `DetectionPolicy`
+rule that detected it — one rule governs both "is this firing?" and "has this recovered?". A new
+pure helper, `services/action/verify.py` `build_metric_healthy(situation, query_value, policy,
+z_threshold)`, returns a `metric_healthy()` predicate: it reads the firing metric names off
+`situation.member_events` (metric-kind events carrying a value; value-`None` log/trace events are
+skipped), re-queries each one's current value via the injected `query_value(name)` callable, and
+classifies recovery by the policy's kind rule — ratio and saturation verify from the current value
+alone (an absolute cutoff, no baseline needed); latency verifies against its ceiling, plus a
+z-score half when a baseline exists; the pure `default` kind (`memory_usage_mb`, `queue_depth`,
+`db_pool_in_use`, `request_rate`, …) has only the z-score rule, so it needs the baseline the
+Situation already carries (`Situation.baseline`, per-metric `{mean, std}` captured at detection
+time). **Every** firing metric must recover — a partial fix (error rate down, latency still
+breaching) is not healthy, keeping the `worked` signal honest. **Fail-safe to rollback everywhere
+uncertain**, matching the [ADR-007](#adr-007--reversible-only-health-verified-remediation) bias: a
+query that fails or returns `None`, or a `default`-kind metric with no usable baseline (`std <= 0`
+or absent), makes that metric not-recovered; the predicate never raises. A Situation with no
+judgeable metric events is vacuously healthy on the metric half, leaving pod-readiness as the sole
+verdict — the one case that preserves pre-Phase-4 behavior for a metric-less Situation.
+
+Both call sites now build this predicate from a shared `_make_detection_policy(settings)` helper —
+the **same** `detection_*` + `correlation_z_threshold` settings the correlation engine detects
+with, so detect and verify agree by construction with no new config. In the live path,
+`_make_health_checker` supplies a `query_value(name)` that instant-queries the FIRING metric by
+name (not cpu) and passes the policy + z-threshold into `KubernetesHealthChecker`, which builds the
+predicate fresh from the Situation it receives in `check()`. In the sandbox path,
+`NamespaceCloneSandbox`'s post-fix check gets the identical wiring, targeting the sandbox
+namespace's own `query_value`; the pre-fix rollout-wait stays pod-readiness only, since it is
+confirming the clone came up, not verifying a fix. **Honest limitation:** in this repo's
+demo/Meridian setup, Prometheus is configured with static scrape targets pointed at the production
+Service DNS names (`deploy/prometheus.yml`, `deploy/k8s/prometheus/configmap.yaml`) — there is no
+`kubernetes_sd_configs` pod discovery, and the gauges carry no namespace label — so a pod cloned
+into a throwaway `intelliops-sandbox-*` namespace is never independently scraped. The sandbox's
+per-metric query therefore typically returns `None`, which fails safe to not-recovered, and the
+rehearsal falls back to deciding on pod-readiness alone — exactly the pre-Phase-4 behavior, never a
+faked pass. The wiring is correct and future-proof: it activates fully once per-clone scraping
+exists, but the sandbox metric check is not fully live today, and the docs do not claim otherwise.
+
+This ships **on by default** within the existing `health_check_mode == "k8s"` path — no flag gates
+it. The cpu threshold moves from the old hardcoded `< 50` to the policy's saturation cutoff (90
+percent-scale) when `detection_policy=on`; every non-cpu firing metric changes from
+"cpu-based" to "the-right-metric-based." The `always` (dry-run) health mode is untouched —
+`AlwaysHealthyChecker` has nothing to verify against in dry-run — so the default dev/test posture
+does not change; the correction is live only in the real-cluster path.
+
+**Why.** A correctness fix to a safety signal should ship as a correction, not an opt-in — the old
+`cpu_usage < 50` check was never a deliberate design choice to preserve, it was the absence of a
+per-metric one, and leaving it in place behind a flag would mean choosing to keep verifying the
+wrong thing by default. Reusing [ADR-027](#adr-027--detection-policy-per-metric-kind)'s policy
+(rather than a bespoke verification rule) is what makes "recovered" mean exactly the inverse of
+"detected" — the same thresholds, the same kind classification, no drift between the two questions.
+The fail-safe-to-rollback bias is the same discipline
+[ADR-007](#adr-007--reversible-only-health-verified-remediation) already applies to the whole
+verification path: an unprovable recovery must never be mistaken for a proven one, so the one case
+with no absolute test to fall back on (a `default`-kind metric lacking a baseline) declares
+not-recovered rather than guessing. Documenting the sandbox's real behavior — wiring that is
+correct but not yet exercised end-to-end in this repo's Prometheus setup — continues the same
+honesty discipline [ADR-023](#adr-023--pre-flight-sandbox-rehearsal-before-remediation) itself set:
+say what is genuinely verified today and what is future-proofed for tomorrow, and let the fail-safe
+direction (never a faked pass) cover the gap in between.
+
+---
+
+### ADR-030 — Full in-cluster deployment (Helm)
+
+**Context.** The platform ran either in docker-compose or, for "real remediation", as compose
+services driving a kind cluster that held only the demo-app + Prometheus. To showcase the whole
+metrics arc *live and nothing-mocked* — embedding-computed confidence, LLM explanations, real pod
+remediation, per-metric health verification against real Prometheus, all behind the React console —
+everything needs to run in Kubernetes as one release. The existing Helm chart rendered the 7
+services with basic env; it had no AI/mode config, no RBAC, a single image for every service, no
+frontend, and the LLM key had nowhere safe to live.
+
+**Decision.** Extend the chart into a complete, opt-in-live deployment:
+
+- **Per-service images.** The `full` Docker target (base + the `ml` + `k8s` extras) is pinned to
+  **CPU-only torch** — torch is inference-only here (sentence-transformers `.encode` for the
+  cosine fit; no training, no CUDA), which cuts the image from ~6 GB to ~4 GB — and **bakes
+  all-MiniLM-L6-v2** so embedding works air-gapped. `rca` (embedding selection) and `action` (k8s
+  remediation) run `full`; the other five stay on the lean `base` image, preserving the
+  slim-boundary of [ADR-022](#adr-022--slim-per-service-docker-images).
+- **Live posture is opt-in.** The chart's default values keep the safe posture —
+  `REMEDIATOR_MODE=dry_run`, selector `off`, LLM template, `HEALTH_CHECK_MODE=always`, no RBAC — so
+  a plain `helm install` never touches a real cluster, exactly the default-dry-run principle of
+  [ADR-007](#adr-007--verify-then-roll-back). A `values-live.yaml` overlay flips on the robust
+  correlator, detection policy, embedding selection, k8s remediation/sandbox/health, and the LLM
+  endpoint.
+- **Scoped RBAC for remediation.** The action service patches Deployments and — for the
+  [ADR-023](#adr-023--pre-flight-sandbox-rehearsal-before-remediation) sandbox — creates and
+  deletes a throwaway namespace. In-cluster it authenticates as its pod ServiceAccount, so the
+  chart renders a ServiceAccount + a **ClusterRole** (namespace create/delete is cluster-scoped, so
+  a namespaced Role cannot grant it) + binding, scoped to exactly the verbs the adapters call,
+  gated on `rbac.create`. The k8s client picks `load_incluster_config()` in a pod and a kubeconfig
+  otherwise.
+- **The LLM key never touches git.** It is supplied at install (`--set-string llm.apiKey=…` or a
+  pre-created Secret) and reaches only the `rca` pod via `secretKeyRef` — never the ConfigMap,
+  never a committed values file.
+- **Everything folded in.** demo-app, the four Meridian services, and an in-cluster Prometheus
+  (scraping the Services by release-namespace DNS, so per-metric verification and RCA see real
+  series) are chart-managed. The React console ships as an nginx image that serves the SPA and
+  **reverse-proxies each backend same-origin** under `/api/*`; the read proxy sets
+  `proxy_buffering off` + HTTP/1.1 so the `/stream` SSE that drives the live UI is not buffered.
+  The console and read service are exposed via NodePort for the operator's browser on kind.
+
+**Why.** One `helm install` (plus a `kind-up-full.sh` that builds + loads the images and wires the
+key from the operator's environment) brings up the entire stack, and the same UI that renders mock
+data offline now renders real data live. Safety rides on the same defaults as everywhere else: the
+live features are strictly opt-in, the RBAC is minimal and cluster-scoped only where the sandbox
+genuinely requires it, and the key is handled the way secrets should be. It is the honest
+counterpart to the arc — the features are not just present in code, they run.
+
+**Alternatives rejected.** *Everything in compose* — simpler, but then remediation isn't real k8s
+and the "nothing mocked" story is thinner. *One fat image for all services* — drops the
+slim-boundary and bloats every pod with torch. *CUDA torch* — needless multi-GB weight for
+inference on short strings. *Key in a values file / ConfigMap* — a committed secret; rejected
+outright.
+
+---
+
+### ADR-031 — Bus delivery is at-most-once (a documented, deferred limitation)
+
+**Context.** A 2026-09-12 production-readiness review correctly found that event delivery is
+**at-most-once**, not the "durable closed loop" the design implies. In `common/bus.py`,
+`RedisBus.consume` calls `xack` on the entry *before* it `yield`s the entry to the handler; the
+Kafka binding auto-commits offsets before processing. So a crash, a validation error, a DB failure,
+or a downstream (governance) outage *after* the ack but *before* the handler commits **permanently
+loses** that event — a dropped `remediation.outcomes` silently never closes the learning loop for
+that run; a dropped `situations.detected` drops an incident. A related consequence: the Read
+service's in-memory projection is rebuilt from the bus on restart, but the consumer group resumes
+past its prior acks, so a cold-started Read model misses every already-acked event and shows an
+empty/partial console until new traffic arrives (issue #58).
+
+**Decision.** For the capstone milestone this is **accepted and documented, not fixed** — a
+deliberate scope decision, recorded so it is not mistaken for an oversight. The consume loop's
+comment was corrected to state the at-most-once semantics honestly (it previously overclaimed
+"at-least-once"). The production fix is a self-contained arc, tracked in **issue #53**: move the
+`xack` to *after* the handler returns (at-least-once), give each event a stable id and each consumer
+an idempotency record so redelivery is safe, add a per-topic dead-letter queue for
+poison messages, and — for handlers that both write to Postgres and emit a follow-on event — use a
+transactional outbox so the DB write and the emit commit atomically. The Read cold-start rebuild
+(#58) is the same theme: a snapshot/checkpoint or a replay-from-`0` on cold start.
+
+**Consequences.** The demo's closed loop works because nothing crashes mid-handler in practice, and
+the k8s consumers are made *resilient to Redis blips* (the retry-reconnect in `consume` — see the
+live-bring-up fixes) even though they are not yet *durable across a mid-handler crash*. A reviewer
+evaluating production-readiness should treat durable delivery as the top follow-up; a reviewer
+evaluating the *design* sees the boundary is clean (one `BusClient` protocol) and the fix does not
+require reshaping the services, only the delivery contract behind them.
+
+---
+
+### ADR-032 — Stateful-by-design hardening: durable Postgres, bounded Redis, secret credentials
+
+**Context.** The same review flagged three operational gaps that were cheap to close and
+undermined the "durable state" claim on the Helm path specifically (compose was already fine):
+(1) the Helm Postgres was a plain `Deployment` with **no volume**, so any pod reschedule wiped the
+audit / approval / training / trace database (issue #55); (2) Redis Streams had **no size cap**, so
+`telemetry.raw` grew until Redis OOMed (issue #54); (3) the AI runbook **proposal** awaiting human
+approval was stored **in memory only** (`InMemoryProposedPlaybookStore` hardcoded), lost on a
+governance restart (issue #56) — an inconsistency, since the *approval* store had already been
+Postgres-backed for exactly this reason; and (4) the Postgres credentials (including the
+password-bearing `DATABASE_URL`) lived in `values.yaml` and the shared **ConfigMap**, where the
+file's own comment said "secrets should be moved to a Secret" (issue #57).
+
+**Decision.** Close all four in one change, keeping the demo posture (off-by-default, no new
+required inputs):
+- **Postgres → StatefulSet + `volumeClaimTemplate`** with a headless Service. The pod keeps the
+  stable `postgres` name (so `DATABASE_URL`'s host is unchanged), gains a real PVC
+  (`postgres.storage`, default `1Gi`), and `PGDATA` is a subdir of the mount. The DB now survives
+  a reschedule.
+- **Redis Streams bounded** by an approximate per-stream cap: `xadd` uses `MAXLEN ~ N`
+  (`bus_stream_maxlen`, default `100_000`; `0` disables it for tests). Approximate trimming is
+  cheap and only drops already-old entries — consumer groups and redelivery are unaffected.
+- **Proposals persisted**: a `PostgresProposedPlaybookStore` + `proposed_playbooks` table +
+  Alembic `0007`, wired through `make_stores` exactly like the approval / author-decision stores;
+  governance now uses `stores.proposed_store` instead of constructing an in-memory one.
+- **Credentials in a Secret**: a `postgres-credentials` Secret carries `POSTGRES_*` and the
+  password-bearing `INTELLIOPS_DATABASE_URL`; the ConfigMap no longer contains it; every service
+  and the migrate Job pick it up via `envFrom: secretRef`.
+
+**Consequences.** The Helm "live" path is now stateful-by-design for the data the platform claims
+to keep, and secrets are out of the ConfigMap. Two related items are **deliberately still deferred**
+(tracked, not silent): baseline workload hardening — resource limits, security contexts, and
+NetworkPolicies on the core services (issue #57, part 2) — and splitting the `full` image so
+`action`/`correlation` don't inherit the torch stack (issue #61; the slim-boundary already keeps
+those imports lazy, so it is a packaging optimization, not a correctness issue). Real
+**identity/authz** (the caller-supplied-`decided_by` RBAC gap, issue #59, and the browser
+shared-token / SSE-token-in-URL design, issue #60) is a separate, larger arc scoped out of this
+milestone and documented under §6.
+
 ---
 
 ## 4. Cross-cutting concerns
@@ -1039,9 +1753,15 @@ in-region/on-prem for sovereign-cloud requirements.
   check (`hmac.compare_digest`) wired once in `create_app`, with `/health` + `/ready` always
   exempt. Internal service-to-service calls authenticate (they send the token), and the React
   console authenticates with the same shared token — so under `token` mode the read endpoints are
-  gated and there's no public read surface. The honest limits: a **shared** token (not per-user)
-  and the frontend token is baked into the client bundle; per-user tokens / an IdP are the deferred
-  production path. See [docs/OPERATIONS.md](docs/OPERATIONS.md).
+  gated and there's no public read surface. The honest limits (flagged by the 2026-09-12
+  production-readiness review, tracked as issues #59/#60): the token authenticates a **shared
+  client, not an actor** — RBAC checks trust a **caller-supplied** `decided_by`/`actor` in the
+  request body, so any client that can reach Governance can approve *as* another actor; the
+  frontend token is **baked into the client bundle**; and SSE carries the token **in the URL query
+  string** (EventSource cannot set headers). The production path — real identity (OIDC/JWT or an
+  authenticated BFF, actor derived from verified claims), scoped service identities, and SSE via
+  same-origin cookies or short-lived tickets — is a deferred arc, out of the current milestone.
+  See [docs/OPERATIONS.md](docs/OPERATIONS.md).
 - **Real-time console + live pipeline view.** The console no longer polls alone: the read-service
   exposes a Server-Sent Events endpoint (`GET /stream`), fed by a stdlib thread→async pub/sub
   inside `ReadModel`, that nudges the console to re-fetch within about a second of a backend change
@@ -1064,11 +1784,28 @@ in-region/on-prem for sovereign-cloud requirements.
   endpoint is called with a template fallback on any error). A reproducible benchmark
   (`docs/BENCHMARKS.md`) measures the actual gains — and the actual trade-offs —
   against the `river` baseline, with one comparison CI-enforced.
+- **Meridian — a sample production system.** A four-service, Deloitte-style financial/audit
+  platform (`services/meridian/`) plus its own client-portal + ops-panel UI now runs alongside
+  IntelliOps in `docker compose up` ([ADR-020](#adr-020--meridian-sample-production-system)),
+  wired to the pipeline through additive-only changes: per-service Prometheus scrape jobs, an
+  ingestion query broadened to a regex selector in the compose environment only (the
+  `common/config.py` default is unchanged), and a shared `rca-context` volume that makes the
+  `rollback-deploy` playbook fire for the first time. Three real fault scenarios were verified
+  live against real Docker, each producing a genuinely different diagnosis — `scale-service`,
+  `restart-pod`, `rollback-deploy` — see [docs/MERIDIAN.md](docs/MERIDIAN.md). Faults must be
+  injected **sequentially** (the correlator groups by time window, not by service — a real
+  constraint the Meridian UI enforces, confirmed live during verification), and the `crash` fault
+  type is detection-only today (no dedicated RCA rule).
 - **Automated model retraining.** The loop's *plumbing* exists; the retrain *trigger* is
   manual (`POST /retrain` on correlation-service — see [ADR-019](#adr-019--pluggable-detectors-the-finetuning-loop-and-llm-assisted-rca)),
   not scheduled or outcome-driven yet; automating it is a later maturity milestone.
 - **Kafka in production.** Redis Streams runs dev and demo; the Kafka `BusClient` binding is
   deferred behind the same interface.
+- **Durable event delivery.** Bus delivery is currently **at-most-once** — the consumer acks
+  before the handler runs, so a mid-handler crash loses that event, and a cold-started Read
+  projection misses already-acked events ([ADR-031](#adr-031--bus-delivery-is-at-most-once-a-documented-deferred-limitation),
+  issues #53/#58). At-least-once + idempotency + a DLQ + a transactional outbox is the tracked
+  production fix, deliberately deferred for the capstone.
 - **Simulation controls in production.** The `/break`, `/fix`, `/reset`, `/reset-baseline`, and
   `/reset-approvals` endpoints ([ADR-011](#adr-011--a-live-breakable-demo-harness-with-explicit-simulation-controls))
   must be gated or removed when pointed at a real system. (Under `AUTH_MODE=token` they are gated

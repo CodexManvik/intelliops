@@ -14,6 +14,24 @@ and why**. Read it alongside:
 > Kubernetes cluster behind an opt-in switch (dry-run stays the production-safe default). See
 > [§8 Current status & what's next](#8-current-status--whats-next) for exactly what's real, what's
 > still simulated, and what's next.
+>
+> **A sample production system now feeds real faults into this pipeline.** **Meridian**
+> (`services/meridian/`) — a four-service financial/audit platform with its own portal UI — runs
+> alongside IntelliOps, scraped by the same Prometheus, ingested by the same ingestion service
+> (query broadened additively), and diagnosed by the same unmodified RCA rules. Each service emits
+> a **USE+RED metric set with 8 typed fault scenarios**, each moving a realistic metric cluster.
+> See [docs/MERIDIAN.md](docs/MERIDIAN.md) and
+> [ADR-020](architectural.md#adr-020--meridian-sample-production-system).
+>
+> **The remediation path gained a rehearsal, a wider-but-still-safe vocabulary, and bounded
+> selection intelligence** — all config-switched off by default. Before approval a fix is
+> **rehearsed on an isolated namespace clone** ([ADR-023](architectural.md#adr-023--pre-flight-sandbox-rehearsal-before-remediation));
+> the typed action `Literal` widened 4→7 Deployment-scoped verbs behind a **destructive-shape
+> denylist** ([ADR-024](architectural.md#adr-024--tier-2-remediation-vocabulary--a-destructive-action-denylist));
+> the AI can **draft a runbook for a gap that a human approves** ([ADR-025](architectural.md#adr-025--ai-authored-runbooks-propose--approve));
+> and selection is **rules-first with an embedding-similarity fallback** over vetted playbooks
+> ([ADR-026](architectural.md#adr-026--semantic-runbook-selection-embedding-fallback)) — retrieval,
+> not an LLM choosing the fix. See §5.3–5.5 for where each sits in the flow.
 
 ---
 
@@ -108,9 +126,12 @@ drift ([ADR-006](architectural.md#adr-006--monorepo-with-a-shared-common-library
 | `Situation` | `id, status, member_events[], severity, first_seen, last_seen, signature` | The universal incident currency; `signature` recognizes recurrences ([ADR-004](architectural.md#adr-004--situation-as-the-universal-currency)). |
 | `RootCauseHypothesis` | `situation_id, description, confidence, evidence[], suggested_runbook_id` | Makes RCA output rankable and actionable, not just prose. |
 | `DiagnosedSituation` | `situation, hypotheses[], suggested_runbook_id` | The `situations.diagnosed` payload: a diagnosed `Situation` plus ranked causes. Additive — never mutates the frozen `Situation`. |
-| `Playbook` | `id, name, match_rule, steps[], hitl_mode, reversible, rollback_steps[]` | A remediation with its safety scope and undo baked in ([ADR-007](architectural.md#adr-007--reversible-only-health-verified-remediation)). |
-| `ApprovalRequest` | `id, situation_id, playbook_id, requested_by, status, decided_by` | The record a human approves/rejects at the HITL gate. |
-| `RemediationOutcome` | `situation_id, playbook_id, result, health_after, ts, hitl_mode` | The feedback signal that closes the loop. `hitl_mode` (added later) lets the read model report auto-vs-HITL remediation truthfully. |
+| `RemediationStep` | `action, replicas, note` + `cpu_limit, mem_limit, container, revision, probe, …` | The typed unit of a fix. `action` is a **closed `Literal`** of 7 Deployment-scoped verbs — the core safety property: an unlisted action can't validate ([ADR-024](architectural.md#adr-024--tier-2-remediation-vocabulary--a-destructive-action-denylist)). |
+| `Playbook` | `id, name, match_rule, steps[], hitl_mode, reversible, rollback_steps[], symptoms` | A remediation with its safety scope and undo baked in ([ADR-007](architectural.md#adr-007--reversible-only-health-verified-remediation)). `symptoms` (added later) is the curated text the semantic selector matches against ([ADR-026](architectural.md#adr-026--semantic-runbook-selection-embedding-fallback)). |
+| `PreflightResult` | `passed, detail, mode, sandbox_namespace` | The sandbox rehearsal verdict ([ADR-023](architectural.md#adr-023--pre-flight-sandbox-rehearsal-before-remediation)); rides on `ApprovalRequest` + every `RemediationOutcome`. |
+| `ProposedPlaybook` | `id, playbook, status, proposed_by, rationale, source_situation_id, decided_by, ts` | An AI-drafted runbook awaiting human approval ([ADR-025](architectural.md#adr-025--ai-authored-runbooks-propose--approve)); the inner `playbook` validates via the closed action `Literal`. |
+| `ApprovalRequest` | `id, situation_id, playbook_id, requested_by, status, decided_by, preflight` | The record a human approves/rejects at the HITL gate; `preflight` (added later) shows the human the rehearsal verdict. |
+| `RemediationOutcome` | `situation_id, playbook_id, result, health_after, ts, hitl_mode, steps, mode, preflight` | The feedback signal that closes the loop. `hitl_mode`/`steps`/`mode`/`preflight` (added later) let the read model report auto-vs-HITL, the executed steps, dry-run-vs-k8s, and the sandbox verdict truthfully. |
 | `AuditRecord` | `actor, action, resource, decision, ts, correlation_id` | Immutable compliance trail; `correlation_id` threads one incident end to end. |
 
 ## 4. Pluggable interfaces (`common/interfaces.py`)
@@ -123,8 +144,11 @@ The swap points that keep the system platform-agnostic and testable
 | `TelemetrySource` | `poll()`, `subscribe()` | `FileTelemetrySource` (JSONL, tests), **`PrometheusSource`** (real PromQL over the Prometheus HTTP API, defensive: never raises on a bad response) | Loki, OTel sources |
 | `Correlator` | `detect()`, `correlate()`, `retrain()` | `RiverCorrelator` (online z-score, default), **`RobustCorrelator`** (median/MAD + seasonal per-hour baseline), **`TrainedCorrelator`** (composes `RobustCorrelator` + a persisted scikit-learn `IsolationForest`, fitted via `POST /retrain`) — selected by `CORRELATOR_KIND` ([ADR-019](architectural.md#adr-019--pluggable-detectors-the-finetuning-loop-and-llm-assisted-rca)) | — |
 | `ExplanationProvider` | `explain()` | `TemplateExplanationProvider` (deterministic, no network — default), **`OpenAICompatibleExplanationProvider`** (real endpoint when `llm_explanation_endpoint` is set; falls back to the template on any error) | — |
+| `RunbookSelector` | `select()` | `NullRunbookSelector` (no semantic fallback — default, keyword-rules-only), **`EmbeddingRunbookSelector`** (local `sentence-transformers`, cosine similarity over playbook `symptoms`; ranks only registered playbooks; fail-safe → `None`; `RUNBOOK_SELECTOR_MODE=embedding`, `ml` extra, lazy-imported) ([ADR-026](architectural.md#adr-026--semantic-runbook-selection-embedding-fallback)) | — |
+| `RunbookAuthor` | `draft()` | `NullRunbookAuthor` (returns `None` — default), **`OpenAICompatibleRunbookAuthor`** (drafts a typed `Playbook` for a gap via an OpenAI-chat endpoint; fail-to-nothing — any failure or an unsafe/invalid draft → `None`; `RUNBOOK_AUTHOR_MODE=openai`) ([ADR-025](architectural.md#adr-025--ai-authored-runbooks-propose--approve)) | — |
 | `Remediator` | `execute()`, `rollback()` | `DryRunRemediator` (logs steps, touches nothing — the safe default), `RecordingRemediator` (tests), **`KubernetesRemediator`** (real `AppsV1Api` calls — restart via a `restartedAt` annotation patch, scale via `patch_namespaced_deployment_scale`, rollback via a rollout-restart annotation; no shell, no string parsing; never deletes; any API error → `False`, never raises. Behind `REMEDIATOR_MODE=k8s`, targeting a local kind cluster — see [deploy/k8s/README.md](deploy/k8s/README.md)) | — |
 | `HealthChecker` | `check()` | `AlwaysHealthyChecker` (pairs with dry-run), `FixedHealthChecker` (tests), **real `KubernetesHealthChecker`** (two signals — pod readiness from deployment status, and metric recovery re-queried from Prometheus — polled to a timeout; fails closed. Behind `HEALTH_CHECK_MODE=k8s`) | — |
+| `Sandbox` | `rehearse()` | `NullSandbox` (passes through — default, `SANDBOX_MODE=off`), **`NamespaceCloneSandbox`** (clones the target Deployment into a throwaway namespace, applies the same plan, watches the clone recover, tears it down; ranks the fix's *effect* before approval; fail-safe → `PreflightResult(passed=False)`, never raises; `SANDBOX_MODE=k8s`) ([ADR-023](architectural.md#adr-023--pre-flight-sandbox-rehearsal-before-remediation)) | — |
 | `GovernanceGate` (action→governance) | `check_rbac()`, `request_approval()`, `await_decision()`, `write_audit()` | `InProcessGovernanceGate` (shared dict, single-process/tests), **`HttpGovernanceGate`** (REST — works across containers; fail-closed on any error) | — |
 | `AuditSink` | `write()`, `records()` | `FileAuditSink` (JSONL), `InMemoryAuditSink` (tests), **`PostgresAuditSink`** (hybrid schema — indexed columns + a JSONB payload that is the source of truth; errors propagate, a lost audit write is a compliance failure. Behind `STORE_BACKEND=postgres` — see [docs/PERSISTENCE.md](docs/PERSISTENCE.md)) | — |
 | `PlaybookStore` | `register()`, `get()`, `list()` | `InMemoryPlaybookStore` (tests), `FilePlaybookStore` (YAML dir), **`PostgresPlaybookStore`** (upsert via `ON CONFLICT`; same `STORE_BACKEND=postgres` switch) | — |
@@ -183,13 +207,20 @@ all three subclassing a shared `BaseCorrelator`:
   sklearn/joblib are imported lazily — a `river`/`robust` deployment never pays the
   import cost.
 
+**The anomaly decision itself is policy-aware.** `detect_anomaly` still produces the
+score above, but whether that score (or the raw event value) counts as an anomaly is
+now decided by a `DetectionPolicy` shared via `BaseCorrelator`: kind-based absolute
+thresholds for `ratio`/`saturation`/`latency` metrics when `DETECTION_POLICY=on`, else
+the unmodified z-score (default `off`, byte-identical). See
+[ADR-027](architectural.md#adr-027--detection-policy-per-metric-kind) for the detail.
+
 ### 5.3 `rca-service` — explain the Situation and suggest a fix
 
 | Function | What it does | Why | Depends on |
 |----------|--------------|-----|-----------|
 | `enrich(situation) → context` | Attaches recent deploys, config/change data, and service topology to the situation. | Context is what makes a root-cause suggestion **credible** instead of a guess. | deploy/config/topology sources |
-| `rank_hypotheses(situation, context, reliability_provider=None) → [RootCauseHypothesis]` | Scores and orders likely causes with their supporting evidence; when a `reliability_provider` is passed, a hypothesis whose runbook has a proven track record for this signature gets a bounded confidence boost. | Gives responders a ranked starting point, not a wall of data — and lets learned outcomes feed ranking. | `contracts.RootCauseHypothesis`, `training_store` |
-| `surface_runbook(hypothesis) → Playbook` | Maps the top hypothesis to a known playbook/runbook. | Hands the responder (or the action layer) a concrete next step — always a real playbook id, whether or not reliability weighting fired. | governance playbook registry |
+| `rank_hypotheses(situation, context, reliability_provider=None, store=None, selector=None) → [RootCauseHypothesis]` | **Two-layer diagnosis:** keyword rules PROPOSE a candidate hypothesis per metric family (deploy→rollback-deploy; memory/db_pool/log-error→restart-pod; saturation/latency/queue_depth/request_rate→scale-service) from the closed 3-runbook catalog, each with a fallback confidence. When `store`+`selector` are supplied and `RUNBOOK_SELECTOR_MODE=embedding`, the selector's cosine fit of the incident's symptoms against *that candidate runbook's* `symptoms` text COMPUTES the hypothesis's confidence in place of the fallback (`confidence_source="embedding"`); off, or on any embedding error, the fallback constant stands (`confidence_source="rule"`) — never raises. A `reliability_provider`, if passed, then applies its bounded boost on top. | Gives responders a ranked starting point, not a wall of data; lets the AI's fit-computed confidence — not a hand-tuned constant — decide how strongly a candidate is recommended, while the rules alone still decide *which* runbook is even in play ([ADR-028](architectural.md#adr-028--rca-metric-family-rules--ai-computed-confidence)). | `contracts.RootCauseHypothesis`, `training_store`, `RunbookSelector` |
+| `select_runbook(hypotheses, situation, store, selector) → (Playbook, score, source)` | **Rules-first, semantic-fallback:** the keyword rules (`surface_runbook`) run first; when none fires, a `RunbookSelector` ranks the **registered** playbooks by embedding similarity of their `symptoms` field and picks the best above a threshold (`source` = rule / semantic / none). | Adds *some* real intelligence to selection — retrieval among vetted playbooks, never an LLM choosing — catching semantically-obvious matches the keyword rules miss ([ADR-026](architectural.md#adr-026--semantic-runbook-selection-embedding-fallback)). Default `off` → rules-only. | governance registry, `RunbookSelector` |
 | `explain(hypothesis, context, situation) → str` | Produces human-readable advisory text for the top hypothesis via an `ExplanationProvider` ([ADR-019](architectural.md#adr-019--pluggable-detectors-the-finetuning-loop-and-llm-assisted-rca)) — set on `RootCauseHypothesis.explanation`, **after** ranking, so it can never affect confidence/order/runbook. | Gives an on-call engineer plain-language context, on by default, with zero CI/test network dependency. | `ExplanationProvider`: `TemplateExplanationProvider` (deterministic, no network — used whenever `llm_explanation_endpoint` is unset) or `OpenAICompatibleExplanationProvider` (sync `httpx` POST to `{endpoint}/chat/completions`; any failure falls back to the template) |
 
 ### 5.4 `action-service` — do the fix, safely
@@ -197,10 +228,12 @@ all three subclassing a shared `BaseCorrelator`:
 | Function | What it does | Why | Depends on |
 |----------|--------------|-----|-----------|
 | `select_playbook(situation) → Playbook` | Matches a diagnosed situation to a remediation via `match_rule`. | Connects "what's wrong" to "what to do." | governance registry |
-| `request_approval(playbook, situation) → decision` | **Synchronous** call to governance for RBAC + HITL approval. | The structural HITL gate — action can't proceed without a yes ([ADR-003](architectural.md#adr-003--governance-is-an-active-gate-not-passive-logging)). | `governance-service` |
-| `execute(playbook)` | Runs the playbook's steps through a `Remediator`. | Performs the actual fix (restart pod, scale service, …). | `Remediator` |
-| `verify_health() → bool` | Checks system health after acting. | Confirms the fix worked before declaring success. | telemetry / health checks |
-| `rollback(playbook)` | Runs `rollback_steps` if health verification fails. | Enforces **reversible-only** automation ([ADR-007](architectural.md#adr-007--reversible-only-health-verified-remediation)). | `Remediator` |
+| `_denylist_reason(playbook) → reason \| None` | **Gate (before the sandbox):** refuses dangerous step *shapes* (unsafe scale-to-zero, implausible limits, defeated probe, indeterminate revision), fail-closed. | Defense-in-depth over the closed action `Literal` — guards allowed verbs' shapes, and AI-authored drafts ([ADR-024](architectural.md#adr-024--tier-2-remediation-vocabulary--a-destructive-action-denylist)). | — |
+| `sandbox.rehearse(situation, plan) → PreflightResult` | **Pre-flight (before approval):** clones the target into a throwaway namespace, applies the same plan, watches the clone recover (pod-readiness, plus the same per-metric predicate as `verify_health()` on the post-fix check), tears it down. Honest caveat: this repo's static-scrape Prometheus setup doesn't independently scrape the clone's namespace, so the per-metric query typically returns `None` and fails safe — the rehearsal effectively decides on pod-readiness today, wiring that activates fully once per-clone scraping exists ([ADR-029](architectural.md#adr-029--per-metric-health-verification)). | Try the fix safely first — a failed rehearsal blocks an `auto` playbook and advises a `hitl` human ([ADR-023](architectural.md#adr-023--pre-flight-sandbox-rehearsal-before-remediation)). Fail-safe; `off` by default. | `Sandbox` |
+| `request_approval(playbook, situation) → decision` | **Synchronous** call to governance for RBAC + HITL approval — the pre-flight verdict rides on the request. | The structural HITL gate — action can't proceed without a yes ([ADR-003](architectural.md#adr-003--governance-is-an-active-gate-not-passive-logging)). | `governance-service` |
+| `execute(playbook)` | Runs the playbook's typed steps through a `Remediator` — now **7** Deployment-scoped verbs (`restart`/`scale`/`rollback_deploy`/`wait`/`patch_resource_limits`/`rollback_to_revision`/`patch_probe`), the `Literal` still closed ([ADR-024](architectural.md#adr-024--tier-2-remediation-vocabulary--a-destructive-action-denylist)). | Performs the actual fix. | `Remediator` |
+| `verify_health() → bool` | Checks system health after acting: pod-readiness AND, in the `health_check_mode=k8s` path, per-metric recovery. The metric half no longer always queries `cpu_usage` — it re-applies the [ADR-027](architectural.md#adr-027--detection-policy-per-metric-kind) `DetectionPolicy` to the metric(s) that actually FIRED (detect-and-verify symmetry: a metric is recovered when it's no longer anomalous by the rule that detected it), using the baseline the Situation already carries. **Every** firing metric must recover — a partial fix isn't healthy. Any query failure, or a score-only metric with no usable baseline, fails safe to not-recovered. Dry-run (`health_check_mode=always`, `AlwaysHealthyChecker`) is unaffected. | Confirms the **right** thing recovered before declaring success — a memory/error/latency fix is no longer "verified" against cpu ([ADR-029](architectural.md#adr-029--per-metric-health-verification)). | telemetry / health checks, `services/correlation/detection_policy.DetectionPolicy` |
+| `rollback(playbook)` | Runs `rollback_steps` if health verification fails — including a fail-safe not-recovered verdict from the per-metric check above. | Enforces **reversible-only** automation ([ADR-007](architectural.md#adr-007--reversible-only-health-verified-remediation)). | `Remediator` |
 | `emit_outcome(...)` | Publishes a `RemediationOutcome` to `remediation.outcomes`. | Feeds the feedback loop. | `BusClient` |
 
 ### 5.5 `governance-service` — the control plane
@@ -213,6 +246,8 @@ all three subclassing a shared `BaseCorrelator`:
 | `get_approval(id)` / `list_approvals()` | REST reads (`GET /approvals/{id}`, `GET /approvals`) of the pending queue. | Lets the HTTP gate poll for a decision across containers, and the dashboard show what's pending. | — |
 | `write_audit(record)` | Appends an immutable `AuditRecord`. | The compliance backbone (NIST AI RMF / DORA / EU AI Act). | `AuditSink` |
 | `register_playbook()` / `list_playbooks()` | Maintains the CoE playbook registry. | Standardization — playbooks are shared, not reinvented per team. | playbook store |
+| `propose_playbook(situation) → ProposedPlaybook` | `POST /playbooks/proposed`: calls a `RunbookAuthor` (LLM) to draft a typed runbook for a gap, forces `hitl_mode=HITL` + a server-assigned id, stores it as a **proposal** (not the live registry); 422 if the author declines. | The AI **proposes** a runbook for a gap; `model_validate` rejects any unsafe draft ([ADR-025](architectural.md#adr-025--ai-authored-runbooks-propose--approve)). | `RunbookAuthor`, proposed store |
+| `approve_proposed(id)` / `reject_proposed(id)` | `POST /playbooks/proposed/{id}/approve\|reject` — RBAC-gated (reuses `approve`/`reject`), audited. **Approve registers the inner playbook into the live registry**; reject does not. | The human **disposes** — the only path from an AI draft to the live registry ([ADR-025](architectural.md#adr-025--ai-authored-runbooks-propose--approve)). | RBAC, playbook store, `AuditSink` |
 
 ### 5.6 `feedback-service` — close the loop and prove the ROI
 
@@ -340,6 +375,27 @@ never affects ranking or the suggested runbook. A reproducible, seeded benchmark
 actual gains **and** the actual trade-offs (higher recall but also higher
 false-positive rate on `robust`/`trained`) against the `river` baseline, with one
 comparison CI-enforced.
+
+**A real sample system now drives the pipeline.** **Meridian** (`services/meridian/`) — four
+backend services plus a client-portal/ops-panel UI, built on the same `services.base.create_app`
+scaffold — runs alongside IntelliOps in `docker compose up`. Each service emits a **USE+RED metric
+set** (11 gauges — CPU, memory, disk, saturation, queue depth, DB-pool utilization, request rate,
+error rate, p50/p99 latency) and accepts **8 typed fault scenarios** (`saturation`, `latency`,
+`error`, `memory_leak`, `traffic_surge`, `dependency_outage`, `db_exhaustion`, `crash`), each
+moving a realistic metric cluster rather than a single gauge — `error`/`dependency_outage`
+deliberately hold `cpu_usage` at baseline so RCA doesn't misdiagnose an error incident as capacity.
+It is wired in additively: a Prometheus scrape job per service, the ingestion query broadened to an
+11-name regex selector in the compose environment only (the code default is unchanged), and a
+shared volume that lets `rca-service` see Meridian's deploy markers for the first time. Three fault
+scenarios were run sequentially against real Docker and each produced the expected, distinct
+diagnosis — `scale-service`, `restart-pod`, `rollback-deploy` — through the unmodified
+detection/RCA/action path; the newer scenarios' metric families don't yet have dedicated RCA rules
+(that mapping is Phase 3 of the metrics arc), so they detect but may not richly diagnose today.
+Faults must be injected one at a time: `correlation-service` groups anomalies by time window, not
+by service, so concurrent faults on two Meridian services would merge into a single Situation — a
+real constraint, confirmed live, that the Meridian UI enforces with a sequential-injection guard.
+See [docs/MERIDIAN.md](docs/MERIDIAN.md) and
+[ADR-020](architectural.md#adr-020--meridian-sample-production-system).
 
 **What is still deliberately simulated / deferred:**
 - **Auth is a config-switched edge gate** ([ADR-017](architectural.md#adr-017--edge-authentication)).

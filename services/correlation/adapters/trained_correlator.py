@@ -35,6 +35,7 @@ import math
 from common.contracts import Situation, TelemetryEvent, TelemetryKind
 from services.correlation.adapters.base_correlator import BaseCorrelator
 from services.correlation.adapters.robust_correlator import RobustCorrelator
+from services.correlation.detection_policy import DetectionPolicy
 
 # Frozen feature schema (9 columns). Persisted WITH the model blob; a loaded blob
 # whose feature_names differ is refused (the correlator stays cold) so a model
@@ -83,14 +84,18 @@ class TrainedCorrelator(BaseCorrelator):
         window_size: int = 128,
         min_fit_samples: int = 200,
         contamination: float = 0.02,
+        detection_policy: DetectionPolicy | None = None,
     ) -> None:
-        # Store _z_threshold/_warmup_samples/_reliability on the base. Every extra
-        # kwarg is defaulted so the engine reset factory — which passes ONLY
+        # Store _z_threshold/_warmup_samples/_reliability/_policy on the base. Every
+        # extra kwarg is defaulted so the engine reset factory — which passes ONLY
         # z_threshold + warmup_samples — reconstructs this without a TypeError.
-        super().__init__(z_threshold, warmup_samples)
+        super().__init__(z_threshold, warmup_samples, detection_policy=detection_policy)
         self._min_fit_samples = min_fit_samples
         self._contamination = contamination
         # The online path: a composed RobustCorrelator built with the same params.
+        # Deliberately NOT given detection_policy: the engine decides anomaly-ness
+        # using the OUTER (trained) correlator's _policy; the inner robust is used
+        # only for its detect() SCORE, so it stays a plain (disabled-policy) scorer.
         self._robust = RobustCorrelator(
             z_threshold=z_threshold,
             warmup_samples=warmup_samples,

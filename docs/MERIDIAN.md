@@ -1,0 +1,347 @@
+# Meridian — a sample production system for IntelliOps to operate
+
+Meridian is a small, realistic **Deloitte-style financial/audit reporting platform**: four
+backend services plus a client portal, running in the same `docker compose` stack as IntelliOps.
+It exists for one reason — to give IntelliOps something **real** to watch. Its services emit
+genuine Prometheus metrics, its faults are genuine step-changes (not canned incidents), and when
+you break it, IntelliOps genuinely **detects → diagnoses → gates → remediates** the incident, the
+same closed loop documented in [flow.md](../flow.md) and [architectural.md](../architectural.md).
+
+Read this alongside [ADR-020](../architectural.md#adr-020--meridian-sample-production-system) for
+*why* it's built this way, and the design spec at
+[docs/superpowers/specs/2026-08-25-meridian-sample-system-design.md](superpowers/specs/2026-08-25-meridian-sample-system-design.md)
+for the full original design.
+
+---
+
+## 1. What Meridian is
+
+A client submits financial data, it gets validated, aggregated into roll-ups, and turned into a
+report — the kind of multi-service platform a managed-services provider (the Deloitte framing)
+would operate on a client's behalf, with IntelliOps as the AIOps layer keeping it healthy.
+
+| Service | Domain role | Real endpoints | Fault it showcases |
+|---|---|---|---|
+| `meridian-gateway` | API front door + serves the portal UI | `POST /api/submissions`, `GET /api/reports`, ops proxy, `/admin/deploy` | **rollback-deploy** |
+| `meridian-validation` | validates submitted financial data | (fault/metrics scaffold; a real validate route is a natural next step) | **restart-pod** |
+| `meridian-aggregation` | roll-ups / heavy compute | (fault/metrics scaffold) | **scale-service** |
+| `meridian-reporting` | report generation | (fault/metrics scaffold) | **scale-service** |
+
+All four are built from one shared factory, `make_meridian_service()` in
+`services/meridian/common.py` — the same pattern `services/demo_app` established: `create_app()`
+(free `/health`, `/ready`, CORS, auth) plus a full **USE+RED metric set** (11 gauges — see §1a
+below), an `/admin/fault` + `/admin/clear` pair gated by `common.auth.require_token`, and
+`/metrics`. Only the gateway currently has real domain routes wired in (`POST /api/submissions`,
+`GET /api/reports`)
+— the other three exist as genuine, independently-faultable services with the full scaffold, ready
+for their own domain endpoints in a later pass. Two tables (`meridian_submissions`,
+`meridian_reports`) live on `common.db.METADATA` and are created by Alembic migration
+`0004_meridian.py` — no second Postgres, no second Redis; Meridian shares IntelliOps' infra.
+
+### 1a. Metrics — the USE+RED set
+
+Every Meridian service's `/metrics` exposes the same 11 bare `Gauge`s (no `service` label — the
+Prometheus scrape job injects it at scrape time). These are **simulated values on a synthetic
+system**, held in `MeridianState` and moved only by `/admin/fault` — not real CPU, memory, or
+database readings.
+
+| Metric | Family | Meaning |
+|---|---|---|
+| `cpu_usage` | USE (utilization) | Simulated CPU utilization percent |
+| `memory_usage_mb` | USE (utilization) | Simulated resident memory usage, MB |
+| `disk_usage_percent` | USE (utilization) | Simulated disk utilization percent |
+| `saturation` | USE (saturation) | Simulated saturation index, 0..1 (run-queue / thread-pool pressure) |
+| `queue_depth` | USE (saturation) | Simulated pending work-queue depth |
+| `db_pool_in_use` | USE (saturation) | Simulated database connections currently checked out |
+| `db_pool_max` | USE (saturation) | Simulated database connection pool size |
+| `request_rate` | RED (rate) | Simulated requests per second |
+| `meridian_error_rate` | RED (errors) | Simulated request error rate, 0..1 |
+| `latency_p50_ms` | RED (duration) | Simulated p50 request latency, ms |
+| `latency_p99_ms` | RED (duration) | Simulated p99 request latency, ms |
+
+`cpu_usage` and `meridian_error_rate` are the original pair from the first Meridian design — kept
+exactly as-is (no rename) so every existing scrape/ingestion/gateway/test wiring keeps working; the
+other nine are additive. §4 below covers how fault scenarios move these metrics in realistic
+clusters.
+
+The gateway additionally exposes:
+- `POST /api/ops/fault` / `POST /api/ops/clear` — a server-side proxy that forwards to the target
+  Meridian service's `/admin/fault` / `/admin/clear`, so the browser never holds the admin token.
+- `POST /api/ops/deploy` — writes a deploy marker (see §3 below).
+- A `StaticFiles` mount at `/` serving the built portal UI (`ui/dist`), registered **last** so it
+  never shadows the API/admin/metrics routes above it.
+
+## 2. The portal UI
+
+`services/meridian/ui/` is a second, independent **Vite + React + TypeScript + Tailwind** app,
+built by a multi-stage `deploy/Dockerfile.meridian` (`node:20` builds `ui/dist`, then it's copied
+into the shared Python image) and served same-origin by the gateway. It is deliberately **not**
+styled like the IntelliOps console: the console is dark instrument-panel + cyan + Geist; Meridian
+is a light enterprise-fintech look — white / `#F7F8FA` surfaces, near-black ink (`#0B1220`), an
+emerald brand accent (`#0E7C5A`) with a navy secondary (`#1B2A4A`), and a **Public Sans / Source
+Serif 4 / IBM Plex Mono** type stack (`services/meridian/ui/tailwind.config.js`) — so in the demo
+it's visually obvious which screen is "the client's app" and which is "IntelliOps watching it."
+
+Four views:
+- **Dashboard** — submissions/reporting-period status, service health at a glance.
+- **Submit** — a form that posts a real financial submission through the gateway.
+- **Reports** — the reports list.
+- **Operations** — the demo driver: the 8 scenario presets, the custom-fault composer, a live
+  service-status strip, and the sequential-injection guard (§4).
+
+## 3. How Meridian is wired to IntelliOps (additive only)
+
+IntelliOps' default behavior is **unchanged**. Everything below is additive wiring in the compose
+stack and Prometheus config; no IntelliOps service's Python code changed.
+
+**a. Prometheus scrape jobs** (`deploy/prometheus.yml`) — one job per Meridian service, each
+stamping a distinct `service` label (the label RCA keys on to attribute an incident):
+
+```yaml
+- job_name: meridian-gateway
+  static_configs: [{ targets: ["meridian-gateway:8000"], labels: { service: meridian-gateway } }]
+- job_name: meridian-validation
+  static_configs: [{ targets: ["meridian-validation:8000"], labels: { service: meridian-validation } }]
+- job_name: meridian-aggregation
+  static_configs: [{ targets: ["meridian-aggregation:8000"], labels: { service: meridian-aggregation } }]
+- job_name: meridian-reporting
+  static_configs: [{ targets: ["meridian-reporting:8000"], labels: { service: meridian-reporting } }]
+```
+
+The pre-existing `demo-app` job is untouched.
+
+**b. The ingestion query, broadened only in compose.** Ingestion polls one fixed PromQL query.
+Every Meridian service already emits a `cpu_usage` gauge with the same *name* as `demo-app`'s, so
+`scale-service`-flavored faults (a `cpu_usage` spike) are picked up with **zero** query change. To
+also see the rest of the USE+RED set (§1a) — `meridian_error_rate`, `request_rate`,
+`latency_p50_ms`, `latency_p99_ms`, `memory_usage_mb`, `saturation`, `queue_depth`,
+`db_pool_in_use`, `db_pool_max`, `disk_usage_percent` — the ingestion service's compose environment
+sets the query to an instant-vector **selector** naming all 11 metrics:
+
+```yaml
+INTELLIOPS_PROMETHEUS_QUERY: '{__name__=~"cpu_usage|meridian_error_rate|request_rate|latency_p50_ms|latency_p99_ms|memory_usage_mb|saturation|queue_depth|db_pool_in_use|db_pool_max|disk_usage_percent"}'
+```
+
+`common/config.py`'s default stays `cpu_usage` — this override lives only in the `ingestion`
+service's block in `deploy/docker-compose.yml`, so the default build, the test suite, and CI never
+see it. **This was the single riskiest unknown in the design and was verified live**: the regex
+selector against a real Prometheus returns `resultType: vector` (an instant vector, exactly what
+`PrometheusSource` expects), with each Meridian service appearing as its own series carrying its
+`service` label. See §5 for the full verified run (that run predates the Metrics Phase 1 metric
+broadening and used the original 2-name selector; the mechanism — and its verified correctness — is
+unchanged by adding more names to the same regex). The gateway's `/api/ops/metrics` panel
+(`services/meridian/gateway/app.py`) uses the identical 11-name selector server-side and folds every
+known metric name into its service's row generically (`row[name] = val`), so unknown/future series
+are ignored rather than crashing the fold.
+
+**c. The `deploys.json` volume (the rollback-deploy path).** Before this work, `rca-service` had
+no mount for its on-disk deploy-context file, so `recent_deploys()` was always empty and
+`rollback-deploy` could never fire. A new shared named volume, `rca-context`, is mounted at
+`/app/data/rca_context` on **both** `rca` and `meridian-gateway`. The gateway's
+`POST /api/ops/deploy` writes `deploys.json` = `[{"service": "meridian-gateway", "version":
+"v2.3.1", "ts": "..."}]` into that shared volume; `rca`'s enrichment step reads the same file, so a
+deploy stamped just before a fault is injected produces a real "recent deployment preceded the
+incident" hypothesis (confidence 0.8) — this is a **real, functioning wiring change**, not a
+simulated one.
+
+**d. No new playbooks.** `scale-service`, `restart-pod`, and `rollback-deploy` are all
+`${service}`-templated in the existing playbook registry, so they already target any service name
+Meridian throws at them — no Meridian-specific playbook was needed.
+
+## 4. Fault injection: the mechanism, the scenarios, and why they must run one at a time
+
+Each Meridian service accepts `POST /admin/fault` with `{type, magnitude, duration_seconds?}`
+(`services/meridian/common.py`). As of Metrics Phase 1, `type` is one of **8 typed scenarios**,
+each moving a realistic *cluster* of the USE+RED metrics from §1a rather than a single gauge:
+
+| Scenario | Metric profile (what moves) | The incident it models | Diagnosis it drives |
+|---|---|---|---|
+| `saturation` | `cpu_usage` ↑, `saturation` ↑, `queue_depth` ↑ (step) | local capacity exhaustion | `scale-service` |
+| `latency` | `latency_p50_ms`/`latency_p99_ms` ↑, `queue_depth` ↑, `cpu_usage` mildly ↑ (step) | slow downstream call / lock contention | `scale-service` |
+| `error` | `meridian_error_rate` ↑ only; **`cpu_usage` + latency held at baseline** | a failing dependency or bad code path inside this service | `restart-pod` |
+| `memory_leak` | `memory_usage_mb` **ramps** linearly toward a target over `duration_seconds`; nothing else moves | a leak trending toward OOM | `restart-pod` (Phase 3 — recycle, don't scale: new pods leak too) |
+| `traffic_surge` | `request_rate` ↑, `cpu_usage` ↑, `saturation` ↑, `queue_depth` ↑ (step) | more legitimate load than the service has capacity for | `scale-service` |
+| `dependency_outage` | `meridian_error_rate` ↑, `latency_p99_ms` ↑; **`cpu_usage` held at baseline** | an upstream dependency this service calls is down | `restart-pod` |
+| `db_exhaustion` | `db_pool_in_use` → `db_pool_max`, `latency_p99_ms` ↑ (step); cpu/error stay baseline | database connection-pool starvation | `restart-pod` (Phase 3 — recycle to release wedged connections) |
+| `crash` | `/ready` starts returning 503 (`unhealthy=True`); no metric moves | a wedged process | no dedicated RCA rule today — detection-only (no metric moves for a rule to key on) |
+
+**Phase 4: recovery is verified on the metric that moved, not on cpu.** Post-remediation health
+verification (`health_check_mode=k8s`) now checks the metric(s) each fault above actually fired
+on — a `memory_leak` fix is verified on `memory_usage_mb`, an `error` fix on
+`meridian_error_rate`, a `latency` fix on `latency_p50_ms`/`latency_p99_ms`, a `db_exhaustion` fix
+on `db_pool_in_use` — instead of the old hardcoded `cpu_usage < 50` check, which would have
+trivially "passed" a memory or error fix without cpu ever having moved. See
+[ADR-029](../architectural.md#adr-029--per-metric-health-verification).
+
+**Phase 3 routing (`services/rca/rank.py`) and how confidence is set.** The metric-family rules
+above PROPOSE a candidate runbook from the closed 3-runbook catalog (restart-pod / scale-service /
+rollback-deploy) with a fallback confidence; `latency`/`queue_depth`/`request_rate` → `scale-service`
+and `memory`/`db_pool` → `restart-pod` are ranked so the restart family outranks the scale family on
+the multi-metric profiles above (`dependency_outage` = error+latency, `db_exhaustion` = db_pool+
+latency both land on `restart-pod`, not `scale-service`) — scaling just spins up new pods that hit
+the same wedged dependency or exhausted pool. When `RUNBOOK_SELECTOR_MODE=embedding` (+ the `ml`
+extra) is enabled, the confidence shown is **embedding-computed** — the cosine fit of the incident's
+symptoms against the chosen runbook's `symptoms` text (`confidence_source="embedding"`); off
+(default), the fallback constant stands (`confidence_source="rule"`). Either way the rules alone
+decide *which* runbook; see [ADR-028](../architectural.md#adr-028--rca-metric-family-rules--ai-computed-confidence).
+
+**The load-bearing cross-metric invariant.** `error` and `dependency_outage` are the two scenarios
+that deliberately **hold `cpu_usage` at its 18.0 baseline** while they move: RCA's
+`rank_hypotheses` (`services/rca/rank.py`) scores a saturation-token match at confidence 0.6 and an
+error/log match at 0.58 (as of Phase 3; originally 0.5) — if either fault also spiked `cpu_usage`,
+`scale-service` would always outrank `restart-pod` and the error/outage incident would be
+misdiagnosed as a capacity problem. Keeping `cpu_usage` flat during both faults is what lets
+`restart-pod` fire at all; the same discipline is documented in `services/meridian/common.py`'s
+module docstring and enforced by `services/meridian/tests/`
+(`test_error_keeps_cpu_and_latency_at_baseline`,
+`test_dependency_outage_moves_errors_and_latency_not_cpu`). More generally, every one of the 8
+profiles moves *only* the metrics that incident would realistically move — the shape of the anomaly
+cluster is itself part of the diagnosis, not noise, and as of Phase 3 that shape is exactly what the
+metric-family rules key on (§4 above).
+
+### The 8 scripted scenarios (Operations view presets)
+
+| Preset label | Service | Injected | Expected diagnosis |
+|---|---|---|---|
+| Aggregation saturated | aggregation | `saturation` | `scale-service` |
+| Report slow | reporting | `latency` (+ cpu) | `scale-service` |
+| Validation errors | validation | `error` (magnitude 0.5) | `restart-pod` |
+| Bad gateway deploy | gateway | deploy marker (v2.3.1) then `saturation` | `rollback-deploy` |
+| Memory leak (gradual) | aggregation | `memory_leak` | `restart-pod` (Phase 3) |
+| Traffic surge | gateway | `traffic_surge` | `scale-service` |
+| Dependency outage | validation | `dependency_outage` | `restart-pod` |
+| DB pool exhaustion | reporting | `db_exhaustion` | `restart-pod` (Phase 3) |
+
+### The custom-fault builder
+
+The Operations view also has a composer: pick a target service, a fault type (all 8 scenarios), a
+magnitude (0.1–2.0), a duration, and an optional "mark as deploy" checkbox, then fire it through
+the same `/api/ops/fault` proxy the presets use — the identical real mechanism, not a separate code
+path. **Honest note on coverage (updated for Phase 3):** 7 of the 8 scenarios now map to a
+dedicated `rank_hypotheses` rule (`saturation`/`latency`/`traffic_surge` → `scale-service`;
+`error`/`dependency_outage`/`memory_leak`/`db_exhaustion` → `restart-pod`; a deploy marker →
+`rollback-deploy`). Only `crash` has **no dedicated RCA rule** — it flips `/ready` to unhealthy but
+moves no metric, so there is no metric-family token for a rule to key on; it lands in the generic
+"root cause undetermined" fallback (confidence 0.2, no suggested runbook) unless it happens to
+co-occur with a metric-moving fault. When the embedding selector is enabled
+(`RUNBOOK_SELECTOR_MODE=embedding`), each of the 7 routed scenarios' confidence is computed from the
+symptom fit rather than a fixed constant — see [ADR-028](../architectural.md#adr-028--rca-metric-family-rules--ai-computed-confidence).
+
+### Why sequential injection is required
+
+`CorrelationEngine` groups anomalies **by time window** (~15 seconds), not by service. Two faults
+on two different services fired within the same window merge into a **single** Situation instead
+of two distinct ones — the correlator has no per-service isolation. This is a real constraint of
+the current detection design, not a Meridian limitation, and it was **confirmed in practice** during
+the live verification run (see §5): a stale fault left over from an earlier scenario overlapped a
+new one and the situations merged/lingered, exactly as predicted, until faults were cleared and
+properly spaced.
+
+The Operations view enforces this: firing a preset or the custom composer is **disabled** while any
+fault is active (`guardActive` in `Operations.tsx`), and the UI shows an explicit banner —
+*"IntelliOps groups anomalies in a ~15s window — inject one fault at a time. Clear before
+starting the next."* — with a **Clear** action. The demo script below follows the same discipline.
+
+## 5. Verified live — the real end-to-end run
+
+This is not a projected or invented result. The full stack (`docker compose up -d --build`, all
+services including the four Meridian backends and IntelliOps) was brought up and driven live in
+real Docker, sequentially, one scenario at a time.
+
+**The regex ingestion query** — the design's single riskiest unknown — was verified first:
+`curl 'http://localhost:9090/api/v1/query' --data-urlencode 'query={__name__=~"cpu_usage|meridian_error_rate"}'`
+returned `resultType: vector` (a correct instant vector). All 5 Prometheus targets were `up`
+(`demo-app` + the four `meridian-*` jobs), and each Meridian service appeared as its own series
+carrying its `service` label, with both `cpu_usage` (18, baseline) and `meridian_error_rate` (0)
+present.
+
+Three scenarios were then run **sequentially**, each proving a genuinely different diagnosis:
+
+| Scenario | Service | Injected | cpu_usage | error_rate | Diagnosis (runbook) | Result |
+|---|---|---|---|---|---|---|
+| Aggregation saturated | meridian-aggregation | saturation | 18 → 92 | 0 | resource saturation (0.6) → **scale-service** | matched expectation |
+| Validation errors | meridian-validation | error, magnitude 0.6 | stays 18 | 0.6 | error spike (0.5) → **restart-pod** | matched expectation |
+| Bad gateway deploy | meridian-gateway | deploy marker v2.3.1 + saturation | 18 → 92 | 0 | recent-deploy (0.8) outranks saturation (0.6) → **rollback-deploy** | matched expectation |
+
+Each pipeline hop was real: Meridian fault → Prometheus scrape (with the `service` label) →
+ingestion (the regex query) → `telemetry.raw` → correlation z-score detection →
+`situations.detected` → RCA ranking → the expected playbook, reaching `status=diagnosed` and then
+the action/governance path.
+
+**The validation-errors invariant held live:** the error fault kept `cpu_usage` at 18 while
+`error_rate` rose to 0.6, so `restart-pod` (0.5) fired instead of `scale-service` (0.6) — exactly
+the design in §4, confirmed against real Prometheus values, not just unit tests.
+
+**The rollback-deploy story held live end to end:** `/api/ops/deploy` wrote
+`{"service":"meridian-gateway","version":"v2.3.1","ts":...}` into the shared `rca-context` volume;
+RCA read it and produced *"recent deployment of meridian-gateway (v2.3.1) preceded the incident"*
+at confidence 0.8, outranking the concurrent 0.6 saturation hypothesis — proving the volume-sharing
+wiring in §3c actually works, not just that the code compiles.
+
+**The HITL gate fired correctly.** All four outcomes reached `action-service` and came back
+`result=failure, reason=aborted:timeout` — this is **correct**, not a bug: these are `hitl_mode`
+playbooks, and the live-verification run did not approve them (by design, to prove the gate holds).
+In an actual demo, the operator approves the pending request in the IntelliOps console, and with
+`REMEDIATOR_MODE=dry_run` (the default) the remediation completes — the action service logs the
+steps and the health check reports healthy.
+
+**The time-window-merge behavior was directly observed, not just theorized.** During the live run,
+a stale saturation fault (left at cpu=92 from an earlier step, cleared via the wrong endpoint)
+overlapped a newly-injected fault within the ~15s correlation window, and the resulting situations
+merged/lingered instead of appearing as two distinct incidents. Fixing it required the exact
+discipline described in §4 — clear via `/api/ops/clear`, reset the correlator baseline, and wait out
+a full window before the next injection. This is why the sequential-injection guard exists and why
+the demo script below insists on it.
+
+## 6. The demo script (the money shot)
+
+1. **Bring the stack up.** `docker compose -f deploy/docker-compose.yml up -d --build`. Wait for
+   all services — the six IntelliOps services, read-service, the four `meridian-*` backends, and
+   `meridian-gateway` — to report healthy.
+2. **Open the Meridian portal** at `http://localhost:8008`. Everything green — *"the enterprise
+   platform we operate for the client."* Submit a financial record or two so real traffic flows.
+3. **Go to the Operations view** and fire **one** preset (or a custom fault). The service-status
+   strip degrades for that one service.
+4. **Switch to the IntelliOps console** and watch the incident move through the pipeline: detected
+   → diagnosed (with the expected playbook attached) → the HITL gate.
+5. **Approve** the pending request in the console. With the default `dry_run` remediator, the
+   action service logs the remediation steps and the health check reports healthy; the outcome
+   resolves.
+6. **Clear the fault** from the Meridian Operations view (respecting the sequential-injection guard
+   — wait for the "no active fault" state) before firing the next scenario.
+7. Repeat for the remaining scenarios to show the **diverse** diagnoses — `scale-service`,
+   `restart-pod`, `rollback-deploy` — genuinely earned from different fault signatures, not a
+   hardcoded demo path.
+
+## 7. Honest limits
+
+- **Synthetic data.** Submissions, reports, and financial figures are placeholder values — Meridian
+  is a realistic *shape*, not real client data or real audit logic.
+- **Toggle-based faults, not organic failures.** Every fault is a deliberate state flip
+  (`MeridianState.apply`) triggered by an admin call, not an emergent failure mode. This mirrors
+  `services/demo_app`'s existing `/break`/`/fix` pattern and is what makes the demo repeatable, but
+  it means Meridian never fails in a way its own code didn't explicitly script.
+- **Faults must be injected one at a time.** Correlation groups by time window, not by service
+  (§4) — this is a real constraint of the current detector, confirmed live (§5), not just a UI
+  restriction. Concurrent faults on different services will merge into one Situation.
+- **One fault scenario still has no dedicated playbook.** `crash` (§4) moves no metric — it only
+  flips `/ready` to unhealthy — so there is no metric-family token for an `rank_hypotheses` rule to
+  key on; it is detection-capable (the health check fails) but not richly diagnosable via RCA
+  today. `memory_leak` and `db_exhaustion` gained dedicated rules (both → `restart-pod`) in
+  **Metrics Phase 3** (see `docs/superpowers/specs/2026-09-06-rca-metric-rules-phase3-design.md`
+  and [ADR-028](../architectural.md#adr-028--rca-metric-family-rules--ai-computed-confidence)). The
+  custom-fault composer does not currently flag the `crash` gap in its own UI text (it is
+  documented here instead).
+- **Only the gateway has real domain routes today.** `validation`, `aggregation`, and `reporting`
+  are fully faultable, independently-observed services with the complete scaffold, but their
+  `/validate`, `/aggregate`, and `/report` domain endpoints are not yet wired to real business
+  logic — they are genuine fault targets, not yet full request handlers.
+- **The demo uses dry-run remediation by default.** `REMEDIATOR_MODE=dry_run` (the IntelliOps-wide
+  default) means an approved fix logs its steps and a simulated health check reports success — no
+  container is actually restarted. Real remediation against Meridian would require pointing
+  `REMEDIATOR_MODE=k8s` at a cluster running Meridian's workloads, which is out of scope for the
+  compose-based demo described here (see `deploy/k8s/README.md` for the existing k8s remediation
+  path against the original demo-app).
+- **IntelliOps' own default behavior is unchanged.** Everything in §3 is additive — a fresh
+  `docker compose up` without the Meridian services, and the full `pytest` suite, both see the
+  original `cpu_usage`-only ingestion query and no Meridian-specific code path.

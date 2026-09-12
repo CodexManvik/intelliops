@@ -3,11 +3,21 @@ service-deployment.yaml
 Ranges over .Values.services and renders one Deployment + one Service per entry.
 
 Each Deployment:
+  - selects the base or `full` image per service (service.image: full → rca, action)
   - sets SERVICE_MODULE from service.module and PORT from service.port as env vars
   - mounts intelliops-env ConfigMap as envFrom
-  - includes liveness probe at /health (initialDelaySeconds: 10, periodSeconds: 10)
+  - action: uses the intelliops-action ServiceAccount when rbac.create (real remediation)
+  - rca: gets the LLM API key via secretKeyRef when a key/secret is configured
+  - includes liveness (/health) + readiness (/ready) probes
 */}}
 {{- range .Values.services }}
+{{- $img := $.Values.image.repository }}
+{{- $tag := $.Values.image.tag }}
+{{- if eq (.image | default "base") "full" }}
+{{-   $img = ($.Values.image.fullRepository | default "") }}
+{{-   if eq $img "" }}{{ $img = $.Values.image.repository }}{{ end }}
+{{-   $tag = $.Values.image.fullTag }}
+{{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -26,18 +36,63 @@ spec:
       labels:
         {{- include "intelliops.selectorLabels" (dict "root" $ "name" .name) | nindent 8 }}
     spec:
+      {{- if and $.Values.rbac.create (eq .name "action") }}
+      serviceAccountName: intelliops-action
+      {{- end }}
+      # Wait for Redis + Postgres before the app starts, so consumer/DB threads
+      # never come up against a dead dependency (the consume loops are also
+      # retry-resilient, but this keeps a fresh install clean of crash-loop churn).
+      initContainers:
+        - name: wait-deps
+          image: {{ $.Values.postgres.image | quote }}
+          command:
+            - bash
+            - -c
+            - |
+              until pg_isready -h postgres -p 5432 -U {{ $.Values.postgres.user }}; do
+                echo "waiting for postgres…"; sleep 2;
+              done
+              # bash /dev/tcp probe — no nc needed; postgres image ships bash.
+              until (exec 3<>/dev/tcp/redis/6379) 2>/dev/null; do
+                echo "waiting for redis…"; sleep 2;
+              done
+              echo "deps ready"
       containers:
         - name: {{ .name }}
-          image: "{{ $.Values.image.repository }}:{{ $.Values.image.tag }}"
+          image: "{{ $img }}:{{ $tag }}"
           imagePullPolicy: {{ $.Values.image.pullPolicy }}
           envFrom:
             - configMapRef:
                 name: intelliops-env
+            # INTELLIOPS_DATABASE_URL (password-bearing) comes from the Secret,
+            # not the ConfigMap (issue #57).
+            - secretRef:
+                name: postgres-credentials
           env:
             - name: SERVICE_MODULE
               value: {{ .module | quote }}
             - name: PORT
               value: {{ .port | quote }}
+            {{- if or $.Values.llm.apiKey $.Values.llm.apiKeySecretName }}
+            {{- $secretName := $.Values.llm.apiKeySecretName | default (printf "%s-llm" $.Release.Name) }}
+            {{- if eq .name "rca" }}
+            # rca: the LLM explainer key (ExplanationProvider).
+            - name: INTELLIOPS_LLM_EXPLANATION_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: api-key
+            {{- end }}
+            {{- if eq .name "governance" }}
+            # governance: the AI runbook-author key (PR C). Same Secret, distinct
+            # env var — the author lives in governance, not rca.
+            - name: INTELLIOPS_LLM_RUNBOOK_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: api-key
+            {{- end }}
+            {{- end }}
           ports:
             - containerPort: {{ .port }}
           livenessProbe:
@@ -45,6 +100,12 @@ spec:
               path: /health
               port: {{ .port }}
             initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: {{ .port }}
+            initialDelaySeconds: 5
             periodSeconds: 10
 ---
 apiVersion: v1
@@ -55,9 +116,15 @@ metadata:
     {{- include "intelliops.labels" $ | nindent 4 }}
     {{- include "intelliops.selectorLabels" (dict "root" $ "name" .name) | nindent 4 }}
 spec:
+  {{- if and (eq .name "read") $.Values.readNodePort }}
+  type: NodePort
+  {{- end }}
   selector:
     {{- include "intelliops.selectorLabels" (dict "root" $ "name" .name) | nindent 4 }}
   ports:
     - port: {{ .port }}
       targetPort: {{ .port }}
+      {{- if and (eq .name "read") $.Values.readNodePort }}
+      nodePort: {{ $.Values.readNodePort }}
+      {{- end }}
 {{- end }}

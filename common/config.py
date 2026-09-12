@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     playbook_store_path: str = "data/playbooks"
     rbac_policy_path: str = "policies/rbac_policy.yaml"
     rca_context_path: str = "data/rca_context"
+    system_context_path: str = "config/system_context.yaml"
     hitl_poll_timeout_seconds: float = 30.0
     hitl_poll_interval_seconds: float = 0.5
     training_store_path: str = "data/training.jsonl"
@@ -49,7 +50,9 @@ class Settings(BaseSettings):
     # --- K8s remediation settings (test-safe defaults) ---
     remediator_mode: str = "dry_run"  # "dry_run" | "k8s"
     health_check_mode: str = "always"  # "always" | "k8s"
+    sandbox_mode: str = "off"  # "off" | "k8s"
     k8s_namespace: str = "intelliops-demo"
+    meridian_ops_target_mode: str = "compose"  # "compose" | "k8s"
     store_backend: str = "file"  # "file" | "postgres"
     database_url: str = "postgresql+psycopg://intelliops:intelliops@localhost:5432/intelliops"
     baseline_snapshot_seconds: float = 30.0
@@ -63,12 +66,36 @@ class Settings(BaseSettings):
     # --- Bus backend selection ---
     bus_backend: str = "redis"  # "redis" | "kafka"
     kafka_bootstrap_servers: str = "localhost:9092"
+    # Approximate cap on Redis Stream length (issue #54). Without a bound, streams
+    # grow until Redis OOMs. xadd trims with MAXLEN ~ N (the ~ makes trimming cheap,
+    # so the real length can drift slightly above N between trims). 0 disables the
+    # cap (kept 0-safe for tests / an operator who wants unbounded).
+    bus_stream_maxlen: int = 100_000
 
     # --- RCA explanation (on-by-default via template; LLM opt-in via endpoint) ---
     llm_explanation_endpoint: str = ""  # empty = TemplateExplanationProvider, no network
     llm_explanation_model: str = "gpt-4o-mini"
     llm_explanation_timeout_seconds: float = 10.0
     llm_explanation_api_key: str = ""
+
+    # --- AI-authored runbooks (off by default; LLM opt-in via endpoint) ---
+    runbook_author_mode: str = "off"  # "off" | "openai"
+    llm_runbook_endpoint: str = ""  # empty = NullRunbookAuthor, no network
+    llm_runbook_model: str = "gpt-4o-mini"
+    llm_runbook_timeout_seconds: float = 10.0
+    llm_runbook_api_key: str = ""
+
+    # --- Semantic runbook selection (off by default; keyword matching unaffected) ---
+    runbook_selector_mode: str = "off"  # "off" | "embedding"
+    runbook_selector_model: str = "all-MiniLM-L6-v2"
+    runbook_selector_threshold: float = 0.45  # min cosine similarity to accept a match
+
+    # --- Metric-kind-aware detection policy (off by default; pure z-score unaffected) ---
+    detection_policy: str = "off"  # "off" | "on"
+    detection_ratio_threshold: float = 0.02
+    detection_saturation_ratio_threshold: float = 0.80
+    detection_saturation_percent_threshold: float = 90.0
+    detection_latency_ceiling_ms: float = 500.0
 
 
 @lru_cache

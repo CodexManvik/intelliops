@@ -23,11 +23,17 @@ from river import stats
 
 from common.contracts import Situation, SituationStatus, TelemetryEvent
 from services.correlation.adapters.base_correlator import BaseCorrelator
+from services.correlation.detection_policy import DetectionPolicy
 
 
 class RiverCorrelator(BaseCorrelator):
-    def __init__(self, z_threshold: float = 3.0, warmup_samples: int = 50) -> None:
-        super().__init__(z_threshold, warmup_samples)
+    def __init__(
+        self,
+        z_threshold: float = 3.0,
+        warmup_samples: int = 50,
+        detection_policy: DetectionPolicy | None = None,
+    ) -> None:
+        super().__init__(z_threshold, warmup_samples, detection_policy=detection_policy)
         self._mean: dict[str, stats.Mean] = {}
         self._var: dict[str, stats.Var] = {}
         self._count: dict[str, int] = {}
@@ -83,6 +89,14 @@ class RiverCorrelator(BaseCorrelator):
             self._mean[r["metric_name"]] = stats.Mean._from_state(n, r["mean"])
             self._var[r["metric_name"]] = stats.Var._from_state(n, r["mean"], r["variance"], ddof=1)
             self._count[r["metric_name"]] = int(r["count"])
+
+    def baseline_snapshot(self) -> dict:
+        """Per-metric {name: {mean, std}} for attaching to an emitted Situation."""
+        out: dict = {}
+        for name, mean in list(self._mean.items()):
+            var = self._var[name]
+            out[name] = {"mean": mean.get(), "std": var.get() ** 0.5}
+        return out
 
     def correlate(self, events: list[TelemetryEvent], severity: str = "low") -> Situation:
         if not events:

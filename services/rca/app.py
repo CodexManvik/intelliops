@@ -7,15 +7,39 @@ import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from pydantic import BaseModel
 
 from common.config import get_settings
 from common.stores import make_stores
 from services.base import create_app, db_ready
 from services.rca.adapters.context_provider import FileContextProvider
-from services.rca.adapters.explanation_provider import make_explanation_provider
+from services.rca.adapters.explanation_provider import (
+    OpenAICompatibleExplanationProvider,
+    TemplateExplanationProvider,
+    make_explanation_provider,
+)
 from services.rca.consumer import run_consumer
+from services.rca.provider_holder import ProviderHolder
 
 logger = logging.getLogger("intelliops.rca.app")
+
+
+def _make_runbook_selector(settings):
+    """Selects the embedding-backed RunbookSelector IFF runbook_selector_mode
+    is "embedding"; NullRunbookSelector (no semantic fallback, today's
+    behavior) otherwise. Mirrors make_explanation_provider's opt-in-via-config
+    shape. Lazy-imports EmbeddingRunbookSelector so importing this module
+    never requires the embedding dependency/model when the mode is off."""
+    from services.rca.adapters.runbook_selector import NullRunbookSelector
+
+    if settings.runbook_selector_mode == "embedding":
+        from services.rca.adapters.runbook_selector import EmbeddingRunbookSelector
+
+        return EmbeddingRunbookSelector(
+            model_name=settings.runbook_selector_model,
+            threshold=settings.runbook_selector_threshold,
+        )
+    return NullRunbookSelector()
 
 
 def _build_reliability_provider(training_store):
@@ -52,12 +76,14 @@ async def lifespan(app: FastAPI):
     app.state.db_engine = stores.engine
     store = stores.playbook_store
     audit_sink = stores.audit_sink
-    explainer = make_explanation_provider(settings)
+    holder = ProviderHolder(make_explanation_provider(settings))
+    app.state.provider_holder = holder
     reliability_provider = _build_reliability_provider(stores.training_store)
+    selector = _make_runbook_selector(settings)
     thread = threading.Thread(
         target=run_consumer,
-        args=(app.state.bus, provider, store, audit_sink, explainer, stop_event),
-        kwargs={"reliability_provider": reliability_provider},
+        args=(app.state.bus, provider, store, audit_sink, holder.get, stop_event),
+        kwargs={"reliability_provider": reliability_provider, "selector": selector},
         daemon=True,
     )
     thread.start()
@@ -76,3 +102,96 @@ app = create_app(
     readiness=lambda: db_ready(getattr(app.state, "db_engine", None)),
 )
 app.router.lifespan_context = lifespan
+
+
+class LlmConfig(BaseModel):
+    endpoint: str = ""
+    api_key: str = ""
+    model: str = "gpt-4o-mini"
+    timeout_seconds: float = 10.0
+
+
+def _redact(endpoint: str) -> str:
+    if not endpoint:
+        return ""
+    from urllib.parse import urlparse
+
+    p = urlparse(endpoint)
+    return f"{p.scheme}://{p.hostname}" + (f":{p.port}" if p.port else "")
+
+
+def _state(holder) -> dict:
+    prov = holder.get()
+    is_llm = isinstance(prov, OpenAICompatibleExplanationProvider)
+    return {
+        "provider": "openai-compatible" if is_llm else "template",
+        "endpoint_configured": is_llm,
+        "endpoint": _redact(getattr(prov, "_base", "")),
+        "model": getattr(prov, "_model", get_settings().llm_explanation_model),
+        "last_probe": holder.last_probe,
+    }
+
+
+@app.get("/config/llm")
+def get_llm_config() -> dict:
+    return _state(app.state.provider_holder)
+
+
+# POST /config/llm carries the api_key; it is auth-gated automatically by
+# create_app's default exempt predicate (only /health and /ready are exempt),
+# so AUTH_MODE=token protects this route with no extra work here.
+@app.post("/config/llm")
+def set_llm_config(cfg: LlmConfig) -> dict:
+    holder = app.state.provider_holder
+    if cfg.endpoint:
+        holder.set(
+            OpenAICompatibleExplanationProvider(
+                base_url=cfg.endpoint,
+                model=cfg.model,
+                api_key=cfg.api_key,
+                timeout_seconds=cfg.timeout_seconds,
+            )
+        )
+    else:
+        holder.set(TemplateExplanationProvider())
+    return _state(holder)  # never echoes api_key
+
+
+@app.post("/config/llm/test")
+def test_llm_config(cfg: LlmConfig) -> dict:
+    import time
+    from datetime import UTC, datetime
+
+    from common.contracts import EnrichmentContext, RootCauseHypothesis, Situation, SituationStatus
+
+    if not cfg.endpoint:
+        return {"ok": False, "error": "no endpoint configured"}
+    provider = OpenAICompatibleExplanationProvider(
+        base_url=cfg.endpoint,
+        model=cfg.model,
+        api_key=cfg.api_key,
+        timeout_seconds=cfg.timeout_seconds,
+    )
+    hyp = RootCauseHypothesis(
+        situation_id="probe", description="probe", confidence=0.5, evidence=["probe"]
+    )
+    sit = Situation(
+        id="probe",
+        status=SituationStatus.DETECTED,
+        severity="low",
+        first_seen=datetime.now(UTC),
+        last_seen=datetime.now(UTC),
+        signature="probe",
+    )
+    template = TemplateExplanationProvider().explain(hyp, EnrichmentContext(), sit)
+    start = time.monotonic()
+    text = provider.explain(hyp, EnrichmentContext(), sit)
+    latency_ms = int((time.monotonic() - start) * 1000)
+    ok = text != template  # provider falls back to template on ANY failure
+    probe = {"ok": ok, "model": cfg.model, "latency_ms": latency_ms}
+    if not ok:
+        probe["error"] = (
+            "endpoint unreachable or returned no usable content (fell back to template)"
+        )
+    app.state.provider_holder.set_last_probe(probe)
+    return probe

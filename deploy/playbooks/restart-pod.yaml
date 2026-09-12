@@ -11,3 +11,4 @@ reversible: true
 rollback_steps:
   - action: rollback_deploy
     note: "kubectl rollout undo deployment/${service}"
+symptoms: "crash loops, wedged or hung process, memory leak trending to OOM, database connection-pool exhaustion, elevated error rate, stuck workers — a process that must be recycled"

@@ -1,6 +1,11 @@
 image:
   repository: intelliops
   tag: latest
+  # The `full` image target (base + ml + k8s extras, CPU torch + baked embedding
+  # model). rca + action reference it (embedding selection + k8s remediation).
+  # Defaults to the same repo with a distinct tag; override for a separate repo.
+  fullRepository: ""        # "" → use `repository`
+  fullTag: "full"
   pullPolicy: IfNotPresent
 
 services:
@@ -12,14 +17,17 @@ services:
     module: "services.correlation.app:app"
     port: 8000
     externalPort: 8002
+    image: full            # RiverCorrelator imports `river`/`numpy` (the ml extra) at module load
   - name: rca
     module: "services.rca.app:app"
     port: 8000
     externalPort: 8003
+    image: full            # embedding runbook selection needs sentence-transformers
   - name: action
     module: "services.action.app:app"
     port: 8000
     externalPort: 8004
+    image: full            # k8s remediation + sandbox + per-metric health need the k8s extra
   - name: governance
     module: "services.governance.app:app"
     port: 8000
@@ -33,10 +41,76 @@ services:
     port: 8000
     externalPort: 8007
 
+# Platform env — SAFE DEFAULTS (dry-run / off / template). The LIVE posture is
+# strictly opt-in via values-live.yaml. A plain `helm install` never touches a
+# real cluster and needs no LLM key.
 env:
   AUTH_MODE: "off"
   STORE_BACKEND: postgres
   BUS_BACKEND: redis
+  CORRELATOR_KIND: "river"          # robust in values-live (seasonal baselines)
+  DETECTION_POLICY: "off"           # on in values-live (Phase 2)
+  RUNBOOK_SELECTOR_MODE: "off"      # embedding in values-live (Phase 3)
+  REMEDIATOR_MODE: "dry_run"        # k8s in values-live (real remediation)
+  SANDBOX_MODE: "off"               # k8s in values-live (pre-flight rehearsal)
+  HEALTH_CHECK_MODE: "always"       # k8s in values-live (Phase 4 per-metric verify)
+  PROMETHEUS_URL: "http://prometheus:9090"
+  TELEMETRY_MODE: "file"            # "prometheus" in values-live (poll real metrics)
+  PROMETHEUS_QUERY: "cpu_usage"     # values-live widens this to all metric families
+  GOVERNANCE_MODE: "in_process"     # "http" in values-live — action + governance are
+  GOVERNANCE_URL: "http://governance:8000"  # separate pods, so approvals must go over HTTP
+  HITL_POLL_TIMEOUT_SECONDS: "30"   # values-live raises this so a human has time to click Approve
+  LLM_EXPLANATION_ENDPOINT: ""      # set in values-live (e.g. Groq/OpenAI base URL)
+  LLM_EXPLANATION_MODEL: ""         # set in values-live
+  RUNBOOK_AUTHOR_MODE: "off"        # "openai" in values-live (AI-authored runbook drafts)
+  LLM_RUNBOOK_ENDPOINT: ""          # set in values-live (author LLM base URL)
+  LLM_RUNBOOK_MODEL: ""             # set in values-live
+  # Path (inside the image) to the curated system-context file the runbook
+  # author reads for grounding. Baked into both image stages at this path
+  # (deploy/Dockerfile); the shipped file is an empty placeholder, which is
+  # safe (reads as "unconfigured") — nothing here needs a secret.
+  SYSTEM_CONTEXT_PATH: "config/system_context.yaml"
+
+# RBAC for the action service's k8s remediation + sandbox (cluster-scoped: it
+# creates/deletes throwaway sandbox namespaces). Off by default (dry-run needs none).
+rbac:
+  create: false
+
+# LLM API key. NEVER commit a key here. Supply at install:
+#   helm install ... --set-string llm.apiKey=$GROQ_API_KEY
+# or pre-create a Secret and set llm.apiKeySecretName to its name.
+llm:
+  apiKey: ""              # inline (from --set-string only); chart creates a Secret when set
+  apiKeySecretName: ""    # OR the name of a pre-existing Secret with key `api-key`
+
+# In-cluster workloads folded into the release (the targets remediation acts on +
+# the metric source). Enabled by default so `helm install` brings up a complete,
+# self-contained (dry-run) stack; the demo images must be built + loaded first.
+demoApp:
+  enabled: true
+  image: ""              # "" → use image.repository:image.tag (the base image)
+  module: "services.demo_app.app:app"
+  port: 8080
+meridian:
+  enabled: true
+  image: ""              # "" → base image
+  services:
+    - { name: meridian-gateway, module: "services.meridian.gateway.app:app" }
+    - { name: meridian-validation, module: "services.meridian.validation.app:app" }
+    - { name: meridian-aggregation, module: "services.meridian.aggregation.app:app" }
+    - { name: meridian-reporting, module: "services.meridian.reporting.app:app" }
+prometheus:
+  enabled: true
+  image: prom/prometheus:v2.54.1   # pinned for reproducibility (not :latest)
+
+# The React console: nginx serving the built SPA + same-origin reverse-proxy to
+# the read service (SSE-safe). Exposed via NodePort for the browser on kind.
+console:
+  enabled: true
+  image: ""              # "" → intelliops-console:<image.tag>
+  repository: "intelliops-console"
+  nodePort: 30080
+readNodePort: 30007      # NodePort for the read service (browser reaches SSE/REST)
 
 redis:
   image: redis:7
@@ -46,3 +120,6 @@ postgres:
   user: intelliops
   password: intelliops
   db: intelliops
+  # Durable storage size for the StatefulSet's PVC (issue #55). The DB survives
+  # a pod reschedule now; size to taste (audit/approval/training/trace rows).
+  storage: 1Gi

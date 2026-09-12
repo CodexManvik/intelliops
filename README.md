@@ -31,6 +31,28 @@ it, and it is **open-source-first** to avoid vendor lock-in.
 > every diagnosis carries an on-by-default (template or LLM) explanation — with a reproducible
 > benchmark proving the gains and the trade-offs (see [docs/BENCHMARKS.md](docs/BENCHMARKS.md),
 > [ADR-019](architectural.md#adr-019--pluggable-detectors-the-finetuning-loop-and-llm-assisted-rca)).
+> **A real sample system now feeds the pipeline**: **Meridian**, a four-service Deloitte-style
+> financial/audit platform with its own client-portal UI, runs alongside IntelliOps in
+> `docker compose up`, wired in through additive-only Prometheus scrape jobs, a broadened
+> ingestion query, and a shared deploy-context volume — no IntelliOps code changed. Each service
+> now emits a **USE+RED metric set with 8 typed fault scenarios** (up from the original
+> cpu/error-only pair), each scenario moving a realistic metric cluster rather than one gauge.
+> Three fault scenarios were verified live end-to-end in real Docker, each producing a genuinely
+> different, correct diagnosis (`scale-service` / `restart-pod` / `rollback-deploy`); see
+> [docs/MERIDIAN.md](docs/MERIDIAN.md) and
+> [ADR-020](architectural.md#adr-020--meridian-sample-production-system).
+> **Remediation got safer and more capable, without loosening the safety model.** A fix is now
+> **rehearsed on an isolated namespace clone before it is approved** — a failed rehearsal blocks
+> an auto-remediation and advises a human on a HITL one ([ADR-023](architectural.md#adr-023--pre-flight-sandbox-rehearsal-before-remediation)).
+> The typed action vocabulary widened 4→7 Deployment-scoped verbs behind a **destructive-shape
+> denylist**, with the action `Literal` still closed so catastrophic actions remain impossible to
+> express ([ADR-024](architectural.md#adr-024--tier-2-remediation-vocabulary--a-destructive-action-denylist)).
+> And selection got *some* real intelligence, carefully bounded: the AI can **draft a new runbook
+> for a gap that a human must approve** before it joins the registry ([ADR-025](architectural.md#adr-025--ai-authored-runbooks-propose--approve)),
+> and when the keyword rules don't fire, **embedding similarity** ranks the existing human-vetted
+> playbooks ([ADR-026](architectural.md#adr-026--semantic-runbook-selection-embedding-fallback)) —
+> retrieval among vetted options, never an LLM choosing the fix. All four are config-switched
+> **off by default** (the demo/CI path is byte-identical) and opt-in.
 > Next up: the Kafka bus binding and a whole-stack Helm deploy (in review).
 > See [WORKPLAN.md](WORKPLAN.md).
 
@@ -42,7 +64,7 @@ IntelliOps is and how it works:
 | Read this | To understand |
 |-----------|---------------|
 | **[flow.md](flow.md)** | **How a signal flows through the system** — the one-incident journey, every bus topic and data contract, a function-by-function reference for each of the seven services, and the current status (what's real vs. simulated). |
-| **[architectural.md](architectural.md)** | **Why the system is shaped this way** — the layer model and nineteen ADRs (Architecture Decision Records), each with the context, the decision, the trade-offs, and the alternatives rejected. |
+| **[architectural.md](architectural.md)** | **Why the system is shaped this way** — the layer model and thirty ADRs (Architecture Decision Records), each with the context, the decision, the trade-offs, and the alternatives rejected. |
 
 Then, for the team: **[WORKPLAN.md](WORKPLAN.md)** divides the remaining work into four
 owned streams with acceptance criteria. The full original design spec is at
@@ -122,6 +144,7 @@ intelliops/
 ├── common/                ← shared library: contracts, interfaces, bus client, config
 ├── services/              ← the six services (ingestion, correlation, rca, action,
 │                            governance, feedback) — added slice by slice
+│   └── meridian/          ← Meridian: 4-service sample financial platform + portal UI
 ├── playbooks/             ← YAML playbook definitions (the CoE registry seed)
 ├── alembic/               ← Postgres schema migrations (versioned, run as a one-shot step)
 ├── deploy/                ← docker-compose (dev), deploy/k8s (kind remediation demo)
@@ -219,6 +242,27 @@ baseline, and empties the read model.
 > are simulation controls, not production endpoints. When this stack is pointed at a real system,
 > they must be gated or removed.
 
+## Proving it's real
+
+The console isn't just a status light — every incident it shows drills down into the evidence
+behind it. Open a Situation and you get the metric name and value that tripped it, the
+correlator's z-score plotted against its learned baseline, the ranked hypotheses with the
+evidence each one cites, a (labeled: LLM or offline-template) explanation, a stage timeline, and
+the real remediation outcome with the steps that were actually executed — dry-run runs are
+labeled as such, never presented as live infrastructure changes. Nothing on that screen is a
+placeholder number; if a field has no real value yet, it isn't shown.
+
+Open the new **System view** and you get the same honesty applied to the platform itself: live
+correlator baselines per metric, which backends are wired up (store, bus, telemetry source), the
+current remediation mode (dry-run vs. real), and a status badge for the LLM explanation provider.
+That badge tells you the truth plainly: **the default is the offline template**, not a live
+model — RCA ships with no LLM configured out of the box, which is the honest default for a system
+that hasn't been given an API key. Turning a real provider on is opt-in, either via the
+`INTELLIOPS_LLM_EXPLANATION_*` environment variables on the `rca` service (see
+`deploy/docker-compose.yml`) or live from the console's System view itself, which calls RCA's
+`POST /config/llm` (and a `/config/llm/test` probe) to swap the running provider with no restart.
+The key you enter is never echoed back by the API.
+
 ## Roadmap
 
 Delivered in vertical slices mapped to the proposal's phased rollout. Each slice is a working
@@ -246,6 +290,46 @@ work builds on top of them.
 | Platform | Kafka bus binding, whole-stack Helm deploy, load/chaos testing | 🚧 in review |
 | Intelligence | Pluggable detectors (`robust`/`trained`), persisted retrain loop, reliability-weighted + LLM-explained RCA, CI-enforced benchmark | ✅ done |
 | Frontend | Real-time console over SSE, a live incident-pipeline view, an audit explorer, Apple-light repaint | ✅ done |
+| Sample production system | **Meridian** — a 4-service financial platform + portal UI, emitting a USE+RED metric set across 8 typed fault scenarios, wired to the pipeline, verified live | ✅ done |
+| Pre-flight sandbox | Fixes are **rehearsed on an isolated namespace clone** before approval — block auto / advise human on the verdict (`SANDBOX_MODE=k8s`); [ADR-023](architectural.md#adr-023--pre-flight-sandbox-rehearsal-before-remediation) | ✅ done |
+| Wider, still-safe actions | Vocabulary widened 4→**7 typed** Deployment-scoped actions + a **destructive-shape denylist** gate; the action `Literal` stays closed (catastrophic actions permanently out); [ADR-024](architectural.md#adr-024--tier-2-remediation-vocabulary--a-destructive-action-denylist) | ✅ done |
+| AI-authored runbooks | The AI **drafts** a typed runbook for a gap; a human approves before it joins the registry (`RUNBOOK_AUTHOR_MODE`); the type system rejects unsafe drafts; [ADR-025](architectural.md#adr-025--ai-authored-runbooks-propose--approve) | ✅ done |
+| Semantic runbook selection | Keyword rules first, then **embedding similarity** (`sentence-transformers`) ranks vetted playbooks when no rule fires (`RUNBOOK_SELECTOR_MODE=embedding`); retrieval, not an LLM deciding; [ADR-026](architectural.md#adr-026--semantic-runbook-selection-embedding-fallback) | ✅ done |
+
+## Meridian — a real sample system for IntelliOps to operate
+
+Every incident described above used to come from `demo-app`, a one-endpoint toy target. **Meridian**
+(`services/meridian/`) is a small but real **Deloitte-style financial/audit reporting platform** —
+four backend services (gateway, validation, aggregation, reporting) plus its own client-portal +
+ops-panel UI — that runs alongside IntelliOps in the same `docker compose up` and gives it something
+genuinely production-shaped to watch.
+
+Each service emits a **USE+RED metric set** (11 gauges — CPU, memory, disk, saturation, queue
+depth, DB-pool utilization, request rate, error rate, p50/p99 latency) and accepts **8 typed fault
+scenarios** (`saturation`, `latency`, `error`, `memory_leak`, `traffic_surge`,
+`dependency_outage`, `db_exhaustion`, `crash`), each moving a realistic *cluster* of those metrics
+rather than a single gauge — see [docs/MERIDIAN.md](docs/MERIDIAN.md) for the full metric table and
+per-scenario profiles.
+
+Meridian is wired into the pipeline through **additive-only** changes: a Prometheus scrape job per
+service, the ingestion query broadened to an 11-name regex selector in the compose environment only
+(the `common/config.py` default stays `cpu_usage`), and a shared volume that finally lets the
+`rollback-deploy` playbook see real deploy markers. No IntelliOps service code changed. Three fault
+scenarios were run **sequentially** against real Docker and each produced the expected, genuinely
+different diagnosis:
+
+| Fault | Service | Diagnosis |
+|---|---|---|
+| CPU saturation | meridian-aggregation | `scale-service` |
+| Error-rate spike (cpu held at baseline) | meridian-validation | `restart-pod` |
+| Deploy marker + saturation | meridian-gateway | `rollback-deploy` (outranks saturation) |
+
+Faults must be injected **one at a time** — the correlator groups anomalies by time window, not by
+service, so concurrent faults on two services would merge into one incident; the Meridian
+Operations panel enforces this with a sequential-injection guard. Full write-up, the demo script,
+and honest limits (synthetic data, toggle-based faults, dry-run remediation) in
+[docs/MERIDIAN.md](docs/MERIDIAN.md); the design rationale is
+[ADR-020](architectural.md#adr-020--meridian-sample-production-system).
 
 ## Security, compliance & safety
 
@@ -261,8 +345,8 @@ work builds on top of them.
 
 ## Documentation map
 
-- **[architectural.md](architectural.md)** — design principles, the 5→6 layer mapping, nineteen
-  ADRs, cross-cutting concerns, compliance mapping.
+- **[architectural.md](architectural.md)** — design principles, the 5→6 layer mapping,
+  thirty ADRs, cross-cutting concerns, compliance mapping.
 - **[docs/DEMO.md](docs/DEMO.md)** — the guided two-act demo walkthrough: the live dry-run loop,
   then real remediation on a kind cluster.
 - **[flow.md](flow.md)** — the one-incident journey, bus topics, data contracts, and a
@@ -277,6 +361,9 @@ work builds on top of them.
 - **[docs/OPERATIONS.md](docs/OPERATIONS.md)** — deploy, the env-switch table, and the auth model.
 - **[docs/UI.md](docs/UI.md)** — the operator console: the five views, mock vs. live mode, the SSE
   real-time architecture, and the Apple-light repaint.
+- **[docs/MERIDIAN.md](docs/MERIDIAN.md)** — Meridian, the sample financial/audit platform: its
+  services and UI, the additive IntelliOps wiring, the verified scenarios, the demo script, and
+  honest limits.
 - **[deploy/k8s/README.md](deploy/k8s/README.md)** — the real-remediation demo on a kind cluster.
 - **[docs/superpowers/specs/2026-08-13-intelliops-coe-design.md](docs/superpowers/specs/2026-08-13-intelliops-coe-design.md)**
   — the original design spec; later decisions have their own specs under `docs/superpowers/specs/`.

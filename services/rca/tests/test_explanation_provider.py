@@ -204,3 +204,60 @@ def test_factory_selects_openai_compatible_when_endpoint_set():
 
     provider = make_explanation_provider(Settings())
     assert isinstance(provider, OpenAICompatibleExplanationProvider)
+
+
+def test_template_explain_with_source_reports_template():
+    provider = TemplateExplanationProvider()
+    hyp = _hypothesis()
+    ctx = EnrichmentContext()
+    sit = _situation()
+
+    text, source = provider.explain_with_source(hyp, ctx, sit)
+
+    assert source == "template"
+    assert text == provider.explain(hyp, ctx, sit)
+
+
+def test_openai_provider_explain_with_source_reports_llm_on_success():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=_OK_BODY)
+
+    provider = _provider(handler)
+    text, source = provider.explain_with_source(_hypothesis(), EnrichmentContext(), _situation())
+
+    assert source == "llm"
+    assert text == "CPU saturation on web; scale out to relieve pressure."
+
+
+def test_openai_provider_explain_with_source_reports_template_on_dead_endpoint():
+    def boom(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused", request=request)
+
+    provider = _provider(boom)
+    template = TemplateExplanationProvider()
+    hyp = _hypothesis()
+    ctx = EnrichmentContext()
+    sit = _situation()
+
+    text, source = provider.explain_with_source(hyp, ctx, sit)
+
+    assert source == "template"
+    assert text == template.explain(hyp, ctx, sit)
+
+
+def test_openai_provider_explain_with_source_reports_template_on_every_fallback_path():
+    error_handlers = [
+        lambda req: (_ for _ in ()).throw(httpx.ConnectError("refused", request=req)),
+        lambda req: httpx.Response(503, text="unavailable"),
+        lambda req: httpx.Response(200, text="not json"),
+        lambda req: httpx.Response(200, json={}),
+        lambda req: httpx.Response(200, json={"choices": [{"message": {"content": ""}}]}),
+    ]
+    for handler in error_handlers:
+        provider = _provider(handler)
+        text, source = provider.explain_with_source(
+            _hypothesis(), EnrichmentContext(), _situation()
+        )
+        assert source == "template"
+        assert isinstance(text, str)
+        assert len(text) > 0

@@ -42,25 +42,63 @@ def _make_remediator(settings):
     return DryRunRemediator()
 
 
+def _make_sandbox(settings):
+    if settings.sandbox_mode == "k8s":
+        from services.action.adapters.sandbox import NamespaceCloneSandbox
+
+        policy = _make_detection_policy(settings)
+        return NamespaceCloneSandbox(
+            settings.k8s_namespace,
+            prometheus_url=settings.prometheus_url,
+            policy=policy,
+            z_threshold=settings.correlation_z_threshold,
+        )
+    from services.action.adapters.sandbox import NullSandbox
+
+    return NullSandbox()
+
+
+def _make_detection_policy(settings):
+    from services.correlation.detection_policy import DetectionPolicy
+
+    return DetectionPolicy(
+        enabled=(settings.detection_policy == "on"),
+        thresholds={
+            "ratio": settings.detection_ratio_threshold,
+            "saturation_ratio": settings.detection_saturation_ratio_threshold,
+            "saturation_percent": settings.detection_saturation_percent_threshold,
+            "latency_ceiling_ms": settings.detection_latency_ceiling_ms,
+        },
+    )
+
+
 def _make_health_checker(settings):
     if settings.health_check_mode == "k8s":
-        # metric_healthy re-queries Prometheus for the demo-app error rate; a low
-        # value means recovered. Built lazily so dry-run mode never imports httpx here.
         import httpx
 
-        def metric_healthy() -> bool:
+        policy = _make_detection_policy(settings)
+
+        def query_value(name: str) -> float | None:
+            # Instant-query the current value of the FIRING metric by name (not cpu).
+            # max across series -> the worst-behaving instance must be recovered.
             try:
                 r = httpx.get(
                     f"{settings.prometheus_url}/api/v1/query",
-                    params={"query": "cpu_usage"},
+                    params={"query": name},
                     timeout=5.0,
                 )
                 results = r.json().get("data", {}).get("result", [])
-                return all(float(v["value"][1]) < 50 for v in results) if results else False
-            except Exception:  # noqa: BLE001
-                return False
+                if not results:
+                    return None
+                return max(float(v["value"][1]) for v in results)
+            except Exception:  # noqa: BLE001 — a failed query -> None -> metric not recovered
+                return None
 
-        return KubernetesHealthChecker(metric_healthy=metric_healthy)
+        return KubernetesHealthChecker(
+            policy=policy,
+            query_value=query_value,
+            z_threshold=settings.correlation_z_threshold,
+        )
     return AlwaysHealthyChecker()
 
 
@@ -80,6 +118,7 @@ async def lifespan(app: FastAPI):
             gate,
             _make_remediator(settings),
             _make_health_checker(settings),
+            _make_sandbox(settings),
             settings.hitl_poll_timeout_seconds,
             settings.hitl_poll_interval_seconds,
             stop_event,

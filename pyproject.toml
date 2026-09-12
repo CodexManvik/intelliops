@@ -9,18 +9,33 @@ dependencies = [
     "pydantic>=2.9",
     "pydantic-settings>=2.5",
     "redis>=5.1",
-    "river>=0.25.0",
     "httpx>=0.28.1",
     "prometheus-client>=0.20",
-    "kubernetes>=29",
     "sqlalchemy>=2.0",
     "alembic>=1.13",
     "psycopg[binary]>=3.1",
     "kafka-python>=2.0.2",
-    "numpy>=2",
-    "scikit-learn>=1.9.0",
-    "joblib>=1.5.3",
+    "pyyaml>=6",
 ]
+
+[project.optional-dependencies]
+# torch is declared explicitly (it is otherwise transitive via sentence-transformers)
+# so the CPU-only index pin below applies unambiguously. It is used for INFERENCE
+# ONLY (sentence-transformers .encode for cosine fit) — no training/CUDA — so the
+# CPU wheel is both correct and ~5GB smaller than the default CUDA build.
+ml = ["numpy>=2", "scikit-learn>=1.9.0", "river>=0.25.0", "joblib>=1.5.3", "sentence-transformers>=3.0", "torch>=2.0"]
+k8s = ["kubernetes>=29"]
+
+# Pin torch to the CPU-only PyTorch wheel index (explicit → used ONLY for torch,
+# generic deps still resolve from PyPI). This makes `uv sync --extra ml` pull the
+# CPU build from the start, so no multi-GB CUDA wheels are ever downloaded.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [dependency-groups]
 dev = [

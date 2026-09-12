@@ -25,6 +25,7 @@ import numpy as np
 
 from common.contracts import Situation, SituationStatus, TelemetryEvent
 from services.correlation.adapters.base_correlator import BaseCorrelator
+from services.correlation.detection_policy import DetectionPolicy
 
 _MAD_C = 1.4826  # MAD -> sigma consistency constant for normal data
 
@@ -36,9 +37,10 @@ class RobustCorrelator(BaseCorrelator):
         warmup_samples: int = 30,
         seasonal_buckets: int = 24,
         window_size: int = 128,
+        detection_policy: DetectionPolicy | None = None,
     ) -> None:
-        # sets _z_threshold/_warmup_samples/_reliability
-        super().__init__(z_threshold, warmup_samples)
+        # sets _z_threshold/_warmup_samples/_reliability/_policy
+        super().__init__(z_threshold, warmup_samples, detection_policy=detection_policy)
         self._n_buckets = seasonal_buckets
         self._window_size = window_size
         self._windows: dict[tuple[str, int], collections.deque] = {}

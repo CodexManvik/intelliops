@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 
 from common.contracts import (
     DiagnosedSituation,
+    PreflightResult,
     RemediationOutcome,
     RemediationResult,
     RootCauseHypothesis,
@@ -137,3 +138,117 @@ def test_service_of_unknown_when_no_labels():
     from services.read.projection import ReadModel
 
     assert ReadModel._service_of(_sit_with_labels({})) == "unknown"
+
+
+def test_projection_keeps_evidence_and_joins_outcome():
+    from datetime import UTC, datetime
+
+    from common.contracts import (
+        DiagnosedSituation,
+        RemediationOutcome,
+        RemediationResult,
+        RootCauseHypothesis,
+        Situation,
+        SituationStatus,
+        TelemetryEvent,
+        TelemetryKind,
+    )
+    from services.read.projection import ReadModel
+
+    ts = datetime(2026, 1, 1, tzinfo=UTC)
+    ev = TelemetryEvent(
+        source="prom",
+        kind=TelemetryKind.METRIC,
+        name="cpu_usage",
+        value=92.0,
+        labels={"service": "web"},
+        ts=ts,
+        fingerprint="fp",
+    )
+    sit = Situation(
+        id="sit-1",
+        status=SituationStatus.DETECTED,
+        member_events=[ev],
+        severity="high",
+        first_seen=ts,
+        last_seen=ts,
+        signature="1",
+        peak_score=6.3,
+        baseline={"cpu_usage": {"mean": 18.0, "std": 2.0}},
+    )
+    hyp = RootCauseHypothesis(
+        situation_id="sit-1",
+        description="resource saturation",
+        confidence=0.6,
+        evidence=["metrics: cpu_usage"],
+        suggested_runbook_id="scale-service",
+        explanation="Likely cause: CPU.",
+        explanation_source="template",
+        confidence_source="rule",
+    )
+    m = ReadModel()
+    m.apply_detected(sit)
+    m.apply_diagnosed(
+        DiagnosedSituation(situation=sit, hypotheses=[hyp], suggested_runbook_id="scale-service")
+    )
+    m.apply_outcome(
+        RemediationOutcome(
+            situation_id="sit-1",
+            playbook_id="scale-service",
+            result=RemediationResult.SUCCESS,
+            health_after="healthy",
+            ts=ts,
+            steps=["scale web +2 replicas"],
+            mode="dry_run",
+        )
+    )
+
+    s = next(x for x in m.situations() if x["id"] == "sit-1")
+    assert s["member_events"][0]["name"] == "cpu_usage"
+    assert s["member_events"][0]["value"] == 92.0
+    assert s["hypotheses"][0]["evidence"] == ["metrics: cpu_usage"]
+    assert s["hypotheses"][0]["explanation"] == "Likely cause: CPU."
+    assert s["hypotheses"][0]["explanation_source"] == "template"
+    assert s["hypotheses"][0]["confidence_source"] == "rule"
+    assert s["peak_score"] == 6.3
+    assert s["baseline"]["cpu_usage"]["mean"] == 18.0
+    assert "resource saturation" in s["title"].lower()
+    assert s["outcome"]["health_after"] == "healthy"
+    assert s["outcome"]["steps"] == ["scale web +2 replicas"]
+    assert s["stages"]["detected"] is not None
+    assert s["stages"]["resolved"] is not None
+
+
+def test_apply_outcome_projects_preflight_into_drilldown():
+    rm = ReadModel()
+    rm.apply_detected(_sit())
+    rm.apply_outcome(
+        RemediationOutcome(
+            situation_id="sit-1",
+            playbook_id="pb-1",
+            result=RemediationResult.SUCCESS,
+            health_after="healthy",
+            ts=TS,
+            mode="k8s",
+            preflight=PreflightResult(passed=True, detail="sandbox: clone healthy", mode="k8s"),
+        )
+    )
+    s = next(x for x in rm.situations() if x["id"] == "sit-1")
+    assert s["outcome"]["preflight"]["passed"] is True
+    assert s["outcome"]["preflight"]["mode"] == "k8s"
+
+
+def test_apply_outcome_without_preflight_projects_none():
+    rm = ReadModel()
+    rm.apply_detected(_sit())
+    rm.apply_outcome(
+        RemediationOutcome(
+            situation_id="sit-1",
+            playbook_id="pb-1",
+            result=RemediationResult.SUCCESS,
+            health_after="healthy",
+            ts=TS,
+        )
+    )
+    s = next(x for x in rm.situations() if x["id"] == "sit-1")
+    assert s["outcome"]["preflight"] is None

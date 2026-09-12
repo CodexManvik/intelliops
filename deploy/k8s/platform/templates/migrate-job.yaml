@@ -1,10 +1,16 @@
 {{/*
 migrate-job.yaml
-Pre-install / pre-upgrade Helm hook that runs "alembic upgrade head" before
-any application pods start. The job is deleted before each hook execution so
-a fresh Job object is created on every install/upgrade.
+Runs "alembic upgrade head" against Postgres. This is a REGULAR resource (not a
+Helm pre-install hook): the migration needs both the intelliops-env ConfigMap
+AND a running Postgres, neither of which exists during the pre-install hook phase
+(they are regular chart resources). As a normal resource it is applied alongside
+them; an initContainer blocks until Postgres accepts connections, then alembic
+runs. Application pods stay out of rotation via their readiness probes until the
+schema is present, so ordering is safe without a hook.
 
-Requirements: 9.1, 9.2, 9.3, 9.4
+`backoffLimit` retries the whole Job if it fails (e.g. Postgres still starting);
+the initContainer wait makes that rare. helm.sh/hook-succeeded is intentionally
+NOT used — a hook cannot see the DB.
 */}}
 apiVersion: batch/v1
 kind: Job
@@ -12,16 +18,26 @@ metadata:
   name: {{ include "intelliops.fullname" . }}-migrate
   labels:
     {{- include "intelliops.labels" . | nindent 4 }}
-  annotations:
-    "helm.sh/hook": pre-install,pre-upgrade
-    "helm.sh/hook-delete-policy": before-hook-creation
 spec:
+  backoffLimit: 20
   template:
     metadata:
       labels:
         {{- include "intelliops.labels" . | nindent 8 }}
     spec:
       restartPolicy: OnFailure
+      initContainers:
+        # Block until Postgres accepts TCP — the DB is a regular Deployment that
+        # may still be starting when this Job is created.
+        - name: wait-for-postgres
+          image: "{{ .Values.postgres.image }}"
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h postgres -p 5432 -U {{ .Values.postgres.user }}; do
+                echo "waiting for postgres…"; sleep 2;
+              done
       containers:
         - name: migrate
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -30,3 +46,7 @@ spec:
           envFrom:
             - configMapRef:
                 name: intelliops-env
+            # INTELLIOPS_DATABASE_URL now lives in the Secret (issue #57) — the
+            # migration needs it, so pull the secret in too.
+            - secretRef:
+                name: postgres-credentials

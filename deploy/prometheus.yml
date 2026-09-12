@@ -11,3 +11,15 @@ scrape_configs:
           # matching playbook. Without it, hypotheses fall to the low-confidence
           # fallback with no suggested runbook and the HITL gate never fires.
           service: demo-app
+
+  # Meridian sample system: one job per backend service, each stamping a
+  # unique `service:` label (same mechanism as demo-app above) so RCA can
+  # attribute faults to the specific Meridian service that produced them.
+  - job_name: meridian-gateway
+    static_configs: [{ targets: ["meridian-gateway:8000"], labels: { service: meridian-gateway } }]
+  - job_name: meridian-validation
+    static_configs: [{ targets: ["meridian-validation:8000"], labels: { service: meridian-validation } }]
+  - job_name: meridian-aggregation
+    static_configs: [{ targets: ["meridian-aggregation:8000"], labels: { service: meridian-aggregation } }]
+  - job_name: meridian-reporting
+    static_configs: [{ targets: ["meridian-reporting:8000"], labels: { service: meridian-reporting } }]

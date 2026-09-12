@@ -210,3 +210,20 @@ def retrain() -> dict:
             except Exception as exc:  # noqa: BLE001 — persistence is best-effort
                 logger.warning("model persist failed after fit: %s", exc)
     return {"fitted": fitted, "persisted": persisted}
+
+
+@app.get("/baseline")
+def baseline() -> dict:
+    settings = get_settings()
+    engine = getattr(app.state, "engine", None)
+    rows = engine.snapshot() if engine is not None else []
+    baselines = [
+        {
+            "metric_name": r.get("metric_name"),
+            "mean": r.get("mean"),
+            "std": (r.get("variance") or 0.0) ** 0.5,
+            "count": r.get("count"),
+        }
+        for r in rows
+    ]
+    return {"correlator_kind": settings.correlator_kind, "baselines": baselines}

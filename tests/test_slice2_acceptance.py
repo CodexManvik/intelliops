@@ -86,7 +86,12 @@ def test_detected_situation_is_diagnosed_with_recent_deploy_hypothesis():
 
     # Run RCA against a provider that knows about the recent 'web' deploy.
     run_consumer(
-        bus, DeployProvider(), store, audit, TemplateExplanationProvider(), threading.Event()
+        bus,
+        DeployProvider(),
+        store,
+        audit,
+        lambda: TemplateExplanationProvider(),
+        threading.Event(),
     )
 
     # Exactly one DiagnosedSituation, top hypothesis = recent deploy → rollback.
