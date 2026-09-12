@@ -14,6 +14,8 @@ venv/
 .mypy_cache/
 .coverage
 htmlcov/
+.hypothesis/
+.kiro/
 
 # IDE / OS
 .vscode/
@@ -31,3 +33,4 @@ models/
 .claude/
 .superpowers/
 deploy/.kubeconfig
+stream-d-
