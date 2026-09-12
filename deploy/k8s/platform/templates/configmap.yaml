@@ -14,12 +14,11 @@ data:
   INTELLIOPS_AUTH_MODE: {{ .Values.env.AUTH_MODE | quote }}
   INTELLIOPS_STORE_BACKEND: {{ .Values.env.STORE_BACKEND | quote }}
   INTELLIOPS_BUS_BACKEND: {{ .Values.env.BUS_BACKEND | quote }}
-  # The Redis + Postgres Services are named plainly (see redis.yaml/postgres.yaml),
-  # NOT <release>-prefixed. And the DB URL MUST use the psycopg (v3) driver — the
-  # dep is psycopg 3, and a bare postgresql:// makes SQLAlchemy load psycopg2
-  # (ModuleNotFoundError). Matches the compose stack + the config default.
+  # The Redis Service is named plainly (see redis.yaml), NOT <release>-prefixed.
   INTELLIOPS_REDIS_URL: {{ printf "redis://redis:6379/0" | quote }}
-  INTELLIOPS_DATABASE_URL: {{ printf "postgresql+psycopg://%s:%s@postgres:5432/%s" .Values.postgres.user .Values.postgres.password .Values.postgres.db | quote }}
+  # INTELLIOPS_DATABASE_URL is NOT here — it embeds the DB password, so it lives
+  # in the `postgres-credentials` Secret and reaches services via envFrom:secretRef
+  # (issue #57). (It uses the psycopg v3 driver + the plain `postgres` Service host.)
   # Correlation / detection / RCA / action posture (safe by default; live overlay flips these).
   INTELLIOPS_CORRELATOR_KIND: {{ .Values.env.CORRELATOR_KIND | quote }}
   INTELLIOPS_DETECTION_POLICY: {{ .Values.env.DETECTION_POLICY | quote }}

@@ -66,6 +66,11 @@ class Settings(BaseSettings):
     # --- Bus backend selection ---
     bus_backend: str = "redis"  # "redis" | "kafka"
     kafka_bootstrap_servers: str = "localhost:9092"
+    # Approximate cap on Redis Stream length (issue #54). Without a bound, streams
+    # grow until Redis OOMs. xadd trims with MAXLEN ~ N (the ~ makes trimming cheap,
+    # so the real length can drift slightly above N between trims). 0 disables the
+    # cap (kept 0-safe for tests / an operator who wants unbounded).
+    bus_stream_maxlen: int = 100_000
 
     # --- RCA explanation (on-by-default via template; LLM opt-in via endpoint) ---
     llm_explanation_endpoint: str = ""  # empty = TemplateExplanationProvider, no network

@@ -24,19 +24,35 @@ _RECONNECT_BACKOFF_SECONDS = 2.0
 
 
 class RedisBus:
-    def __init__(self, client: redis.Redis, consumer_name: str = "c1") -> None:
+    def __init__(
+        self, client: redis.Redis, consumer_name: str = "c1", stream_maxlen: int = 0
+    ) -> None:
         self._r = client
         self._consumer = consumer_name
+        # Approximate per-stream cap (issue #54): 0 = unbounded (test/back-compat),
+        # >0 trims each stream to ~stream_maxlen entries on publish.
+        self._stream_maxlen = stream_maxlen
 
     def publish(self, topic: str, message: dict) -> None:
-        self._r.xadd(topic, message)
+        if self._stream_maxlen > 0:
+            # approximate=True → MAXLEN ~ N: cheap amortized trimming, real length
+            # may sit slightly above N. Consumer groups + at-least-once redelivery
+            # are unaffected — trimming only drops already-old entries.
+            self._r.xadd(topic, message, maxlen=self._stream_maxlen, approximate=True)
+        else:
+            self._r.xadd(topic, message)
 
     def consume(self, topic: str, group: str) -> Iterator[dict]:
         # Resilient consume: a Redis ConnectionError/TimeoutError — Redis not yet
         # up at startup, or a mid-run blip — must NOT kill the consumer thread
         # (that silently stops the service processing the stream). Catch it,
-        # back off, and retry the whole read; the consumer group + at-least-once
-        # semantics mean no delivered-but-unacked entry is lost.
+        # back off, and retry the whole read.
+        #
+        # DELIVERY SEMANTICS (issue #53): this is currently AT-MOST-ONCE. `xack`
+        # below runs BEFORE the entry is yielded to the handler, so a crash /
+        # validation error / DB failure after the ack loses that event. Moving
+        # the ack after the handler (at-least-once) + idempotent consumers is
+        # tracked in #53 / ADR-031, deliberately deferred for the capstone.
         group_ready = False
         while True:
             try:
@@ -148,6 +164,7 @@ def make_bus(settings: Settings, consumer_name: str = "c1") -> RedisBus | KafkaB
                 socket_keepalive=True,
             ),
             consumer_name=consumer_name,
+            stream_maxlen=settings.bus_stream_maxlen,
         )
     elif settings.bus_backend == "kafka":
         return KafkaBus(
