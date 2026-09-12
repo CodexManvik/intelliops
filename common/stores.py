@@ -18,6 +18,10 @@ from services.governance.adapters.author_decision_store import (
     PostgresAuthorDecisionStore,
 )
 from services.governance.adapters.playbook_store import FilePlaybookStore, PostgresPlaybookStore
+from services.governance.adapters.proposed_store import (
+    InMemoryProposedPlaybookStore,
+    PostgresProposedPlaybookStore,
+)
 from services.governance.adapters.trace_store import InMemoryTraceStore, PostgresTraceStore
 
 
@@ -32,6 +36,7 @@ class Stores:
     model_store: object | None
     author_decision_store: object
     trace_store: object
+    proposed_store: object
 
 
 def make_stores(settings) -> Stores:
@@ -49,6 +54,7 @@ def make_stores(settings) -> Stores:
             model_store=PostgresModelStore(engine),
             author_decision_store=PostgresAuthorDecisionStore(engine),
             trace_store=PostgresTraceStore(engine),
+            proposed_store=PostgresProposedPlaybookStore(engine),
         )
     return Stores(
         audit_sink=FileAuditSink(settings.audit_store_path),
@@ -70,4 +76,9 @@ def make_stores(settings) -> Stores:
         # store exists or is needed — the agent-run trace just doesn't survive
         # a restart outside of Postgres.
         trace_store=InMemoryTraceStore(),
+        # Same posture again: no file-backed proposed-playbook store exists or
+        # is needed — a pending AI runbook proposal just doesn't survive a
+        # restart outside of Postgres (issue #56 fixes that for the postgres
+        # backend above).
+        proposed_store=InMemoryProposedPlaybookStore(),
     )
