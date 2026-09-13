@@ -107,6 +107,26 @@ Upgrading to **at-least-once** delivery requires changing the ack/commit point o
 This is a deliberate future decision; the current at-most-once semantics match the
 project's scale requirements.
 
+### Deploy ordering when a contract enum gains a member
+
+At-most-once delivery has a sharp consequence for **rolling upgrades**: a bus payload
+carrying an enum value an older consumer does not know is a *permanent* loss, not a
+retry. `decode_model` uses `model_validate_json`, which raises `ValidationError` on an
+unknown value; that exception escapes the `for … in iter_models(...)` statement itself,
+so the `try/except` blocks *inside* consumer loop bodies do not cover it. Each outcomes
+consumer runs on a bare daemon thread with no supervisor, so the thread dies silently
+and never restarts — and the message was already acked. The visible symptom is not an
+error: the dashboard simply stops updating and the learning loop stops.
+
+**Therefore: deploy consumers before producers.** For the `RemediationResult.ESCALATED`
+addition that means read-service, feedback-service and governance-service **first**, and
+action-service (the only producer of the new value) **last** — or all of them in one
+simultaneous rollout. Never action-service first.
+
+The same rule applies to any future member added to a contract enum. It is a consequence
+of at-most-once delivery, and it goes away once at-least-once + a dead-letter queue lands
+(issue #53).
+
 ---
 
 ## Kubernetes deploy

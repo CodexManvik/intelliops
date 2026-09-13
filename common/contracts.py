@@ -214,7 +214,7 @@ class RemediationOutcome(BaseModel):
     ts: datetime
     hitl_mode: HitlMode = HitlMode.HITL
     steps: list[str] = Field(default_factory=list)
-    mode: str = "dry_run"  # "dry_run" | "k8s"
+    mode: str = "dry_run"  # "dry_run" | "k8s" | "none" (escalated: no executor ran)
     preflight: PreflightResult | None = None
 
 

@@ -254,6 +254,7 @@ export const outcomes: OutcomeRow[] = [
 ];
 
 export const audit: AuditRow[] = [
+  { actor: "action-service", action: "escalate", resource: "situation:sit-e5c02b77", decision: "escalated", ts: mins(11), correlation_id: "sit-e5c02b77" },
   { actor: "action-service", action: "execute", resource: "playbook:restart-pod", decision: "allow", ts: mins(9), correlation_id: "sit-3f81ac04" },
   { actor: "oncall-alice", action: "approve", resource: "playbook:rollback-deploy", decision: "allow", ts: mins(17), correlation_id: "sit-9abe6de2" },
   { actor: "action-service", action: "execute", resource: "playbook:rollback-deploy", decision: "allow", ts: mins(18), correlation_id: "sit-9abe6de2" },

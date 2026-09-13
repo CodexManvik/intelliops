@@ -45,7 +45,7 @@ const METRIC_DOCS: Record<string, { title: string; formula: string; meaning: str
   auto: {
     title: "Auto-remediated",
     meaning: "Share of fixes that ran automatically, because the playbook had earned autonomy (≥3 clean successes).",
-    formula: "auto-mode outcomes ÷ all outcomes",
+    formula: "auto-mode outcomes ÷ attempted remediations (escalations excluded)",
   },
   success: {
     title: "Success rate",
@@ -260,7 +260,7 @@ export function Incidents({
         <MetricCard docKey="noise" value={`${metrics.noiseReductionPct}%`} sub={`${metrics.alertsIngested.toLocaleString()} alerts → ${metrics.situationsOpen} open`} />
         <MetricCard docKey="mttr" value={metrics.mttrMinutes > 0 ? `${metrics.mttrMinutes}m` : "—"} sub={metrics.mttrMinutes > 0 ? "mean time to resolve" : "no fixes yet"} />
         <MetricCard docKey="auto" value={`${metrics.autoRemediatedPct}%`} sub="ran without a human" />
-        <MetricCard docKey="success" value={`${Math.round(metrics.successRate * 100)}%`} sub="verified healthy" />
+        <MetricCard docKey="success" value={`${Math.round(metrics.successRate * 100)}%`} sub={metrics.needsAttention > 0 ? `${metrics.needsAttention} escalated · needs a human` : "verified healthy"} />
       </div>
 
       <div>

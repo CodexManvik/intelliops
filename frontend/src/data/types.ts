@@ -95,7 +95,7 @@ export interface AuditRow {
   actor: string;
   action: string;
   resource: string;
-  decision: "allow" | "deny" | "pending";
+  decision: "allow" | "deny" | "pending" | "escalated";
   ts: number;
   correlation_id: string;
 }

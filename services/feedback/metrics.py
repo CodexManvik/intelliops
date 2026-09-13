@@ -26,8 +26,10 @@ def compute_metrics(records: list[TrainingRecord]) -> dict:
         sig["total"] += 1
         if r.worked:
             sig["worked"] += 1
-    # An escalation means nothing was attempted, so it can neither succeed nor
-    # fail — counting it would understate the success rate of work we did do.
+    # Defence in depth: the consumer drops escalations before the store write, so
+    # in the live path this is always 0 and attempted == total. It matters only if
+    # an escalated record ever reaches the store — nothing was attempted then, so
+    # it can neither succeed nor fail and must not dilute the rates.
     attempted = total - by_result["escalated"]
 
     def rate(n: int) -> float:

@@ -240,7 +240,7 @@ export function Governance() {
                     <span className="text-ink-3"> {a.action} </span>
                     <span className="text-ink">{a.resource}</span>
                   </span>
-                  <span className={`${a.decision === "deny" ? "text-sev-crit" : a.decision === "pending" ? "text-sev-warn" : "text-sev-ok"}`}>{a.decision}</span>
+                  <span className={`${a.decision === "deny" ? "text-sev-crit" : a.decision === "pending" ? "text-sev-warn" : a.decision === "escalated" ? "text-sev-attention" : "text-sev-ok"}`}>{a.decision}</span>
                 </div>
               ))}
             </div>

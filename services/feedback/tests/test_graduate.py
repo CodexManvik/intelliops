@@ -62,9 +62,13 @@ def test_escalation_is_counted_in_no_bucket():
 
 
 def test_escalation_does_not_block_graduation():
-    """Regression: escalations used to arrive as FAILUREs, and should_graduate
-    demands failures == 0 over all history — so one un-runnable suggestion
-    disqualified a playbook forever, on a remediation nobody ever ran."""
+    """Pins an invariant the if/elif chain currently provides only by omission.
+
+    The real-world fix lives upstream (the feedback consumer never writes an
+    escalated record at all — see test_consumer.py); this guards the case where
+    one reaches playbook_stats anyway. Scoring it as a failure would disqualify
+    the playbook forever, since should_graduate demands failures == 0 over all
+    history."""
     recs = [_rec("pb1", RemediationResult.SUCCESS) for _ in range(3)]
     recs.append(_rec("pb1", RemediationResult.ESCALATED))
     assert should_graduate(playbook_stats(recs, "pb1"), min_successes=3) is True

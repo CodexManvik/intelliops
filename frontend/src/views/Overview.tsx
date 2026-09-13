@@ -269,7 +269,7 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
             label="Success rate"
             value={Math.round(metrics.successRate * 100)}
             suffix="%"
-            sub="verified healthy after fix"
+            sub={metrics.needsAttention > 0 ? `${metrics.needsAttention} escalated · needs a human` : "verified healthy after fix"}
             spark={sparks.success}
             color="#34C759"
           />
@@ -479,6 +479,7 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
                     <span className="text-sev-ok">{tally.success}✓</span>
                     <span className="text-sev-warn">{tally.rolled_back}↺</span>
                     <span className="text-sev-crit">{tally.failure}✕</span>
+                    <span className="text-sev-attention">{tally.escalated}⤴</span>
                   </span>
                 }
               >
@@ -498,7 +499,7 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
                           {skin.icon}
                           <span className="hidden sm:inline">{skin.label}</span>
                         </span>
-                        <span className="min-w-0 flex-1 truncate text-sm text-ink">{o.playbook_id}</span>
+                        <span className="min-w-0 flex-1 truncate text-sm text-ink">{o.playbook_id || <span className="text-ink-3">no runbook — needs a human</span>}</span>
                         <span className="hidden font-mono text-2xs text-ink-3 sm:inline">{o.service}</span>
                         <span className="font-mono text-2xs text-ink-3">{timeAgo(o.ts)}</span>
                       </div>
