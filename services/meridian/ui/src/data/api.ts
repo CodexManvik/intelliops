@@ -31,7 +31,8 @@ export type FaultType =
   | "memory_leak"
   | "traffic_surge"
   | "dependency_outage"
-  | "db_exhaustion";
+  | "db_exhaustion"
+  | "unknown_signal";
 
 export interface FaultSpec {
   type: FaultType;

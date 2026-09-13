@@ -88,7 +88,7 @@ it is only `SUCCESS | FAILURE | ROLLED_BACK` ([`contracts.py:36-39`](common/cont
 Attention* with the undetermined-cause explanation; the KPI tile does not count it as a failure; the
 audit trail records the escalation.
 
-### P1.2 — Give `crash` a real diagnosis path
+### P1.2 — Give `crash` a real diagnosis path  ·  ✅ DONE
 
 `crash` is the one Meridian fault with **no dedicated RCA rule** — documented honestly at
 [`architectural.md:1049`](architectural.md). It sets `unhealthy=True` and moves no metrics
@@ -110,9 +110,12 @@ on `/metrics`, add that series to **both** ingestion allowlists (`deploy/docker-
 `deploy/k8s/platform/values-live.yaml`), and add a detection rule — a constant-then-flip series scores
 z=0 while sd==0, so the z-score correlator alone will not catch it.
 
-**Do not use `crash` as the demo or acceptance fault for P1.1** — it will hang with nothing detected.
+**FIXED.** `crash` now drives a real scraped gauge, `service_up` (1 → 0), added to both ingestion
+allowlists, with a dedicated `rank_hypotheses` rule at confidence 0.7 → `restart-pod` (a wedged
+process is recycled, not scaled; new replicas of a wedged image are still wedged). Ranked below the
+deploy rule (0.8), so a preceding deploy still wins as the better explanation.
 
-### P1.3 — Make the escalation demonstrable (Meridian has no unmapped fault)
+### P1.3 — Make the escalation demonstrable  ·  ✅ DONE
 
 **Found while building P1.1, and it is the sharpest evidence for this whole plan's framing.** Probing
 `rank_hypotheses` with every metric Meridian actually exposes:
@@ -146,9 +149,19 @@ to **both** ingestion allowlists (`deploy/docker-compose.yml:66`,
 ([`river_correlator.py:57`](services/correlation/adapters/river_correlator.py)), but the value moving
 makes variance non-zero, so it detects on the next scrape — exactly how every existing fault behaves.
 
-**Acceptance:** fire `unknown_signal` on a Meridian service → an incident appears, is detected and
-diagnosed as "root cause undetermined", and parks in **Needs Attention** with nothing executed.
-That is the missing half of P1's end-to-end story.
+**DONE.** `unknown_signal` moves `tls_handshake_failures` (healthy 0.4 → broken 47.0), a family
+outside every `rank_hypotheses` token. Both new series are in the compose and k8s ingestion
+allowlists, and the fault is a preset in the Meridian Operations panel ("Unclassified anomaly").
+Re-probing after the change:
+
+```
+  service_up               -> restart-pod      (conf 0.7)    <- crash is now diagnosable
+  tls_handshake_failures   -> None             (conf 0.2)    <- escalates to a human
+```
+
+**Live acceptance (still to run):** fire "Unclassified anomaly" on Meridian reporting → an incident
+appears, is diagnosed as "root cause undetermined", and parks in **Needs Attention** with nothing
+executed. That is the last unverified step of P1's end-to-end story.
 
 ---
 

@@ -227,7 +227,10 @@ def test_crash_sets_unhealthy_and_moves_nothing_else():
     baseline = MeridianState()
     st = _apply("crash")
     assert st.unhealthy is True
-    # detection-only: every metric field stays at baseline
+    # service_up is the one series that MUST move: `unhealthy` alone is in-process
+    # bookkeeping nothing scrapes, which is why this fault used to be undetectable.
+    assert st.service_up == 0.0
+    # everything else stays at baseline
     assert st.cpu == CPU_HEALTHY
     assert st.error_rate == 0.0
     assert st.latency_p50_ms == baseline.latency_p50_ms
@@ -257,3 +260,28 @@ def test_all_8_scenarios_recognized_without_raising():
         "crash",
     ):
         _apply(t)
+
+
+def test_unknown_signal_moves_only_an_unmapped_family():
+    """The escalation fault: a real, detectable anomaly that no RCA rule maps to."""
+    baseline = MeridianState()
+    st = _apply("unknown_signal")
+    assert st.tls_handshake_failures > baseline.tls_handshake_failures
+    # it is an anomaly, not an outage — nothing else moves, including service_up
+    assert st.service_up == baseline.service_up
+    assert st.unhealthy is False
+    assert st.cpu == CPU_HEALTHY
+    assert st.error_rate == 0.0
+    assert st.latency_p99_ms == baseline.latency_p99_ms
+    assert st.memory_usage_mb == baseline.memory_usage_mb
+    assert st.queue_depth == baseline.queue_depth
+    assert st.db_pool_in_use == baseline.db_pool_in_use
+
+
+def test_clear_resets_the_new_series():
+    st = _apply("unknown_signal")
+    st.apply(FaultSpec(type="crash"))
+    st.clear()
+    fresh = MeridianState()
+    assert st.service_up == fresh.service_up
+    assert st.tls_handshake_failures == fresh.tls_handshake_failures

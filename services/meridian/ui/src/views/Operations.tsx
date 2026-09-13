@@ -19,6 +19,7 @@ const FAULT_TYPES: FaultType[] = [
   "traffic_surge",
   "dependency_outage",
   "db_exhaustion",
+  "unknown_signal",
 ];
 
 interface Preset {
@@ -91,6 +92,14 @@ const PRESETS: Preset[] = [
       "Reporting's DB connection pool fills up: in-use connections hit the max and latency rises as requests queue for a connection.",
     service: "reporting",
     spec: { type: "db_exhaustion" },
+  },
+  {
+    id: "reporting-unknown-signal",
+    label: "Unclassified anomaly",
+    description:
+      "TLS handshake failures spike on Reporting — a metric family no runbook matches. IntelliOps detects and correlates it normally, but RCA has no rule for it, so it escalates to a human instead of guessing a fix.",
+    service: "reporting",
+    spec: { type: "unknown_signal" },
   },
 ];
 

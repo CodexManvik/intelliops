@@ -65,6 +65,22 @@ def rank_hypotheses(
 
     names = " ".join(e.name.lower() for e in situation.member_events)
 
+    # Rule: the service is down (service_up flipped to 0). Unambiguous and
+    # ranked above every capacity rule (0.7) — a process that is not serving is
+    # recycled, not scaled; new replicas of a wedged image are still wedged.
+    # Ranked below the deploy rule (0.8): if a deploy preceded it, the deploy is
+    # the better explanation and rolling back beats restarting.
+    if "service_up" in names:
+        hypotheses.append(
+            RootCauseHypothesis(
+                situation_id=situation.id,
+                description="service is down — the process stopped serving",
+                confidence=0.7,
+                evidence=[f"metrics: {names}"],
+                suggested_runbook_id="restart-pod",
+            )
+        )
+
     # Rule: memory pressure/leak. Ranked ABOVE saturation (0.65 > 0.6) so a
     # memory-leaking service is restarted, not scaled — new pods spun up by
     # scale-service leak too, so restart is the right fix here, not capacity.

@@ -28,7 +28,7 @@ env:
   # every USE+RED family the arc detects, so faults on any of them flow into a
   # Situation (not just cpu). One instant query returns all series across services.
   TELEMETRY_MODE: "prometheus"
-  PROMETHEUS_QUERY: '{__name__=~"cpu_usage|memory_usage_mb|meridian_error_rate|latency_p99_ms|latency_p50_ms|queue_depth|db_pool_in_use|request_rate"}'
+  PROMETHEUS_QUERY: '{__name__=~"cpu_usage|memory_usage_mb|meridian_error_rate|latency_p99_ms|latency_p50_ms|queue_depth|db_pool_in_use|request_rate|service_up|tls_handshake_failures"}'
   # action + governance are separate pods in k8s → approvals must go over HTTP so
   # the console's "Approve" and the action gate share the same approval store.
   GOVERNANCE_MODE: "http"

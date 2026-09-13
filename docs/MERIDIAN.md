@@ -29,7 +29,7 @@ would operate on a client's behalf, with IntelliOps as the AIOps layer keeping i
 
 All four are built from one shared factory, `make_meridian_service()` in
 `services/meridian/common.py` — the same pattern `services/demo_app` established: `create_app()`
-(free `/health`, `/ready`, CORS, auth) plus a full **USE+RED metric set** (11 gauges — see §1a
+(free `/health`, `/ready`, CORS, auth) plus a full **USE+RED metric set** (13 gauges — see §1a
 below), an `/admin/fault` + `/admin/clear` pair gated by `common.auth.require_token`, and
 `/metrics`. Only the gateway currently has real domain routes wired in (`POST /api/submissions`,
 `GET /api/reports`)
@@ -40,7 +40,7 @@ for their own domain endpoints in a later pass. Two tables (`meridian_submission
 
 ### 1a. Metrics — the USE+RED set
 
-Every Meridian service's `/metrics` exposes the same 11 bare `Gauge`s (no `service` label — the
+Every Meridian service's `/metrics` exposes the same 13 bare `Gauge`s (no `service` label — the
 Prometheus scrape job injects it at scrape time). These are **simulated values on a synthetic
 system**, held in `MeridianState` and moved only by `/admin/fault` — not real CPU, memory, or
 database readings.
@@ -58,6 +58,8 @@ database readings.
 | `meridian_error_rate` | RED (errors) | Simulated request error rate, 0..1 |
 | `latency_p50_ms` | RED (duration) | Simulated p50 request latency, ms |
 | `latency_p99_ms` | RED (duration) | Simulated p99 request latency, ms |
+| `service_up` | availability | 1 while the service is serving, 0 when it is down (the `crash` fault) |
+| `tls_handshake_failures` | unmapped | TLS handshake failures per minute — deliberately outside every RCA rule, so a fault here escalates |
 
 `cpu_usage` and `meridian_error_rate` are the original pair from the first Meridian design — kept
 exactly as-is (no rename) so every existing scrape/ingestion/gateway/test wiring keeps working; the
@@ -86,7 +88,7 @@ Four views:
 - **Dashboard** — submissions/reporting-period status, service health at a glance.
 - **Submit** — a form that posts a real financial submission through the gateway.
 - **Reports** — the reports list.
-- **Operations** — the demo driver: the 8 scenario presets, the custom-fault composer, a live
+- **Operations** — the demo driver: the 9 scenario presets, the custom-fault composer, a live
   service-status strip, and the sequential-injection guard (§4).
 
 ## 3. How Meridian is wired to IntelliOps (additive only)
@@ -115,11 +117,12 @@ Every Meridian service already emits a `cpu_usage` gauge with the same *name* as
 `scale-service`-flavored faults (a `cpu_usage` spike) are picked up with **zero** query change. To
 also see the rest of the USE+RED set (§1a) — `meridian_error_rate`, `request_rate`,
 `latency_p50_ms`, `latency_p99_ms`, `memory_usage_mb`, `saturation`, `queue_depth`,
-`db_pool_in_use`, `db_pool_max`, `disk_usage_percent` — the ingestion service's compose environment
-sets the query to an instant-vector **selector** naming all 11 metrics:
+`db_pool_in_use`, `db_pool_max`, `disk_usage_percent`, `service_up`, `tls_handshake_failures` — the
+ingestion service's compose environment sets the query to an instant-vector **selector** naming all
+13 metrics:
 
 ```yaml
-INTELLIOPS_PROMETHEUS_QUERY: '{__name__=~"cpu_usage|meridian_error_rate|request_rate|latency_p50_ms|latency_p99_ms|memory_usage_mb|saturation|queue_depth|db_pool_in_use|db_pool_max|disk_usage_percent"}'
+INTELLIOPS_PROMETHEUS_QUERY: '{__name__=~"cpu_usage|meridian_error_rate|request_rate|latency_p50_ms|latency_p99_ms|memory_usage_mb|saturation|queue_depth|db_pool_in_use|db_pool_max|disk_usage_percent|service_up|tls_handshake_failures"}'
 ```
 
 `common/config.py`'s default stays `cpu_usage` — this override lives only in the `ingestion`
@@ -163,7 +166,8 @@ each moving a realistic *cluster* of the USE+RED metrics from §1a rather than a
 | `traffic_surge` | `request_rate` ↑, `cpu_usage` ↑, `saturation` ↑, `queue_depth` ↑ (step) | more legitimate load than the service has capacity for | `scale-service` |
 | `dependency_outage` | `meridian_error_rate` ↑, `latency_p99_ms` ↑; **`cpu_usage` held at baseline** | an upstream dependency this service calls is down | `restart-pod` |
 | `db_exhaustion` | `db_pool_in_use` → `db_pool_max`, `latency_p99_ms` ↑ (step); cpu/error stay baseline | database connection-pool starvation | `restart-pod` (Phase 3 — recycle to release wedged connections) |
-| `crash` | **nothing observable** — sets an in-process `unhealthy` flag that nothing reads, exposes no gauge, and does **not** change `/ready` | a wedged process | **not detected at all today** — see the note below |
+| `crash` | `service_up` 1 → 0 (plus the in-process `unhealthy` flag) | the process stopped serving | `restart-pod` — a wedged process is recycled, not scaled |
+| `unknown_signal` | `tls_handshake_failures` ↑ | an anomaly in a metric family no runbook maps to | **none — escalates to a human.** The only fault that exercises the ESCALATED path |
 
 **Phase 4: recovery is verified on the metric that moved, not on cpu.** Post-remediation health
 verification (`health_check_mode=k8s`) now checks the metric(s) each fault above actually fired
@@ -221,12 +225,19 @@ path. **Honest note on coverage (updated for Phase 3):** 7 of the 8 scenarios no
 dedicated `rank_hypotheses` rule (`saturation`/`latency`/`traffic_surge` → `scale-service`;
 `error`/`dependency_outage`/`memory_leak`/`db_exhaustion` → `restart-pod`; a deploy marker →
 `rollback-deploy`). Only `crash` has **no dedicated RCA rule** — and, verified against the code, it
-is in fact **never detected at all**: `MeridianState.apply()` sets an in-process `unhealthy` flag
+was, until 2026-09-13, **never detected at all**: `MeridianState.apply()` sets an in-process `unhealthy` flag
 that no production code path ever reads, `/metrics` does not expose it, and Meridian passes no
 `readiness` callable to `create_app`, so `/ready` keeps returning 200. A "crashed" service emits
 byte-identical exposition to a healthy one, so no telemetry changes, no Situation is created, and
-RCA is never reached. It would land in the generic "root cause undetermined" fallback
-(confidence 0.2, no suggested runbook) *if it ever got there* — but it does not, unless it happens to
+RCA was never reached. **This is now fixed**: `crash` drives a real scraped gauge, `service_up`
+(1 → 0), which is in both ingestion allowlists and has a dedicated `restart-pod` rule — a wedged
+process is recycled, not scaled.
+
+The one fault with deliberately **no** rule is now `unknown_signal`, which moves
+`tls_handshake_failures` — a metric family outside every `rank_hypotheses` token. It is detected
+and correlated like any other fault, then lands in the generic "root cause undetermined" fallback
+(confidence 0.2, no suggested runbook) and **escalates to a human**. That is deliberate: it is the
+only fault that exercises the escalation path end to end, unless one happens to
 co-occur with a metric-moving fault. When the embedding selector is enabled
 (`RUNBOOK_SELECTOR_MODE=embedding`), each of the 7 routed scenarios' confidence is computed from the
 symptom fit rather than a fixed constant — see [ADR-028](../architectural.md#adr-028--rca-metric-family-rules--ai-computed-confidence).
@@ -328,13 +339,12 @@ the demo script below insists on it.
 - **Faults must be injected one at a time.** Correlation groups by time window, not by service
   (§4) — this is a real constraint of the current detector, confirmed live (§5), not just a UI
   restriction. Concurrent faults on different services will merge into one Situation.
-- **One fault scenario is injectable but not observable.** `crash` (§4) moves no metric **and is not
-  detected at all** — it sets an in-process `unhealthy` flag that nothing in production reads, is
-  absent from `/metrics`, and does not affect `/ready` (Meridian passes no `readiness` callable, so
-  `/ready` only fails on a bus-ping failure). Making it real needs a `service_up` gauge on
-  `/metrics`, that series added to the ingestion allowlists, and a detection rule — a
-  constant-then-flip series scores z=0 while sd==0, so the z-score correlator alone will not catch
-  it. Until then, do **not** use `crash` in a demo or acceptance test: nothing will happen.
+- **Every fault now maps to an outcome, including "we don't know".** `crash` (§4) was previously
+  injectable but invisible — it moved no scraped series, so nothing could detect it. It now drives
+  `service_up` 1 → 0 and has a dedicated `restart-pod` rule. `unknown_signal` is the deliberate
+  opposite: a genuinely detectable anomaly (`tls_handshake_failures`) that no rule matches, so it
+  escalates to a human rather than guessing. Both series are in the ingestion allowlists
+  (`deploy/docker-compose.yml`, `deploy/k8s/platform/values-live.yaml`).
   `memory_leak` and `db_exhaustion` gained dedicated rules (both → `restart-pod`) in
   **Metrics Phase 3** (see `docs/superpowers/specs/2026-09-06-rca-metric-rules-phase3-design.md`
   and [ADR-028](../architectural.md#adr-028--rca-metric-family-rules--ai-computed-confidence)). The
