@@ -17,12 +17,16 @@ import threading
 
 from common.contracts import RemediationOutcome, RemediationResult
 from common.envelope import iter_models
+from common.idempotency import NullGuard
 
 logger = logging.getLogger("intelliops.governance.consumer")
 
 
-def run_consumer(bus, decision_store, stop_event: threading.Event) -> None:
-    for outcome in iter_models(bus, "remediation.outcomes", "governance", RemediationOutcome):
+def run_consumer(bus, decision_store, stop_event: threading.Event, guard=None) -> None:
+    guard = guard if guard is not None else NullGuard()
+    for outcome in iter_models(
+        bus, "remediation.outcomes", "governance", RemediationOutcome, guard=guard, dlq=bus
+    ):
         if stop_event.is_set():
             break
         if outcome.result == RemediationResult.ESCALATED:

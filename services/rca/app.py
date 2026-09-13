@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 
 from common.config import get_settings
+from common.idempotency import make_guard
 from common.stores import make_stores
 from services.base import create_app, db_ready
 from services.rca.adapters.context_provider import FileContextProvider
@@ -83,7 +84,11 @@ async def lifespan(app: FastAPI):
     thread = threading.Thread(
         target=run_consumer,
         args=(app.state.bus, provider, store, audit_sink, holder.get, stop_event),
-        kwargs={"reliability_provider": reliability_provider, "selector": selector},
+        kwargs={
+            "reliability_provider": reliability_provider,
+            "selector": selector,
+            "guard": make_guard(settings, app.state.bus),
+        },
         daemon=True,
     )
     thread.start()

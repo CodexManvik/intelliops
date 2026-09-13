@@ -98,6 +98,15 @@ class Settings(BaseSettings):
     # MUST stay stable across restarts: the pending-entry self-drain re-serves entries
     # recorded against this consumer name. Empty falls back to "c1".
     bus_consumer_name: str = ""
+    # Cold-start rebuild of the read projection (issue #58). "off" keeps today's
+    # behaviour: a restarted read-service resumes past its acks and shows an empty
+    # console until new traffic arrives. "replay" re-reads a bounded window of the
+    # raw streams into a shadow model first.
+    read_rebuild_mode: str = "off"  # "off" | "replay"
+    read_rebuild_window_seconds: float = 3600.0
+    # Safety valve: tripping it discards the WHOLE rebuild rather than serving a
+    # partial projection.
+    read_rebuild_max_entries: int = 20_000
 
     # --- RCA explanation (on-by-default via template; LLM opt-in via endpoint) ---
     llm_explanation_endpoint: str = ""  # empty = TemplateExplanationProvider, no network

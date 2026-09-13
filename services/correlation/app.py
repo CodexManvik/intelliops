@@ -12,6 +12,7 @@ from sqlalchemy import text
 
 from common.config import get_settings
 from common.envelope import publish_model
+from common.idempotency import make_guard
 from common.stores import make_stores
 from services.base import create_app, db_ready
 from services.correlation.adapters import make_correlator
@@ -138,7 +139,9 @@ async def lifespan(app: FastAPI):
     app.state.baseline_store = baseline_store
     app.state.model_store = model_store
     thread = threading.Thread(
-        target=run_consumer, args=(app.state.bus, engine, stop_event), daemon=True
+        target=run_consumer,
+        args=(app.state.bus, engine, stop_event, make_guard(settings, app.state.bus)),
+        daemon=True,
     )
     thread.start()
     flusher = threading.Thread(

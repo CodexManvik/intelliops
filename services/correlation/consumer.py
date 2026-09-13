@@ -12,6 +12,7 @@ import threading
 
 from common.contracts import TelemetryEvent
 from common.envelope import iter_models, publish_model
+from common.idempotency import NullGuard
 from services.correlation.engine import CorrelationEngine
 
 logger = logging.getLogger(__name__)
@@ -33,8 +34,11 @@ def _drain_suppressed(bus, engine: CorrelationEngine) -> None:
         publish_model(bus, "situations.suppressed", s)
 
 
-def run_consumer(bus, engine: CorrelationEngine, stop_event: threading.Event) -> None:
-    for event in iter_models(bus, "telemetry.raw", "correlation", TelemetryEvent):
+def run_consumer(bus, engine: CorrelationEngine, stop_event: threading.Event, guard=None) -> None:
+    guard = guard if guard is not None else NullGuard()
+    for event in iter_models(
+        bus, "telemetry.raw", "correlation", TelemetryEvent, guard=guard, dlq=bus
+    ):
         if stop_event.is_set():
             break
         emitted = engine.add(event)

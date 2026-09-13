@@ -21,10 +21,30 @@ from common.contracts import (
     RemediationResult,
 )
 from common.envelope import iter_models, publish_model
+from common.idempotency import NullGuard
 from services.action.remediate import _ACTOR, execute_remediation
 from services.action.select import select_playbook
 
 logger = logging.getLogger("intelliops.action.consumer")
+
+
+def _audit_best_effort(gate, situation_id: str, action: str, decision: str) -> None:
+    """Record a non-remediation decision. Best effort by design: the audit sink
+    propagates errors, and losing the outcome (this runs on a daemon thread)
+    is worse than losing one audit row."""
+    try:
+        gate.write_audit(
+            AuditRecord(
+                actor=_ACTOR,
+                action=action,
+                resource=f"situation:{situation_id}",
+                decision=decision,
+                ts=datetime.now(UTC),
+                correlation_id=situation_id,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 - audit failure must never kill the thread
+        logger.warning("%s audit write failed for %s: %s", action, situation_id, exc)
 
 
 def run_consumer(
@@ -37,11 +57,41 @@ def run_consumer(
     timeout_seconds: float,
     poll_interval_seconds: float,
     stop_event: threading.Event,
+    guard=None,
 ) -> None:
-    for diagnosed in iter_models(bus, "situations.diagnosed", "action", DiagnosedSituation):
+    guard = guard if guard is not None else NullGuard()
+    for diagnosed in iter_models(
+        bus, "situations.diagnosed", "action", DiagnosedSituation, guard=guard, dlq=bus
+    ):
         if stop_event.is_set():
             break
         situation = diagnosed.situation
+        # Two-phase execution claim. This service mutates a REAL cluster, so a
+        # redelivery must never silently re-run a remediation. Keyed on the
+        # situation (not the event id) so a re-emitted diagnosis is caught too.
+        # Inert by default: NullGuard.claim always wins.
+        claim_key = f"action:exec:{situation.id}"
+        if not guard.claim(claim_key):
+            if guard.state(claim_key) == "done":
+                continue  # already fully handled; do not re-execute or re-publish
+            # in_progress: a previous attempt died mid-flight and we cannot know
+            # whether the cluster was already mutated. Never guess -- surface it
+            # and let a human look.
+            interrupted = RemediationOutcome(
+                situation_id=situation.id,
+                playbook_id="",
+                result=RemediationResult.FAILURE,
+                health_after="interrupted:unknown",
+                ts=datetime.now(UTC),
+                hitl_mode=HitlMode.DISABLED,
+                mode="none",
+                steps=[],
+            )
+            _audit_best_effort(gate, situation.id, "interrupted", "unknown-if-mutated")
+            publish_model(bus, "remediation.outcomes", interrupted)
+            guard.set_state(claim_key, "done")
+            continue
+        guard.set_state(claim_key, "in_progress")
         playbook = select_playbook(diagnosed, store)
         if playbook is None:
             # select_playbook returns None for two distinct reasons; an operator
@@ -64,22 +114,8 @@ def run_consumer(
                 mode="none",
                 steps=[],
             )
-            # The only outcome-producing path here that had no audit trail. The
-            # sink propagates errors by design, and losing the outcome (this runs
-            # on a daemon thread) is worse than losing one audit row.
-            try:
-                gate.write_audit(
-                    AuditRecord(
-                        actor=_ACTOR,
-                        action="escalate",
-                        resource=f"situation:{situation.id}",
-                        decision="escalated",
-                        ts=datetime.now(UTC),
-                        correlation_id=situation.id,
-                    )
-                )
-            except Exception as exc:  # noqa: BLE001 - audit failure must never kill the thread
-                logger.warning("escalation audit write failed for %s: %s", situation.id, exc)
+            # The only outcome-producing path here that had no audit trail.
+            _audit_best_effort(gate, situation.id, "escalate", "escalated")
         else:
             outcome = execute_remediation(
                 situation,
@@ -92,3 +128,4 @@ def run_consumer(
                 poll_interval_seconds,
             )
         publish_model(bus, "remediation.outcomes", outcome)
+        guard.set_state(claim_key, "done")

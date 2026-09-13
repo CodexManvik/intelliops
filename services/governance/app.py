@@ -28,6 +28,7 @@ from common.contracts import (
     ProposedPlaybookStatus,
     Situation,
 )
+from common.idempotency import make_guard
 from common.stores import make_stores
 from services.base import create_app, db_ready
 from services.governance.adapters.author_tools import AuthorToolbox
@@ -121,7 +122,12 @@ async def lifespan(app: FastAPI):
     stop_event = threading.Event()
     thread = threading.Thread(
         target=run_consumer,
-        args=(app.state.bus, app.state.author_decision_store, stop_event),
+        args=(
+            app.state.bus,
+            app.state.author_decision_store,
+            stop_event,
+            make_guard(get_settings(), app.state.bus),
+        ),
         daemon=True,
     )
     thread.start()

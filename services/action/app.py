@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from common.config import get_settings
+from common.idempotency import make_guard
 from common.stores import make_stores
 from services.action.adapters.governance_gate import (
     HttpGovernanceGate,
@@ -122,6 +123,7 @@ async def lifespan(app: FastAPI):
             settings.hitl_poll_timeout_seconds,
             settings.hitl_poll_interval_seconds,
             stop_event,
+            make_guard(settings, app.state.bus),
         ),
         daemon=True,
     )
