@@ -41,6 +41,7 @@ export const metrics: Metrics = {
   suppressedToday: 27,
   approvalsPending: 1,
   successRate: 0.94,
+  needsAttention: 1,
 };
 
 export const system: SystemInfo = {
@@ -77,6 +78,32 @@ export const baseline: BaselineInfo = {
 // RUNBOOK_SELECTOR_MODE=embedding this is genuine; here it is illustrative of
 // that feature (mock has no model), the same way the LLM is shown as template.
 export const situations: Situation[] = [
+  {
+    // The escalation case: an anomaly no RCA rule matched, so nothing was attempted.
+    // Renders as "Needs Attention" — deliberately NOT a failure.
+    id: "sit-e5c02b77",
+    signature: "e5c02b77",
+    service: "reporting",
+    title: "Unclassified anomaly · reporting",
+    status: "needs_attention",
+    severity: "high",
+    memberCount: 41,
+    first_seen: mins(11),
+    member_events: [
+      { name: "disk_usage_percent", value: 91.4, labels: { service: "reporting" }, kind: "metric", ts: mins(11), kind_detected: "saturation" },
+    ],
+    baseline: { disk_usage_percent: { mean: 63.2, std: 4.8 } },
+    peak_score: 5.9,
+    hypotheses: [
+      { description: "root cause undetermined from available signals", confidence: 0.2, suggested_runbook_id: null, confidence_source: "rule", evidence: [] },
+    ],
+    suggested_runbook_id: null,
+    hitl_mode: "disabled",
+    reversible: false,
+    reliability: 0,
+    suppressed: false,
+    outcome: { result: "escalated", health_after: "escalated:no-diagnosis", mode: "none", steps: [] },
+  },
   {
     // dependency_outage: error_rate ↑ + latency_p99 ↑, cpu flat. The load-bearing
     // multi-metric case — restart wins over scale because a failing dependency is
@@ -216,6 +243,7 @@ export const situations: Situation[] = [
 // judged on the metric that fired, not cpu. A `rolled_back` means the firing
 // metric was still anomalous after the fix → rolled back (fail-safe).
 export const outcomes: OutcomeRow[] = [
+  { situation_id: "sit-e5c02b77", playbook_id: "", result: "escalated", reason: "escalated:no-diagnosis", ts: mins(11), service: "reporting" },
   { situation_id: "sit-b7e4a190", playbook_id: "restart-pod", result: "success", reason: "healthy", ts: mins(21), service: "payments" },
   { situation_id: "sit-a1f0c3d2", playbook_id: "restart-pod", result: "success", reason: "healthy", ts: mins(38), service: "checkout-api" },
   { situation_id: "sit-77a0f2e1", playbook_id: "scale-service", result: "rolled_back", reason: "unhealthy:rolled-back", ts: mins(74), service: "search" },

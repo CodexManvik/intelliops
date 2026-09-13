@@ -253,9 +253,9 @@ the unmodified z-score (default `off`, byte-identical). See
 
 | Function | What it does | Why | Depends on |
 |----------|--------------|-----|-----------|
-| `label_outcome(outcome) → TrainingRecord` | Turns a `RemediationOutcome` into a labeled training example (worked / failed / rolled back). | Converts operational results into learning signal — the innovation. | `contracts.RemediationOutcome` |
+| `label_outcome(outcome) → TrainingRecord` | Turns a `RemediationOutcome` into a labeled training example (worked / failed / rolled back). **Escalations never get here** — the consumer drops `result=escalated` before the store write, because nothing was attempted and it is therefore no evidence about any runbook. | Converts operational results into learning signal — the innovation. | `contracts.RemediationOutcome` |
 | `persist(record)` | Writes the labeled record to the training store `correlation-service` reads. | The physical link that closes the loop. | training store |
-| `compute_metrics()` | Tracks success/rollback/failure rates and per-signature reliability from outcomes. | Proves remediation quality with real numbers. *(True MTTR/MTTD, which need detection→resolution timestamps, are computed by the read-service — see §5.7.)* | outcome + situation history |
+| `compute_metrics()` | Tracks success/rollback/failure rates and per-signature reliability from outcomes, over **attempted** remediations only (escalations are excluded from the denominator). | Proves remediation quality with real numbers. *(True MTTR/MTTD, which need detection→resolution timestamps, are computed by the read-service — see §5.7.)* | outcome + situation history |
 
 ### 5.7 `read-service` — the CQRS read side the dashboard reads from
 

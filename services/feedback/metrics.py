@@ -7,7 +7,7 @@ NOT fabricated; the `note` states what's deferred (see flow.md 5.6)."""
 
 from __future__ import annotations
 
-from common.contracts import TrainingRecord
+from common.contracts import RemediationResult, TrainingRecord
 
 _NOTE = (
     "MTTR/MTTD require end-to-end detection→resolution timestamps not yet "
@@ -17,7 +17,8 @@ _NOTE = (
 
 def compute_metrics(records: list[TrainingRecord]) -> dict:
     total = len(records)
-    by_result = {"success": 0, "failure": 0, "rolled_back": 0}
+    # Derived from the enum so a new member can never KeyError this counter.
+    by_result = {r.value: 0 for r in RemediationResult}
     by_signature: dict[str, dict[str, int]] = {}
     for r in records:
         by_result[r.result.value] += 1
@@ -25,9 +26,14 @@ def compute_metrics(records: list[TrainingRecord]) -> dict:
         sig["total"] += 1
         if r.worked:
             sig["worked"] += 1
+    # An escalation means nothing was attempted, so it can neither succeed nor
+    # fail — counting it would understate the success rate of work we did do.
+    attempted = total - by_result["escalated"]
 
     def rate(n: int) -> float:
-        return n / total if total else 0.0
+        # All three rates share the attempted-only denominator: mixing bases would
+        # make success/rollback/failure fail to reconcile against each other.
+        return n / attempted if attempted else 0.0
 
     return {
         "total_outcomes": total,

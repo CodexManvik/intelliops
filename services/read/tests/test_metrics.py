@@ -54,6 +54,7 @@ def test_empty_metrics_all_zero():
         "suppressedToday",
         "approvalsPending",
         "successRate",
+        "needsAttention",
     }
 
 
@@ -77,6 +78,36 @@ def test_mttr_and_rates():
     assert abs(m["mttrMinutes"] - 2.0) < 0.01
     assert m["successRate"] == 1.0
     assert m["autoRemediatedPct"] == 100.0
+
+
+def test_escalation_excluded_from_rate_denominators():
+    rm = ReadModel()
+    rm.apply_detected(_sit("sit-1"))
+    rm.apply_detected(_sit("sit-2"))
+    rm.apply_outcome(
+        RemediationOutcome(
+            situation_id="sit-1",
+            playbook_id="p",
+            result=RemediationResult.SUCCESS,
+            health_after="healthy",
+            ts=T0 + timedelta(minutes=2),
+            hitl_mode=HitlMode.AUTO,
+        )
+    )
+    rm.apply_outcome(
+        RemediationOutcome(
+            situation_id="sit-2",
+            playbook_id="",
+            result=RemediationResult.ESCALATED,
+            health_after="escalated:no-diagnosis",
+            ts=T0 + timedelta(minutes=3),
+            mode="none",
+        )
+    )
+    m = rm.metrics()
+    assert m["successRate"] == 1.0  # 1/1 attempted, NOT 1/2 outcomes
+    assert m["autoRemediatedPct"] == 100.0  # same denominator
+    assert m["needsAttention"] == 1
 
 
 def test_suppressed_count_increments():

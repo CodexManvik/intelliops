@@ -73,6 +73,22 @@ def test_consumer_no_graduation_with_rollback():
     assert graduated == []  # a rollback in the window disqualifies
 
 
+def test_consumer_skips_escalated_outcomes():
+    # an escalation is not evidence about any runbook: only the success is stored,
+    # even though the escalation carries a real playbook_id (genuine provenance)
+    bus = ScriptedBus(
+        [
+            _raw_outcome(RemediationResult.ESCALATED),
+            _raw_outcome(RemediationResult.SUCCESS),
+        ]
+    )
+    store = InMemoryTrainingStore()
+    _run(bus, store, graduator=lambda pid: None)
+    recs = store.read_all()
+    assert len(recs) == 1
+    assert recs[0].result == RemediationResult.SUCCESS
+
+
 def test_consumer_stops_on_stop_event():
     def infinite():
         while True:

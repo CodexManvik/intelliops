@@ -24,6 +24,9 @@ NOW = datetime(2026, 8, 13, tzinfo=UTC)
 
 
 class FakeGate:
+    def __init__(self):
+        self.audits = []
+
     def check_rbac(self, actor, action, resource):
         return True
 
@@ -33,7 +36,8 @@ class FakeGate:
     def await_decision(self, approval_id, timeout_seconds):
         return None
 
-    def write_audit(self, record): ...
+    def write_audit(self, record):
+        self.audits.append(record)
 
 
 class ScriptedBus:
@@ -88,12 +92,12 @@ def _store():
     return s
 
 
-def _run(bus):
+def _run(bus, gate=None, remediator=None):
     run_consumer(
         bus,
         _store(),
-        FakeGate(),
-        RecordingRemediator(),
+        gate or FakeGate(),
+        remediator or RecordingRemediator(),
         AlwaysHealthyChecker(),
         NullSandbox(),
         timeout_seconds=1.0,
@@ -112,14 +116,62 @@ def test_consumer_emits_success_outcome():
     assert o.situation_id == "s1"
 
 
-def test_consumer_emits_skipped_when_no_playbook():
-    bus = ScriptedBus([_diagnosed("unknown-runbook")])
-    _run(bus)
-    o = decode_model(
+def _only_outcome(bus):
+    return decode_model(
         next(m for (t, m) in bus.published if t == "remediation.outcomes"), RemediationOutcome
     )
-    assert o.result == RemediationResult.FAILURE
-    assert o.health_after == "skipped:no-playbook"
+
+
+def test_consumer_escalates_when_no_playbook():
+    # An id was suggested, but the store cannot resolve it.
+    bus = ScriptedBus([_diagnosed("unknown-runbook")])
+    _run(bus)
+    o = _only_outcome(bus)
+    assert o.result == RemediationResult.ESCALATED
+    assert o.health_after == "escalated:unknown-runbook"
+    # Provenance is kept: an escalation frequently carries a real id, so
+    # downstream filters must key on the result enum, not on an empty id.
+    assert o.playbook_id == "unknown-runbook"
+    assert o.mode == "none"
+    assert o.hitl_mode == HitlMode.DISABLED
+
+
+def test_consumer_escalates_when_no_diagnosis():
+    bus = ScriptedBus([_diagnosed(None)])
+    _run(bus)
+    o = _only_outcome(bus)
+    assert o.result == RemediationResult.ESCALATED
+    assert o.health_after == "escalated:no-diagnosis"
+    assert o.playbook_id == ""
+
+
+def test_consumer_escalation_writes_audit_record():
+    bus = ScriptedBus([_diagnosed("unknown-runbook")])
+    gate = FakeGate()
+    _run(bus, gate=gate)
+    assert len(gate.audits) == 1
+    record = gate.audits[0]
+    assert record.action == "escalate"
+    assert record.resource == "situation:s1"
+    assert record.correlation_id == "s1"
+
+
+def test_consumer_escalation_never_touches_the_remediator():
+    bus = ScriptedBus([_diagnosed("unknown-runbook")])
+    remediator = RecordingRemediator()
+    _run(bus, remediator=remediator)
+    assert remediator.executed_plan is None
+    assert remediator.rolled_back_plan is None
+
+
+def test_consumer_escalation_survives_audit_sink_failure():
+    class FailingGate(FakeGate):
+        def write_audit(self, record):
+            raise RuntimeError("sink down")
+
+    bus = ScriptedBus([_diagnosed("unknown-runbook")])
+    _run(bus, gate=FailingGate())
+    assert _only_outcome(bus).result == RemediationResult.ESCALATED
 
 
 def test_consumer_stops_on_stop_event():

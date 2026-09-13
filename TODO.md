@@ -1,6 +1,205 @@
-# IntelliOps — TODO / Deferred Work
+# IntelliOps — TODO
 
-Living backlog of features and fixes deliberately deferred. Each entry: what, why deferred, and enough context to pick it up cold.
+Two parts: **[the active plan](#the-plan--a-fully-working-end-to-end-prototype)** (what we're building now, in order),
+and the **[backlog](#backlog--deferred-work)** (deliberately deferred items, kept warm enough to pick up cold).
+
+---
+
+# The plan — a fully working end-to-end prototype
+
+**Updated 2026-09-13.**
+
+## The framing
+
+The loop already runs end to end: detect → diagnose → gate → remediate on real Kubernetes → verify →
+learn. That part is real and verified. What it has *not* faced is a problem it wasn't designed for.
+
+Every fault we test with is one of Meridian's eight injectable types
+([`services/meridian/common.py:21-27`](services/meridian/common.py)), and seven of them map 1:1 to a
+rule we wrote in [`services/rca/rank.py`](services/rca/rank.py). We defined the problem to match the
+solution. That's why the demo always looks good — and why it isn't yet a prototype you'd trust.
+
+**So the work is not "replace Meridian."** Meridian is a good target. The work is to make the loop
+survive the three things real incidents do that our tests never do:
+
+1. **Be undiagnosable** — a cause no rule anticipated.
+2. **Be lossy** — a crash mid-handler that drops the event.
+3. **Be messy** — several faults at once, cascading across services.
+
+Handling all three *gracefully* is a stronger story than eight-for-eight green, because it shows the
+system knows the edge of what it knows. That is the difference between a demo and a product.
+
+**Prerequisite for every verification step below:** Docker Desktop must be running
+(`kind` v0.32.0 is installed; the daemon was down as of 2026-09-13).
+
+---
+
+## Definition of done
+
+The prototype is "fully working end to end" when all of these are true **on one `kind` cluster, in one
+run, without hand-holding**:
+
+- [ ] A fault injected into Meridian is detected, diagnosed, gated, remediated on real pods, and
+      verified healthy — with the console showing each stage live. *(works today)*
+- [x] An **undiagnosable** fault is escalated to a human as an explicit "needs attention" state —
+      not silently recorded as a failed remediation. *(P1 — done)*
+- [ ] **Killing a service mid-incident loses nothing** — the event is redelivered and the loop
+      completes, with the recovery documented in numbers. *(P2)*
+- [ ] A **restarted console** rebuilds its full incident history instead of coming up blank. *(P2)*
+- [ ] **Two concurrent faults on different services** produce two correctly-attributed incidents,
+      not one merged blob. *(P3)*
+- [x] Success-rate KPIs count only incidents the system actually attempted. *(P1 — done)*
+
+---
+
+## P1 — Teach the system to say "I don't know"
+
+**The single highest-value change, and the smallest.** It converts our biggest conceptual weakness
+into a deliberate design statement.
+
+### P1.1 — Escalation is a first-class outcome  ·  ✅ DONE
+
+**The bug.** When RCA can't find a cause it correctly emits a fallback hypothesis —
+`"root cause undetermined from available signals"`, `suggested_runbook_id=None`, confidence 0.2
+([`rank.py:141-150`](services/rca/rank.py)). But downstream, the action consumer turns that into
+`RemediationResult.FAILURE` with `health_after="skipped:no-playbook"`
+([`action/consumer.py:35-42`](services/action/consumer.py)), because the enum has no other option —
+it is only `SUCCESS | FAILURE | ROLLED_BACK` ([`contracts.py:36-39`](common/contracts.py)).
+
+**Why it matters.** An incident *nobody attempted to fix* is recorded as a **failed remediation**. That:
+- corrupts the success-rate KPI (we look worse than we are, for the wrong reason),
+- feeds a meaningless signal into the feedback/graduation loop, and
+- gives the operator no signal that a human is actually needed.
+
+**Work:**
+- Add an escalation result to `RemediationResult` (e.g. `ESCALATED = "escalated"`) — additive, so
+  existing consumers keep working.
+- `action/consumer.py`: when `select_playbook` returns `None`, emit `ESCALATED` with a reason, not
+  `FAILURE`.
+- Exclude escalations from success-rate metrics and from the feedback learning path — they are not
+  evidence about any runbook.
+- Add the status mapping in [`read/projection.py:24-25`](services/read/projection.py) — today
+  `SUCCESS → "resolved"` and `FAILURE → "failed"` are the only two, so an undiagnosable incident
+  currently renders as a red **"failed"** card. Add `ESCALATED → "needs_attention"`.
+- Render a **"Needs Attention"** state in the console (Incidents + Pipeline), visually distinct from
+  both "resolved" and "failed".
+
+**Acceptance:** inject a fault no rule matches → the console shows an incident parked in *Needs
+Attention* with the undetermined-cause explanation; the KPI tile does not count it as a failure; the
+audit trail records the escalation.
+
+### P1.2 — Give `crash` a real diagnosis path
+
+`crash` is the one Meridian fault with **no dedicated RCA rule** — documented honestly at
+[`architectural.md:1049`](architectural.md). It sets `unhealthy=True` and moves no metrics
+([`meridian/common.py:27`](services/meridian/common.py)).
+
+**ANSWERED (2026-09-13) — `crash` is injectable but NOT detected.** Verified directly against the code:
+`MeridianState.apply()` sets `self.unhealthy = True` and nothing else; that flag is **read nowhere in
+production** (only in tests); it is **not** among the 11 gauges `/metrics` exposes; and Meridian calls
+`create_app(name)` with **no `readiness` callable**, so `/ready` returns 200 even "crashed" (it only
+fails on a bus-ping failure). A crashed service emits byte-identical exposition to a healthy one — no
+telemetry changes, no Situation is created, RCA is never reached.
+
+Six doc locations claimed otherwise and have been corrected (`docs/MERIDIAN.md` ×3,
+`architectural.md:1049`, and two `docs/superpowers/` files still to fix).
+
+**Consequence:** P1.2's "route it to escalation" option is *not reachable* — an escalation needs a
+Situation, and `crash` never produces one. Making it real is its own PR: expose a `service_up` gauge
+on `/metrics`, add that series to **both** ingestion allowlists (`deploy/docker-compose.yml`,
+`deploy/k8s/platform/values-live.yaml`), and add a detection rule — a constant-then-flip series scores
+z=0 while sd==0, so the z-score correlator alone will not catch it.
+
+**Do not use `crash` as the demo or acceptance fault for P1.1** — it will hang with nothing detected.
+
+---
+
+## P2 — Make the loop survive failure
+
+This is the gap between "closed loop" as a claim and as a fact. Both items are already filed and
+documented in [ADR-031](architectural.md).
+
+### P2.1 — At-least-once delivery ([#53](https://github.com/CodexManvik/intelliops/issues/53))
+
+Today `RedisBus.consume` acks **before** yielding to the handler, and the Kafka binding auto-commits
+before processing — so a crash, validation error, or DB failure mid-handler **permanently loses** the
+event. A dropped `remediation.outcomes` silently never closes the learning loop; a dropped
+`situations.detected` drops an incident.
+
+**Work:** move the `xack` to after the handler returns · stable event ids + a per-consumer idempotency
+record so redelivery is safe · a per-topic dead-letter queue for poison messages · a transactional
+outbox for handlers that both write Postgres and emit a follow-on event.
+
+**Acceptance:** kill a consumer mid-handler; on restart the event is redelivered and processed exactly
+once (no duplicate side effects). A poison message lands in the DLQ instead of wedging the consumer.
+
+### P2.2 — Read model rebuilds on cold start ([#58](https://github.com/CodexManvik/intelliops/issues/58))
+
+The console's projection is in-memory and rebuilt from the bus, but the consumer group resumes *past*
+its prior acks — so a restarted read-service shows an empty console until new traffic arrives.
+
+**Work:** snapshot/checkpoint the projection, or replay from `0` on cold start.
+
+**Acceptance:** restart the read service mid-demo; the console comes back with full history.
+
+---
+
+## P3 — Make the loop handle mess
+
+### P3.1 — Concurrent, cascading faults
+
+`CorrelationEngine` groups anomalies by **time window, not by service**, so two faults on two services
+inside the window merge into a single Situation. This is real and was confirmed live — which is why
+Meridian's ops panel *disables* concurrent injection and shows a "~15s window" banner
+([ADR-020](architectural.md)). We encoded the limitation into the UI rather than fixing it.
+
+That was the right call for a scripted demo. It is the wrong shape for a prototype, because **real
+incidents cascade** — one service's failure is another's dependency outage.
+
+**Work:** add per-service (or per-dependency-group) grouping to `CorrelationEngine` behind a config
+switch defaulting to today's behavior (the [ADR-012](architectural.md) pattern), then lift the
+sequential-injection constraint in the Meridian ops panel.
+
+**Acceptance:** fire faults on `gateway` and `reporting` simultaneously → two distinct Situations,
+each attributed to the right service, each diagnosed independently.
+
+### P3.2 — The chaos scenario, with numbers
+
+The last open item from **Stream D** in [WORKPLAN.md](WORKPLAN.md). `scripts/chaos.sh` exists but
+`docs/OPERATIONS.md` still has no documented recovery numbers.
+
+**Work:** kill a service mid-incident, measure and document consumer-group recovery — time to
+redelivery, events processed, zero loss (which only becomes *true* after P2.1).
+
+**Acceptance:** a reproducible scenario in `docs/OPERATIONS.md` with real measured numbers.
+
+---
+
+## P4 — Production edges (tracked, deliberately deferred)
+
+Documented as known limitations in [ADR-031 / ADR-032](architectural.md) and §6. Not in scope for the
+prototype; listed so they are never mistaken for oversights.
+
+| Issue | Item |
+|---|---|
+| [#59](https://github.com/CodexManvik/intelliops/issues/59) | RBAC trusts caller-supplied identity — anyone reaching Governance can approve *as* another actor |
+| [#60](https://github.com/CodexManvik/intelliops/issues/60) | Browser auth embeds a shared token; SSE carries it in the URL |
+| [#57](https://github.com/CodexManvik/intelliops/issues/57) | Workload hardening — resource limits, securityContext, NetworkPolicies (credentials half shipped in #62) |
+| [#61](https://github.com/CodexManvik/intelliops/issues/61) | Split the `full` image so action/correlation don't inherit the ML stack |
+
+---
+
+## Suggested order
+
+**P1 first** — smallest, highest narrative value, and it makes the KPIs honest before we measure
+anything else. **Then P2.1**, because "nothing is lost" is the claim everything else rests on (and
+P3.2's numbers are meaningless without it). **P2.2 and P3** follow. **P4 stays parked.**
+
+---
+
+# Backlog — deferred work
+
+Each entry: what, why deferred, and enough context to pick it up cold.
 
 ---
 

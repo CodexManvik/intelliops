@@ -163,7 +163,7 @@ each moving a realistic *cluster* of the USE+RED metrics from §1a rather than a
 | `traffic_surge` | `request_rate` ↑, `cpu_usage` ↑, `saturation` ↑, `queue_depth` ↑ (step) | more legitimate load than the service has capacity for | `scale-service` |
 | `dependency_outage` | `meridian_error_rate` ↑, `latency_p99_ms` ↑; **`cpu_usage` held at baseline** | an upstream dependency this service calls is down | `restart-pod` |
 | `db_exhaustion` | `db_pool_in_use` → `db_pool_max`, `latency_p99_ms` ↑ (step); cpu/error stay baseline | database connection-pool starvation | `restart-pod` (Phase 3 — recycle to release wedged connections) |
-| `crash` | `/ready` starts returning 503 (`unhealthy=True`); no metric moves | a wedged process | no dedicated RCA rule today — detection-only (no metric moves for a rule to key on) |
+| `crash` | **nothing observable** — sets an in-process `unhealthy` flag that nothing reads, exposes no gauge, and does **not** change `/ready` | a wedged process | **not detected at all today** — see the note below |
 
 **Phase 4: recovery is verified on the metric that moved, not on cpu.** Post-remediation health
 verification (`health_check_mode=k8s`) now checks the metric(s) each fault above actually fired
@@ -220,9 +220,13 @@ the same `/api/ops/fault` proxy the presets use — the identical real mechanism
 path. **Honest note on coverage (updated for Phase 3):** 7 of the 8 scenarios now map to a
 dedicated `rank_hypotheses` rule (`saturation`/`latency`/`traffic_surge` → `scale-service`;
 `error`/`dependency_outage`/`memory_leak`/`db_exhaustion` → `restart-pod`; a deploy marker →
-`rollback-deploy`). Only `crash` has **no dedicated RCA rule** — it flips `/ready` to unhealthy but
-moves no metric, so there is no metric-family token for a rule to key on; it lands in the generic
-"root cause undetermined" fallback (confidence 0.2, no suggested runbook) unless it happens to
+`rollback-deploy`). Only `crash` has **no dedicated RCA rule** — and, verified against the code, it
+is in fact **never detected at all**: `MeridianState.apply()` sets an in-process `unhealthy` flag
+that no production code path ever reads, `/metrics` does not expose it, and Meridian passes no
+`readiness` callable to `create_app`, so `/ready` keeps returning 200. A "crashed" service emits
+byte-identical exposition to a healthy one, so no telemetry changes, no Situation is created, and
+RCA is never reached. It would land in the generic "root cause undetermined" fallback
+(confidence 0.2, no suggested runbook) *if it ever got there* — but it does not, unless it happens to
 co-occur with a metric-moving fault. When the embedding selector is enabled
 (`RUNBOOK_SELECTOR_MODE=embedding`), each of the 7 routed scenarios' confidence is computed from the
 symptom fit rather than a fixed constant — see [ADR-028](../architectural.md#adr-028--rca-metric-family-rules--ai-computed-confidence).
@@ -324,10 +328,14 @@ the demo script below insists on it.
 - **Faults must be injected one at a time.** Correlation groups by time window, not by service
   (§4) — this is a real constraint of the current detector, confirmed live (§5), not just a UI
   restriction. Concurrent faults on different services will merge into one Situation.
-- **One fault scenario still has no dedicated playbook.** `crash` (§4) moves no metric — it only
-  flips `/ready` to unhealthy — so there is no metric-family token for an `rank_hypotheses` rule to
-  key on; it is detection-capable (the health check fails) but not richly diagnosable via RCA
-  today. `memory_leak` and `db_exhaustion` gained dedicated rules (both → `restart-pod`) in
+- **One fault scenario is injectable but not observable.** `crash` (§4) moves no metric **and is not
+  detected at all** — it sets an in-process `unhealthy` flag that nothing in production reads, is
+  absent from `/metrics`, and does not affect `/ready` (Meridian passes no `readiness` callable, so
+  `/ready` only fails on a bus-ping failure). Making it real needs a `service_up` gauge on
+  `/metrics`, that series added to the ingestion allowlists, and a detection rule — a
+  constant-then-flip series scores z=0 while sd==0, so the z-score correlator alone will not catch
+  it. Until then, do **not** use `crash` in a demo or acceptance test: nothing will happen.
+  `memory_leak` and `db_exhaustion` gained dedicated rules (both → `restart-pod`) in
   **Metrics Phase 3** (see `docs/superpowers/specs/2026-09-06-rca-metric-rules-phase3-design.md`
   and [ADR-028](../architectural.md#adr-028--rca-metric-family-rules--ai-computed-confidence)). The
   custom-fault composer does not currently flag the `crash` gap in its own UI text (it is

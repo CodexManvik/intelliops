@@ -1046,9 +1046,12 @@ the same deploy-aware RCA rule. (−) **Sequential injection is a real, load-bea
 a cosmetic UI choice** — it exists because `CorrelationEngine` groups by time window, not by
 service, and that grouping was deliberately left unchanged. A future multi-tenant or
 concurrent-incident demo would need to revisit that grouping, not just add another UI guard. (−)
-The `crash` fault type has no dedicated RCA rule in `rank_hypotheses` today — it is detected but not
-richly diagnosed (it lands in the generic low-confidence fallback unless it happens to co-occur
-with a saturation-token metric), a known, documented gap rather than a hidden one. (−) Only the
+The `crash` fault type has no dedicated RCA rule in `rank_hypotheses` today — and, on re-verification
+against the code (2026-09-13), it is **not detected at all**, not merely under-diagnosed as this
+document previously claimed: it sets an in-process `unhealthy` flag that no production path reads,
+is absent from the `/metrics` gauge set, and does not affect `/ready` (Meridian passes no `readiness`
+callable). A crashed service is indistinguishable from a healthy one on the wire, so no Situation is
+ever created. It is injectable, not observable — a real gap, now documented accurately. (−) Only the
 gateway has real domain business logic wired in; `validation`/`aggregation`/`reporting` are fully
 faultable and independently observed but their domain endpoints are scaffolded, not yet real
 request handlers. (−) The demo's remediation is dry-run by default, same as the rest of the system

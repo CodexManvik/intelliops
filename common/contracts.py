@@ -34,9 +34,22 @@ class HitlMode(str, Enum):
 
 
 class RemediationResult(str, Enum):
+    """How a remediation ended.
+
+    ESCALATED is deliberately narrow: it means **no remediation was attempted, because
+    the system had no candidate fix** — RCA produced no runbook, or named one that does
+    not exist. It is an epistemic gap ("I don't know what to do"), not a failure, so it
+    is never evidence about any runbook and must never enter the learning loop.
+
+    Gate-blocked remediations (RBAC denied, not reversible, HITL rejected/timed out,
+    preflight failed) stay FAILURE: there the system knew exactly what to do and was not
+    permitted to, or tried it and it did not work. Both are real signal about a runbook.
+    """
+
     SUCCESS = "success"
     FAILURE = "failure"
     ROLLED_BACK = "rolled_back"
+    ESCALATED = "escalated"
 
 
 class TelemetryEvent(BaseModel):

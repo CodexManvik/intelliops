@@ -50,3 +50,21 @@ def test_should_graduate_false_with_any_failure():
     assert (
         should_graduate({"successes": 5, "failures": 1, "rollbacks": 0}, min_successes=3) is False
     )
+
+
+def test_escalation_is_counted_in_no_bucket():
+    """An escalation is not evidence about the playbook — nothing was attempted."""
+    recs = [
+        _rec("pb1", RemediationResult.SUCCESS),
+        _rec("pb1", RemediationResult.ESCALATED),
+    ]
+    assert playbook_stats(recs, "pb1") == {"successes": 1, "failures": 0, "rollbacks": 0}
+
+
+def test_escalation_does_not_block_graduation():
+    """Regression: escalations used to arrive as FAILUREs, and should_graduate
+    demands failures == 0 over all history — so one un-runnable suggestion
+    disqualified a playbook forever, on a remediation nobody ever ran."""
+    recs = [_rec("pb1", RemediationResult.SUCCESS) for _ in range(3)]
+    recs.append(_rec("pb1", RemediationResult.ESCALATED))
+    assert should_graduate(playbook_stats(recs, "pb1"), min_successes=3) is True

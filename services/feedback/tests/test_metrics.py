@@ -38,7 +38,7 @@ def test_rates_and_counts():
     assert m["success_rate"] == 0.5  # 2/4
     assert m["rollback_rate"] == 0.25  # 1/4
     assert m["failure_rate"] == 0.25  # 1/4
-    assert m["by_result"] == {"success": 2, "failure": 1, "rolled_back": 1}
+    assert m["by_result"] == {"success": 2, "failure": 1, "rolled_back": 1, "escalated": 0}
     assert m["by_signature"]["a"] == {"worked": 2, "total": 3}
     assert m["by_signature"]["b"] == {"worked": 0, "total": 1}
 
