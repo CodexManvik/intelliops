@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import threading
 
-from common.contracts import Situation, TelemetryEvent
+from common.contracts import TelemetryEvent
 from common.envelope import iter_models, publish_model
 from services.correlation.engine import CorrelationEngine
 
@@ -41,8 +41,8 @@ def run_consumer(bus, engine: CorrelationEngine, stop_event: threading.Event) ->
         if emitted is not None:
             publish_model(bus, "situations.detected", emitted)
         _drain_suppressed(bus, engine)
-    # Finite/interrupted stream: publish any final buffered Situation.
-    tail: Situation | None = engine.flush()
-    if tail is not None:
+    # Finite/interrupted stream: publish every final buffered Situation. With
+    # grouping on there can be more than one, and flush() would strand the rest.
+    for tail in engine.flush_all():
         publish_model(bus, "situations.detected", tail)
     _drain_suppressed(bus, engine)

@@ -55,8 +55,7 @@ def run_flusher(
     """
     last_snapshot = time.monotonic()
     while not stop_event.wait(period_seconds):
-        emitted = engine.flush()
-        if emitted is not None:
+        for emitted in engine.flush_all():
             publish_model(bus, "situations.detected", emitted)
         _drain_suppressed(bus, engine)
         now = time.monotonic()
@@ -103,6 +102,7 @@ async def lifespan(app: FastAPI):
     engine = CorrelationEngine(
         make_correlator(settings),
         window_seconds=settings.correlation_window_seconds,
+        group_by=settings.correlation_group_by,
     )
     app.state.engine = engine
     # Reload-on-boot: restore the durable baseline + reliability BEFORE the

@@ -208,3 +208,71 @@ def test_reset_preserves_policy():
     eng = CorrelationEngine(RiverCorrelator(detection_policy=DetectionPolicy(enabled=True)))
     eng.reset()
     assert eng._correlator._policy._enabled is True
+
+
+def _svc_event(service, value=100.0, fp="fp", ts_sec=0):
+    return TelemetryEvent(
+        source="prom",
+        kind=TelemetryKind.METRIC,
+        name="cpu",
+        value=value,
+        labels={"service": service},
+        ts=datetime(2026, 8, 13, 0, 0, ts_sec, tzinfo=UTC),
+        fingerprint=fp,
+    )
+
+
+def test_window_mode_merges_concurrent_services_into_one_situation():
+    """The historical behaviour, pinned: grouping off means two services failing
+    inside one window collapse into a single Situation. This is why the Meridian
+    ops panel had to forbid concurrent fault injection."""
+    engine = CorrelationEngine(RiverCorrelator(), window_seconds=30)
+    _prime(engine)
+    engine.add(_svc_event("gateway", value=100.0, fp="g1", ts_sec=1))
+    engine.add(_svc_event("reporting", value=120.0, fp="r1", ts_sec=2))
+    sits = engine.flush_all()
+    assert len(sits) == 1
+    services = {e.labels.get("service") for e in sits[0].member_events}
+    assert services == {"gateway", "reporting"}  # merged, indistinguishable
+
+
+def test_service_mode_keeps_concurrent_faults_separate():
+    """P3.1: concurrent faults on different services must stay distinct incidents,
+    each attributable to the right service."""
+    engine = CorrelationEngine(RiverCorrelator(), window_seconds=30, group_by="service")
+    _prime(engine)
+    engine.add(_svc_event("gateway", value=100.0, fp="g1", ts_sec=1))
+    engine.add(_svc_event("reporting", value=120.0, fp="r1", ts_sec=2))
+    sits = engine.flush_all()
+    assert len(sits) == 2
+    per_sit = [{e.labels.get("service") for e in s.member_events} for s in sits]
+    assert {"gateway"} in per_sit
+    assert {"reporting"} in per_sit
+    # distinct incidents, not one blob relabelled
+    assert sits[0].id != sits[1].id
+
+
+def test_service_mode_windows_are_independent():
+    """One service's window overflowing must not flush another's."""
+    engine = CorrelationEngine(RiverCorrelator(), window_seconds=10, group_by="service")
+    _prime(engine)
+    engine.add(_svc_event("gateway", value=100.0, fp="g1", ts_sec=1))
+    engine.add(_svc_event("reporting", value=100.0, fp="r1", ts_sec=2))
+    # gateway's window overflows; reporting's does not
+    emitted = engine.add(_svc_event("gateway", value=110.0, fp="g2", ts_sec=20))
+    assert emitted is not None
+    assert {e.labels.get("service") for e in emitted.member_events} == {"gateway"}
+    remaining = engine.flush_all()
+    assert {e.labels.get("service") for s in remaining for e in s.member_events} == {
+        "gateway",
+        "reporting",
+    }
+
+
+def test_unlabelled_events_share_one_bucket_in_service_mode():
+    engine = CorrelationEngine(RiverCorrelator(), window_seconds=30, group_by="service")
+    _prime(engine)
+    engine.add(_event(value=100.0, fp="a", ts_sec=1))
+    engine.add(_event(value=120.0, fp="b", ts_sec=2))
+    sits = engine.flush_all()
+    assert len(sits) == 1

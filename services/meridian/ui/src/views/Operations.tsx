@@ -227,8 +227,12 @@ export default function Operations() {
                 Active fault: {activeFault!.label} on {activeFault!.service}.
               </span>{" "}
               <span className="text-ink-2">
-                IntelliOps groups anomalies in a ~15s window — inject one fault at a time. Clear
-                this fault and wait for the window to close before injecting the next.
+                With the default windowed grouping, IntelliOps collapses anomalies in a ~15s
+                window into one Situation — so inject one fault at a time. Clear this fault and
+                wait for the window to close before injecting the next. (Running correlation with
+                INTELLIOPS_CORRELATION_GROUP_BY=service keeps concurrent faults on different
+                services separate; this panel still serialises them, because it cannot see which
+                mode the backend is in.)
               </span>
             </>
           ) : (

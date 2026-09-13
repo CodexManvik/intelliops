@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     correlation_z_threshold: float = 3.0
     correlation_window_seconds: float = 30.0
     correlator_kind: str = "river"  # "river" | "robust" | "trained"
+    # How anomalies are bucketed before windowing. "window" (default) puts every
+    # event in one bucket, so concurrent faults on different services merge into
+    # a single Situation. "service" buckets by the event's service label, so they
+    # stay separate incidents. Default preserves historical behaviour (ADR-012).
+    correlation_group_by: str = "window"  # "window" | "service"
     correlation_seasonal_buckets: int = 24
     correlation_robust_window: int = 128
     correlation_robust_warmup: int = 30
