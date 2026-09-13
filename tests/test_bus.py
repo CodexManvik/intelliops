@@ -197,3 +197,142 @@ def test_make_bus_raises_on_invalid_backend(invalid_backend: str) -> None:
     s = Settings(bus_backend=invalid_backend)
     with pytest.raises(ValueError, match="Unknown bus backend"):
         make_bus(s)
+
+
+# --- Delivery semantics (issue #53) -----------------------------------------
+#
+# These are the tests that actually prove the at-least-once claim. Each drives
+# the real RedisBus against fakeredis and asserts on the PENDING list, which is
+# the ground truth for "was this acked?".
+
+
+def _bus(delivery="at_most_once", **kw):
+    fakeredis = pytest.importorskip("fakeredis")
+    from common.bus import RedisBus
+
+    client = fakeredis.FakeStrictRedis(decode_responses=True)
+    return RedisBus(client=client, delivery=delivery, **kw)
+
+
+def _pending(bus, topic, group):
+    return bus._r.xpending(topic, group)["pending"]
+
+
+def test_at_most_once_acks_before_yield_and_loses_the_in_flight_entry():
+    """The default, pinned: the entry is already acked when the handler sees it,
+    so a crash mid-handler loses it permanently and it is never redelivered."""
+    bus = _bus("at_most_once")
+    bus.publish("t", {"n": "1"})
+    gen = bus.consume("t", "g")
+    next(gen)
+    assert _pending(bus, "t", "g") == 0  # already acked before we got it
+    gen.close()  # the handler "crashed"
+
+    # A restart sees nothing pending to recover.
+    bus2 = _bus_sharing(bus, "at_most_once")
+    assert _pending(bus2, "t", "g") == 0
+
+
+def _bus_sharing(other, delivery, **kw):
+    """A second bus on the SAME fakeredis client - i.e. a restarted consumer."""
+    from common.bus import RedisBus
+
+    return RedisBus(client=other._r, delivery=delivery, **kw)
+
+
+def test_at_least_once_leaves_the_in_flight_entry_pending():
+    bus = _bus("at_least_once")
+    bus.publish("t", {"n": "1"})
+    gen = bus.consume("t", "g")
+    msg = next(gen)
+    assert msg["n"] == "1"
+    # Not acked: being resumed is the only proof the handler finished, and we
+    # have not resumed it.
+    assert _pending(bus, "t", "g") == 1
+    gen.close()
+    assert _pending(bus, "t", "g") == 1  # a crash must NOT ack
+
+
+def test_at_least_once_acks_only_when_resumed():
+    bus = _bus("at_least_once")
+    bus.publish("t", {"n": "1"})
+    bus.publish("t", {"n": "2"})
+    gen = bus.consume("t", "g")
+    next(gen)
+    assert _pending(bus, "t", "g") == 1
+    next(gen)  # coming back for the next entry acks the first
+    assert _pending(bus, "t", "g") == 1  # #1 acked, #2 now in flight
+    gen.close()
+
+
+def test_at_least_once_redelivers_after_a_crash():
+    """The headline guarantee: an event handled by a consumer that then dies is
+    served again to the next consumer under the same name."""
+    bus = _bus("at_least_once")
+    bus.publish("t", {"n": "1"})
+    gen = bus.consume("t", "g")
+    assert next(gen)["n"] == "1"
+    gen.close()  # crash before the ack
+
+    restarted = _bus_sharing(bus, "at_least_once")
+    gen2 = restarted.consume("t", "g")
+    assert next(gen2)["n"] == "1"  # redelivered, not lost
+    gen2.close()
+
+
+def test_at_most_once_does_not_redeliver_after_a_crash():
+    """The contrast that makes the previous test meaningful."""
+    bus = _bus("at_most_once")
+    bus.publish("t", {"n": "1"})
+    bus.publish("t", {"n": "2"})
+    gen = bus.consume("t", "g")
+    assert next(gen)["n"] == "1"
+    gen.close()
+
+    restarted = _bus_sharing(bus, "at_most_once")
+    gen2 = restarted.consume("t", "g")
+    assert next(gen2)["n"] == "2"  # #1 is gone forever
+    gen2.close()
+
+
+def test_dlq_parks_an_entry_after_max_delivery_attempts():
+    """A payload this build cannot handle must not be redelivered forever."""
+    bus = _bus("at_least_once", dlq_mode="on", max_delivery_attempts=2)
+    bus.publish("t", {"n": "poison"})
+    # A follow-on entry, so the cycle that parks the poison has something to
+    # return instead of blocking on an empty stream.
+    bus.publish("t", {"n": "good"})
+
+    # Crash-restart cycles: served, served, then parked and skipped.
+    seen = []
+    for _ in range(3):
+        gen = bus.consume("t", "g")
+        seen.append(next(gen)["n"])
+        gen.close()
+    # The third cycle skipped the parked poison and moved on.
+    assert seen == ["poison", "poison", "good"]
+
+    dlq = bus._r.xrange("t.dlq")
+    assert len(dlq) == 1
+    _entry_id, fields = dlq[0]
+    assert fields["n"] == "poison"
+    assert fields["_dlq_reason"] == "max-delivery-attempts"
+    assert fields["_dlq_topic"] == "t"
+    # The poison was acked when it was parked, so it is no longer pending. The
+    # ONE remaining pending entry is "good" - correctly un-acked, because the
+    # test closed the generator instead of coming back for the next entry.
+    assert _pending(bus, "t", "g") == 1
+    pending_ids = {e["message_id"] for e in bus._r.xpending_range("t", "g", "-", "+", 10)}
+    poison_id = bus._r.xrange("t")[0][0]
+    assert poison_id not in pending_ids
+
+
+def test_dlq_off_by_default_leaves_the_entry_pending_forever():
+    bus = _bus("at_least_once", max_delivery_attempts=1)
+    bus.publish("t", {"n": "poison"})
+    for _ in range(3):
+        gen = bus.consume("t", "g")
+        next(gen)
+        gen.close()
+    assert bus._r.exists("t.dlq") == 0
+    assert _pending(bus, "t", "g") == 1
