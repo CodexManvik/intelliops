@@ -112,6 +112,44 @@ z=0 while sd==0, so the z-score correlator alone will not catch it.
 
 **Do not use `crash` as the demo or acceptance fault for P1.1** — it will hang with nothing detected.
 
+### P1.3 — Make the escalation demonstrable (Meridian has no unmapped fault)
+
+**Found while building P1.1, and it is the sharpest evidence for this whole plan's framing.** Probing
+`rank_hypotheses` with every metric Meridian actually exposes:
+
+```
+  cpu_usage                -> scale-service    (conf 0.6)
+  meridian_error_rate      -> restart-pod      (conf 0.58)
+  request_rate             -> scale-service    (conf 0.55)
+  latency_p50_ms           -> scale-service    (conf 0.55)
+  latency_p99_ms           -> scale-service    (conf 0.55)
+  memory_usage_mb          -> restart-pod      (conf 0.65)
+  saturation               -> scale-service    (conf 0.6)
+  queue_depth              -> scale-service    (conf 0.55)
+  db_pool_in_use           -> restart-pod      (conf 0.62)
+  disk_usage_percent       -> scale-service    (conf 0.6)
+  tls_handshake_failures   -> None             (conf 0.2)   <- only an UNMAPPED family escalates
+```
+
+**Every metric Meridian can emit maps to a runbook.** So the escalation state built in P1.1 is real,
+tested and correct — and currently **impossible to trigger from any Meridian fault**. The demo target
+was built so that every problem it can show already has an answer. That is the "we have a solution,
+what's the problem?" pattern in one table.
+
+**Work:** add a fault type that emits a metric family no RCA rule knows (e.g. `unknown_signal` →
+`tls_handshake_failures`): a state field + gauge in `services/meridian/common.py`, the new series added
+to **both** ingestion allowlists (`deploy/docker-compose.yml:66`,
+`deploy/k8s/platform/values-live.yaml:31`), and a button in the Meridian ops panel.
+`FaultSpec.type` is a plain `str` with no enum validation, so no contract change is needed.
+
+**Feasibility checked:** a constant baseline scores z=0 while `sd == 0`
+([`river_correlator.py:57`](services/correlation/adapters/river_correlator.py)), but the value moving
+makes variance non-zero, so it detects on the next scrape — exactly how every existing fault behaves.
+
+**Acceptance:** fire `unknown_signal` on a Meridian service → an incident appears, is detected and
+diagnosed as "root cause undetermined", and parks in **Needs Attention** with nothing executed.
+That is the missing half of P1's end-to-end story.
+
 ---
 
 ## P2 — Make the loop survive failure
