@@ -91,41 +91,115 @@ and already existed — this only gates network access to the HTTP surface.
 
 ## Delivery guarantees
 
-Both `RedisBus` (Redis Streams) and `KafkaBus` (Kafka with `enable_auto_commit=True`)
-use **at-most-once** delivery semantics. The offset/acknowledgment is advanced as
-soon as the message is read, before the caller finishes processing it.
+Delivery semantics are selected by **`INTELLIOPS_BUS_DELIVERY`**. The default is
+unchanged; everything below is opt-in.
 
-Consequence: a process crash between reading a message and completing its processing
-loses the in-flight message on both backends — it will not be redelivered.
+### `at_most_once` (default)
 
-Upgrading to **at-least-once** delivery requires changing the ack/commit point on
-**both** bindings together:
-- `RedisBus`: move `XACK` to after the caller has processed the message.
-- `KafkaBus`: switch to `enable_auto_commit=False` and call `consumer.commit()` after
-  processing.
+`RedisBus.consume` XACKs an entry **before** yielding it, and `KafkaBus` runs with
+`enable_auto_commit=True`. A process crash, validation error or DB failure between
+receiving a message and finishing it **loses that message** - it is not redelivered.
 
-This is a deliberate future decision; the current at-most-once semantics match the
-project's scale requirements.
+### `at_least_once`
+
+The ack is deferred until the caller comes **back** for the next entry: being resumed is
+the only proof the handler finished. If the handler raises, breaks on `stop_event`, or
+abandons the generator, the entry stays pending.
+
+Deferring the ack alone would make events durable but *unreachable*, because
+`XREADGROUP ">"` never returns pending entries. So `consume()` first drains this
+consumer's **own** pending entries (start id `"0"`), then tails. That makes the consumer
+name load-bearing: it **must stay stable across restarts** (`INTELLIOPS_BUS_CONSUMER_NAME`,
+default `c1`). Scaling a consumer past `replicas: 1` additionally needs per-pod names plus
+`XAUTOCLAIM` - see [ADR-033](../architectural.md).
+
+Redelivery is only safe if consumers can recognise a repeat, so turn on
+`INTELLIOPS_BUS_IDEMPOTENCY_MODE=redis` alongside it. The action service goes further: it
+takes a two-phase claim per situation, and if a previous attempt died mid-flight it emits
+an explicit `interrupted:unknown` outcome for a human rather than re-running a real
+remediation on a guess.
+
+### Measured
+
+`scripts/delivery_probe.py` publishes N events, crashes the handler partway, restarts the
+consumer under the same name, and counts what was actually handled. Against the compose
+stack:
+
+```
+$ python scripts/delivery_probe.py --count 50 --crash-at 25
+delivery mode      at_most_once
+published          50
+completed (total)  49
+LOST               1          <- acked but never handled, never redelivered
+
+$ INTELLIOPS_BUS_DELIVERY=at_least_once python scripts/delivery_probe.py --count 50 --crash-at 25
+delivery mode      at_least_once
+published          50
+completed (total)  50
+LOST               0          <- the in-flight event came back
+```
+
+### Poison messages
+
+Under at-least-once, a payload this build cannot decode would be redelivered forever.
+`INTELLIOPS_BUS_DLQ_MODE=on` parks it on `{topic}.dlq` after
+`INTELLIOPS_BUS_MAX_DELIVERY_ATTEMPTS` (default 5) with a `_dlq_reason`, and the consumer
+moves on. The DLQ is enforced in `iter_models`, not in the bus: a generator cannot observe
+the exception its consumer raised (it receives `GeneratorExit`), so the frame that calls
+`decode_model` is the only place a poison payload is visible.
 
 ### Deploy ordering when a contract enum gains a member
 
-At-most-once delivery has a sharp consequence for **rolling upgrades**: a bus payload
-carrying an enum value an older consumer does not know is a *permanent* loss, not a
-retry. `decode_model` uses `model_validate_json`, which raises `ValidationError` on an
-unknown value; that exception escapes the `for … in iter_models(...)` statement itself,
-so the `try/except` blocks *inside* consumer loop bodies do not cover it. Each outcomes
-consumer runs on a bare daemon thread with no supervisor, so the thread dies silently
-and never restarts — and the message was already acked. The visible symptom is not an
-error: the dashboard simply stops updating and the learning loop stops.
+Required **only in the default `at_most_once` mode**, where an undecodable payload is lost
+rather than retried. `decode_model` uses `model_validate_json`, which raises
+`ValidationError` on an unknown enum value; that exception escapes the
+`for ... in iter_models(...)` statement itself, so `try/except` blocks *inside* consumer
+loop bodies do not cover it. Each outcomes consumer runs on a bare daemon thread with no
+supervisor, so the thread dies silently and never restarts - and the message was already
+acked. The visible symptom is not an error: the dashboard simply stops updating.
 
 **Therefore: deploy consumers before producers.** For the `RemediationResult.ESCALATED`
-addition that means read-service, feedback-service and governance-service **first**, and
-action-service (the only producer of the new value) **last** — or all of them in one
-simultaneous rollout. Never action-service first.
+addition that meant read-service, feedback-service and governance-service **first**, and
+action-service **last** - or all of them in one rollout.
 
-The same rule applies to any future member added to a contract enum. It is a consequence
-of at-most-once delivery, and it goes away once at-least-once + a dead-letter queue lands
-(issue #53).
+Turning on `at_least_once` **plus** `bus_dlq_mode=on` removes this hazard: the undecodable
+message is retried, then parked in the DLQ for inspection, and the consumer survives.
+
+---
+
+## Chaos: killing a service mid-stream
+
+The recovery story, measured rather than asserted. `scripts/chaos.sh` drives one incident;
+this is the resilience check.
+
+**Scenario.** SIGKILL the correlation service while it is actively consuming
+`telemetry.raw`, restart it, and watch the consumer group.
+
+```
+== before ==
+   telemetry.raw length   : 60561
+   correlation group      : consumers 1  pending 0  entries-read 60623  lag 0
+
+== killing correlation (SIGKILL, mid-stream) ==
+   healthy again after 9s
+
+== after ==
+   telemetry.raw length   : 60809 (was 60561)
+   correlation group      : consumers 1  pending 0  entries-read 60871  lag 0
+   consumer still registered: name c1  pending 0
+```
+
+**What this shows.** The consumer group survives the process: `c1` is still registered
+after the kill, resumes from its own offset, and returns to `lag 0` - it caught up on the
+248 entries published while it was down rather than skipping them. Recovery to a healthy
+readiness probe took **9 seconds**, unattended.
+
+**What it does not show.** `pending 0` here is the *default* at-most-once mode doing what
+it always does: entries are acked on read, so nothing is ever pending and nothing is ever
+redelivered. Any message that was mid-handler at the instant of the kill is gone, and this
+view cannot distinguish that from clean progress. That is precisely what the
+`delivery_probe` numbers above measure, and why `at_least_once` exists.
+
 
 ---
 
@@ -205,6 +279,15 @@ gated) see the [Auth at the edge](#auth-at-the-edge) section above.
 | `INTELLIOPS_REMEDIATOR_MODE` | `dry_run`, `k8s` | `dry_run` | Remediation execution mode. `dry_run` = log steps only, no real infrastructure changes (CI/test default). `k8s` = execute playbook steps against a real Kubernetes cluster via the official `kubernetes` Python client (requires a valid kubeconfig and `INTELLIOPS_K8S_NAMESPACE`). |
 | `INTELLIOPS_CORRELATOR_KIND` | `river`, `robust`, `trained` | `river` | Correlator implementation (`services/correlation`). `river` = online z-score, unchanged default. `robust` = median/MAD + per-hour seasonal baseline (fixes river's seasonal false-positive and single-spike-desensitizes weaknesses). `trained` = `robust`'s online score blended with a persisted scikit-learn `IsolationForest` (fit via `POST /retrain`, not automatic). See [docs/BENCHMARKS.md](BENCHMARKS.md) and [ADR-019](../architectural.md#adr-019--pluggable-detectors-the-finetuning-loop-and-llm-assisted-rca). |
 | `INTELLIOPS_CORRELATION_GROUP_BY` | `window`, `service` | `window` | How anomalies are bucketed before windowing (`services/correlation`). `window` (default, unchanged) puts every anomaly in one bucket, so two services failing inside the same ~30s window collapse into a **single** Situation — this is why the Meridian ops panel serialises fault injection. `service` buckets by the event's `service` label, so concurrent faults on different services stay separate incidents, each attributed and diagnosed on its own; unlabelled events share one bucket. Buckets are independent: one service's window overflowing does not flush another's. |
+| `INTELLIOPS_BUS_DELIVERY` | `at_most_once`, `at_least_once` | `at_most_once` | Bus delivery semantics (`common/bus.py`). Default acks each entry BEFORE the handler runs, so a crash mid-handler loses it. `at_least_once` defers the ack until the caller returns for the next entry and re-drains this consumer's own pending entries on reconnect. Measured loss on a crash: 1 vs 0 (see Delivery guarantees). Pair it with `INTELLIOPS_BUS_IDEMPOTENCY_MODE`. |
+| `INTELLIOPS_BUS_CONSUMER_NAME` | any string | `""` (→ `c1`) | Redis consumer name. **Must stay stable across restarts** under `at_least_once`: the pending-entry self-drain re-serves entries recorded against this name, so a per-process name would strand them. |
+| `INTELLIOPS_BUS_DLQ_MODE` | `off`, `on` | `off` | Park undecodable or repeatedly-redelivered messages on `{topic}.dlq` instead of letting them wedge a consumer. Independent of `bus_delivery`: DLQ-on with `at_most_once` already stops a decode error killing a consumer thread. |
+| `INTELLIOPS_BUS_MAX_DELIVERY_ATTEMPTS` | int | `5` | Deliveries before an entry is parked in the DLQ. Consulted only when the DLQ is on. |
+| `INTELLIOPS_BUS_IDEMPOTENCY_MODE` | `off`, `redis`, `memory` | `off` | How consumers recognise a redelivered event (`common/idempotency.py`). `off` = every guard call site is inert (today). `redis` shares the bus client and survives a restart. `memory` is process-local and does NOT survive a restart — the fallback when there is no Redis client (e.g. `BUS_BACKEND=kafka`). |
+| `INTELLIOPS_BUS_IDEMPOTENCY_TTL_SECONDS` | int | `86400` | TTL on idempotency keys; also self-prunes the delivery-attempt counters. |
+| `INTELLIOPS_READ_REBUILD_MODE` | `off`, `replay` | `off` | Cold-start rebuild of the read projection (`services/read/rebuild.py`). `off` = a restarted read-service resumes past its acks and shows an empty console until new traffic arrives. `replay` re-reads a bounded window of the raw streams into a shadow model first, and only swaps it in if every topic replayed cleanly. |
+| `INTELLIOPS_READ_REBUILD_WINDOW_SECONDS` | float | `3600` | How far back the replay reaches. |
+| `INTELLIOPS_READ_REBUILD_MAX_ENTRIES` | int | `20000` | Safety valve. Tripping it discards the WHOLE rebuild and cold-starts, rather than serving a partial projection. |
 | `INTELLIOPS_CORRELATION_SEASONAL_BUCKETS` | integer | `24` | Number of hour-of-day buckets `robust`/`trained` keep independent baselines for. |
 | `INTELLIOPS_CORRELATION_ROBUST_WINDOW` | integer | `128` | Max samples kept per `(metric, hour-bucket)` window for `robust`/`trained`'s median/MAD calculation. |
 | `INTELLIOPS_CORRELATION_ROBUST_WARMUP` | integer | `30` | Samples required in a bucket before `robust`/`trained` scores it (below this, score is `0`, like `river`'s warm-up gate). |

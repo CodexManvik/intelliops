@@ -43,11 +43,12 @@ run, without hand-holding**:
       verified healthy — with the console showing each stage live. *(works today)*
 - [x] An **undiagnosable** fault is escalated to a human as an explicit "needs attention" state —
       not silently recorded as a failed remediation. *(P1 — done)*
-- [ ] **Killing a service mid-incident loses nothing** — the event is redelivered and the loop
-      completes, with the recovery documented in numbers. *(P2)*
-- [ ] A **restarted console** rebuilds its full incident history instead of coming up blank. *(P2)*
-- [ ] **Two concurrent faults on different services** produce two correctly-attributed incidents,
-      not one merged blob. *(P3)*
+- [x] **Killing a service mid-incident loses nothing** — measured: 1 event lost by default,
+      0 under `at_least_once`; correlation SIGKILL recovers to `lag 0` in 9s. *(P2 — done)*
+- [x] A **restarted console** rebuilds its full incident history instead of coming up blank.
+      Measured on the live stack: cold start 0 situations, replay 2. *(P2 — done)*
+- [x] **Two concurrent faults on different services** produce two correctly-attributed incidents,
+      not one merged blob — under `INTELLIOPS_CORRELATION_GROUP_BY=service`. *(P3 — done)*
 - [x] Success-rate KPIs count only incidents the system actually attempted. *(P1 — done)*
 
 ---
@@ -170,7 +171,7 @@ executed. That is the last unverified step of P1's end-to-end story.
 This is the gap between "closed loop" as a claim and as a fact. Both items are already filed and
 documented in [ADR-031](architectural.md).
 
-### P2.1 — At-least-once delivery ([#53](https://github.com/CodexManvik/intelliops/issues/53))
+### P2.1 — At-least-once delivery  ·  ✅ DONE ([#53](https://github.com/CodexManvik/intelliops/issues/53))
 
 Today `RedisBus.consume` acks **before** yielding to the handler, and the Kafka binding auto-commits
 before processing — so a crash, validation error, or DB failure mid-handler **permanently loses** the
@@ -184,7 +185,7 @@ outbox for handlers that both write Postgres and emit a follow-on event.
 **Acceptance:** kill a consumer mid-handler; on restart the event is redelivered and processed exactly
 once (no duplicate side effects). A poison message lands in the DLQ instead of wedging the consumer.
 
-### P2.2 — Read model rebuilds on cold start ([#58](https://github.com/CodexManvik/intelliops/issues/58))
+### P2.2 — Read model rebuilds on cold start  ·  ✅ DONE ([#58](https://github.com/CodexManvik/intelliops/issues/58))
 
 The console's projection is in-memory and rebuilt from the bus, but the consumer group resumes *past*
 its prior acks — so a restarted read-service shows an empty console until new traffic arrives.
@@ -197,7 +198,7 @@ its prior acks — so a restarted read-service shows an empty console until new 
 
 ## P3 — Make the loop handle mess
 
-### P3.1 — Concurrent, cascading faults
+### P3.1 — Concurrent, cascading faults  ·  ✅ DONE
 
 `CorrelationEngine` groups anomalies by **time window, not by service**, so two faults on two services
 inside the window merge into a single Situation. This is real and was confirmed live — which is why
@@ -214,7 +215,7 @@ sequential-injection constraint in the Meridian ops panel.
 **Acceptance:** fire faults on `gateway` and `reporting` simultaneously → two distinct Situations,
 each attributed to the right service, each diagnosed independently.
 
-### P3.2 — The chaos scenario, with numbers
+### P3.2 — The chaos scenario, with numbers  ·  ✅ DONE
 
 The last open item from **Stream D** in [WORKPLAN.md](WORKPLAN.md). `scripts/chaos.sh` exists but
 `docs/OPERATIONS.md` still has no documented recovery numbers.

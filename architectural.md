@@ -1624,7 +1624,7 @@ empty/partial console until new traffic arrives (issue #58).
 **Decision.** For the capstone milestone this is **accepted and documented, not fixed** — a
 deliberate scope decision, recorded so it is not mistaken for an oversight. The consume loop's
 comment was corrected to state the at-most-once semantics honestly (it previously overclaimed
-"at-least-once"). The production fix is a self-contained arc, tracked in **issue #53**: move the
+"at-least-once"). The production fix landed behind a switch in [ADR-033](#adr-033--at-least-once-delivery-idempotent-consumers-and-a-read-model-rebuild); this ADR is kept for the record of why it was deferred first. It was tracked as **issue #53**: move the
 `xack` to *after* the handler returns (at-least-once), give each event a stable id and each consumer
 an idempotency record so redelivery is safe, add a per-topic dead-letter queue for
 poison messages, and — for handlers that both write to Postgres and emit a follow-on event — use a
@@ -1678,6 +1678,69 @@ those imports lazy, so it is a packaging optimization, not a correctness issue).
 **identity/authz** (the caller-supplied-`decided_by` RBAC gap, issue #59, and the browser
 shared-token / SSE-token-in-URL design, issue #60) is a separate, larger arc scoped out of this
 milestone and documented under §6.
+
+
+### ADR-033 — At-least-once delivery, idempotent consumers, and a read-model rebuild
+
+**Context.** [ADR-031](#adr-031--bus-delivery-is-at-most-once-a-documented-deferred-limitation)
+documented at-most-once delivery as a known limitation: the consumer acks before the handler
+runs, so a crash mid-handler loses the event permanently. That undercut the project's central
+claim — a *durable* closed loop — and the loss is now measured, not argued:
+`scripts/delivery_probe.py` publishes 50 events, crashes the handler at 25, restarts, and
+reports **LOST 1**. The same probe reports **LOST 0** once the ack moves.
+
+**Decision.** Four pieces, each behind a switch defaulting to today's behaviour
+([ADR-012](#adr-012--config-switched-adapter-selection-with-test-safe-defaults)).
+
+- **Ack on resume** (`bus_delivery=at_least_once`). `RedisBus.consume` acks the previously
+  yielded entry when the caller comes *back* for the next one — being resumed is the only
+  proof the handler finished. Deliberately **not** in a `finally:`/`GeneratorExit` handler:
+  a crash, a `stop_event` break, or an abandoned generator must all leave the entry pending.
+  (Verified that all six consumers check `stop_event` *after* receiving and *before*
+  handling, so a break genuinely means unhandled.) Kafka gets the same treatment via
+  `enable_auto_commit=False` plus a commit at the same resume point.
+  *Caveat, stated rather than hidden:* this relies on the caller being resumed, so on a
+  runtime that defers generator finalization the single in-flight entry degrades to
+  at-most-once — no worse than the default.
+- **Self-drain the pending list.** Deferring the ack alone makes events durable but
+  *unreachable*, because `XREADGROUP ">"` never returns pending entries. `consume()` therefore
+  drains this consumer's own pending entries (start id `"0"`) once per generator start, then
+  tails. This makes the consumer name load-bearing across restarts, which is why
+  `bus_consumer_name` exists. `XAUTOCLAIM` is deliberately **not** added: it only matters once
+  a consumer scales past `replicas: 1`, and it adds a fakeredis-divergence surface for no
+  gain today.
+- **Idempotency in Redis, not Postgres** (`common/idempotency.py`). `SET NX EX` on the client
+  the bus already holds. Postgres was rejected on three grounds: its one real advantage —
+  putting the dedupe insert in the handler's own transaction — is unreachable because the
+  store protocols take records, not connections; a Postgres-only guard would make the safety
+  mechanism of at-least-once the one thing the default CI job never exercises; and a
+  `processed_events` table would be the only unbounded table in the schema, where a TTL
+  self-prunes. The **action service** additionally takes a two-phase domain claim, because it
+  mutates a real cluster: `in_progress` on redelivery means a previous attempt died mid-flight
+  and we cannot know whether the cluster changed, so it emits an explicit `interrupted:unknown`
+  outcome for a human instead of re-running a remediation on a guess.
+- **The DLQ lives in `iter_models`, not in the bus** (`bus_dlq_mode=on`). This placement is
+  forced, not stylistic: a generator cannot observe the exception its consumer raised — when
+  `decode_model` fails, the bus generator receives `GeneratorExit`, not the `ValidationError`.
+  `iter_models` is the frame that actually decodes, so it is the only place a poison payload is
+  visible. The bus separately parks entries that exceed `bus_max_delivery_attempts`.
+- **Read-model rebuild** (`read_rebuild_mode=replay`, issue #58). A restarted read-service
+  resumed past its acks and served a blank console. `services/read/rebuild.py` replays a
+  bounded window of the raw streams into a **shadow** model and swaps it in only if every topic
+  replayed cleanly. Topic order is correctness, not style: `apply_outcome` only mutates a
+  situation it already knows, so replaying outcomes before their detected events would silently
+  drop terminal status and MTTR. Measured on the live stack: cold start 0 situations, replay 2.
+
+**Consequences.** The durability claim is now switchable and measured rather than asserted,
+and the enum-rollout hazard documented in ADR-032 goes away under `at_least_once` + DLQ: an
+undecodable message is retried and then parked, instead of killing a daemon thread on an
+already-acked message. The defaults are unchanged, so the demo posture and the whole test suite
+are unaffected until an operator opts in. Deliberately deferred: the **transactional outbox**,
+which is the only piece needing both schema and handler-body changes, and which the two
+write-then-emit sites cannot express today because the store protocols take records rather than
+connections. The idempotency guard already narrows the duplicate-emit window from "every
+redelivery" to "a crash inside a single handler", and the action claim turns even that into a
+surfaced `interrupted:unknown` rather than a silent double execution.
 
 ---
 
@@ -1804,11 +1867,16 @@ in-region/on-prem for sovereign-cloud requirements.
   not scheduled or outcome-driven yet; automating it is a later maturity milestone.
 - **Kafka in production.** Redis Streams runs dev and demo; the Kafka `BusClient` binding is
   deferred behind the same interface.
-- **Durable event delivery.** Bus delivery is currently **at-most-once** — the consumer acks
-  before the handler runs, so a mid-handler crash loses that event, and a cold-started Read
-  projection misses already-acked events ([ADR-031](#adr-031--bus-delivery-is-at-most-once-a-documented-deferred-limitation),
-  issues #53/#58). At-least-once + idempotency + a DLQ + a transactional outbox is the tracked
-  production fix, deliberately deferred for the capstone.
+- **Durable event delivery — now switchable, measured, and off by default.** Delivery was
+  at-most-once: the consumer acked before the handler ran, so a mid-handler crash lost the
+  event ([ADR-031](#adr-031--bus-delivery-is-at-most-once-a-documented-deferred-limitation),
+  issues #53/#58). `INTELLIOPS_BUS_DELIVERY=at_least_once` moves the ack to the resume point
+  and self-drains the pending list; `INTELLIOPS_READ_REBUILD_MODE=replay` rebuilds a
+  cold-started Read projection. Measured with `scripts/delivery_probe.py`: **1 event lost on
+  a crash by default, 0 with at-least-once on.** The defaults stay unchanged, so the demo
+  posture is untouched until an operator opts in — see
+  [ADR-033](#adr-033--at-least-once-delivery-idempotent-consumers-and-a-read-model-rebuild).
+  The **transactional outbox** remains deliberately deferred.
 - **Simulation controls in production.** The `/break`, `/fix`, `/reset`, `/reset-baseline`, and
   `/reset-approvals` endpoints ([ADR-011](#adr-011--a-live-breakable-demo-harness-with-explicit-simulation-controls))
   must be gated or removed when pointed at a real system. (Under `AUTH_MODE=token` they are gated
