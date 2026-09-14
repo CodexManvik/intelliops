@@ -174,3 +174,72 @@ def test_hitl_approved_unhealthy_rolls_back_end_to_end():
     assert o.result == RemediationResult.ROLLED_BACK
     assert remediator.executed_plan is not None
     assert remediator.rolled_back_plan is not None  # rolled back
+
+
+def test_undiagnosable_situation_escalates_end_to_end():
+    """A situation RCA could not diagnose must escalate to a human, not be
+    recorded as a failed remediation: nothing is executed, nothing is rolled
+    back, and the escalation is auditable."""
+    bus = InMemoryBus()
+    audit = InMemoryAuditSink()
+    remediator = RecordingRemediator()
+    gate = InProcessGovernanceGate(_rbac(), {}, audit, poll_interval_seconds=0.01)
+
+    undiagnosed = _diagnosed().model_copy(update={"suggested_runbook_id": None})
+    publish_model(bus, "situations.diagnosed", undiagnosed)
+
+    run_consumer(
+        bus,
+        _store(),
+        gate,
+        remediator,
+        FixedHealthChecker(True),
+        NullSandbox(),
+        timeout_seconds=3.0,
+        poll_interval_seconds=0.01,
+        stop_event=threading.Event(),
+    )
+
+    outcomes = bus.topics.get("remediation.outcomes", [])
+    assert len(outcomes) == 1
+    o = decode_model(outcomes[0], RemediationOutcome)
+    assert o.result == RemediationResult.ESCALATED
+    assert o.health_after == "escalated:no-diagnosis"
+    # Nothing was attempted — that is the whole point of the state.
+    assert remediator.executed_plan is None
+    assert remediator.rolled_back_plan is None
+    assert any(a.action == "escalate" and a.correlation_id == "sit-web-1" for a in audit.records())
+
+
+def test_suggested_but_unregistered_runbook_escalates_with_distinct_reason():
+    """The other half of the escalation split: RCA named a runbook, but nobody
+    registered it. The operator needs to tell this apart from 'no diagnosis'."""
+    bus = InMemoryBus()
+    audit = InMemoryAuditSink()
+    remediator = RecordingRemediator()
+    gate = InProcessGovernanceGate(_rbac(), {}, audit, poll_interval_seconds=0.01)
+
+    publish_model(
+        bus,
+        "situations.diagnosed",
+        _diagnosed().model_copy(update={"suggested_runbook_id": "ai-sig-web-unregistered"}),
+    )
+
+    run_consumer(
+        bus,
+        _store(),
+        gate,
+        remediator,
+        FixedHealthChecker(True),
+        NullSandbox(),
+        timeout_seconds=3.0,
+        poll_interval_seconds=0.01,
+        stop_event=threading.Event(),
+    )
+
+    o = decode_model(bus.topics["remediation.outcomes"][0], RemediationOutcome)
+    assert o.result == RemediationResult.ESCALATED
+    assert o.health_after == "escalated:unknown-runbook"
+    # The suggested id is kept as provenance even though nothing ran.
+    assert o.playbook_id == "ai-sig-web-unregistered"
+    assert remediator.executed_plan is None

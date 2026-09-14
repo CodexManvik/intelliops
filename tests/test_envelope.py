@@ -35,7 +35,8 @@ def test_publish_model_wraps_json_in_data_field():
     publish_model(bus, "telemetry.raw", _event())
     topic, message = bus.published[0]
     assert topic == "telemetry.raw"
-    assert set(message.keys()) == {"data"}
+    assert set(message.keys()) == {"data", "id"}
+    assert len(message["id"]) == 32  # uuid4().hex
     assert '"name":"cpu"' in message["data"]
 
 

@@ -50,3 +50,25 @@ def test_should_graduate_false_with_any_failure():
     assert (
         should_graduate({"successes": 5, "failures": 1, "rollbacks": 0}, min_successes=3) is False
     )
+
+
+def test_escalation_is_counted_in_no_bucket():
+    """An escalation is not evidence about the playbook — nothing was attempted."""
+    recs = [
+        _rec("pb1", RemediationResult.SUCCESS),
+        _rec("pb1", RemediationResult.ESCALATED),
+    ]
+    assert playbook_stats(recs, "pb1") == {"successes": 1, "failures": 0, "rollbacks": 0}
+
+
+def test_escalation_does_not_block_graduation():
+    """Pins an invariant the if/elif chain currently provides only by omission.
+
+    The real-world fix lives upstream (the feedback consumer never writes an
+    escalated record at all — see test_consumer.py); this guards the case where
+    one reaches playbook_stats anyway. Scoring it as a failure would disqualify
+    the playbook forever, since should_graduate demands failures == 0 over all
+    history."""
+    recs = [_rec("pb1", RemediationResult.SUCCESS) for _ in range(3)]
+    recs.append(_rec("pb1", RemediationResult.ESCALATED))
+    assert should_graduate(playbook_stats(recs, "pb1"), min_successes=3) is True

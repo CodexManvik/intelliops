@@ -19,6 +19,7 @@ const FAULT_TYPES: FaultType[] = [
   "traffic_surge",
   "dependency_outage",
   "db_exhaustion",
+  "unknown_signal",
 ];
 
 interface Preset {
@@ -91,6 +92,14 @@ const PRESETS: Preset[] = [
       "Reporting's DB connection pool fills up: in-use connections hit the max and latency rises as requests queue for a connection.",
     service: "reporting",
     spec: { type: "db_exhaustion" },
+  },
+  {
+    id: "reporting-unknown-signal",
+    label: "Unclassified anomaly",
+    description:
+      "TLS handshake failures spike on Reporting — a metric family no runbook matches. IntelliOps detects and correlates it normally, but RCA has no rule for it, so it escalates to a human instead of guessing a fix.",
+    service: "reporting",
+    spec: { type: "unknown_signal" },
   },
 ];
 
@@ -218,8 +227,12 @@ export default function Operations() {
                 Active fault: {activeFault!.label} on {activeFault!.service}.
               </span>{" "}
               <span className="text-ink-2">
-                IntelliOps groups anomalies in a ~15s window — inject one fault at a time. Clear
-                this fault and wait for the window to close before injecting the next.
+                With the default windowed grouping, IntelliOps collapses anomalies in a ~15s
+                window into one Situation — so inject one fault at a time. Clear this fault and
+                wait for the window to close before injecting the next. (Running correlation with
+                INTELLIOPS_CORRELATION_GROUP_BY=service keeps concurrent faults on different
+                services separate; this panel still serialises them, because it cannot see which
+                mode the backend is in.)
               </span>
             </>
           ) : (

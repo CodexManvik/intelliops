@@ -2,18 +2,49 @@
 
 Consumes situations.diagnosed, selects a playbook, runs it through the
 remediation gates, and publishes a RemediationOutcome on remediation.outcomes.
-When no playbook matches, emits a skipped outcome so Slice-4 feedback still sees
-the decision. Runs in a daemon thread started by the FastAPI lifespan."""
+When no playbook matches, emits an ESCALATED outcome — nothing was attempted
+because there was no candidate fix, so a human must look; Slice-4 feedback
+deliberately ignores escalations rather than learning from a non-decision.
+Runs in a daemon thread started by the FastAPI lifespan."""
 
 from __future__ import annotations
 
+import logging
 import threading
 from datetime import UTC, datetime
 
-from common.contracts import DiagnosedSituation, RemediationOutcome, RemediationResult
+from common.contracts import (
+    AuditRecord,
+    DiagnosedSituation,
+    HitlMode,
+    RemediationOutcome,
+    RemediationResult,
+)
 from common.envelope import iter_models, publish_model
-from services.action.remediate import execute_remediation
+from common.idempotency import NullGuard
+from services.action.remediate import _ACTOR, execute_remediation
 from services.action.select import select_playbook
+
+logger = logging.getLogger("intelliops.action.consumer")
+
+
+def _audit_best_effort(gate, situation_id: str, action: str, decision: str) -> None:
+    """Record a non-remediation decision. Best effort by design: the audit sink
+    propagates errors, and losing the outcome (this runs on a daemon thread)
+    is worse than losing one audit row."""
+    try:
+        gate.write_audit(
+            AuditRecord(
+                actor=_ACTOR,
+                action=action,
+                resource=f"situation:{situation_id}",
+                decision=decision,
+                ts=datetime.now(UTC),
+                correlation_id=situation_id,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 - audit failure must never kill the thread
+        logger.warning("%s audit write failed for %s: %s", action, situation_id, exc)
 
 
 def run_consumer(
@@ -26,20 +57,69 @@ def run_consumer(
     timeout_seconds: float,
     poll_interval_seconds: float,
     stop_event: threading.Event,
+    guard=None,
 ) -> None:
-    for diagnosed in iter_models(bus, "situations.diagnosed", "action", DiagnosedSituation):
+    guard = guard if guard is not None else NullGuard()
+    for diagnosed in iter_models(
+        bus, "situations.diagnosed", "action", DiagnosedSituation, guard=guard, dlq=bus
+    ):
         if stop_event.is_set():
             break
         situation = diagnosed.situation
+        # Two-phase execution claim. This service mutates a REAL cluster, so a
+        # redelivery must never silently re-run a remediation. Keyed on the
+        # situation (not the event id) so a re-emitted diagnosis is caught too.
+        # Inert by default: NullGuard.claim always wins.
+        # situation.id is a content hash of the member fingerprints, so the same
+        # incident SHAPE recurring later reuses it. first_seen makes the claim
+        # per-occurrence; without it a recurring incident would be blocked for the
+        # whole idempotency TTL with no outcome and no escalation.
+        claim_key = f"action:exec:{situation.id}:{situation.first_seen.isoformat()}"
+        if not guard.claim(claim_key):
+            if guard.state(claim_key) == "done":
+                continue  # already fully handled; do not re-execute or re-publish
+            # in_progress: a previous attempt died mid-flight and we cannot know
+            # whether the cluster was already mutated. Never guess -- surface it
+            # and let a human look.
+            interrupted = RemediationOutcome(
+                situation_id=situation.id,
+                playbook_id="",
+                result=RemediationResult.FAILURE,
+                health_after="interrupted:unknown",
+                ts=datetime.now(UTC),
+                hitl_mode=HitlMode.DISABLED,
+                mode="none",
+                steps=[],
+            )
+            _audit_best_effort(gate, situation.id, "interrupted", "unknown-if-mutated")
+            publish_model(bus, "remediation.outcomes", interrupted)
+            guard.set_state(claim_key, "done")
+            continue
+        guard.set_state(claim_key, "in_progress")
         playbook = select_playbook(diagnosed, store)
         if playbook is None:
+            # select_playbook returns None for two distinct reasons; an operator
+            # triaging the card needs to know which — "RCA had nothing to suggest"
+            # and "RCA suggested a runbook nobody registered" are different bugs.
+            suggested = diagnosed.suggested_runbook_id
+            reason = "escalated:no-diagnosis" if not suggested else "escalated:unknown-runbook"
             outcome = RemediationOutcome(
                 situation_id=situation.id,
-                playbook_id=diagnosed.suggested_runbook_id or "",
-                result=RemediationResult.FAILURE,
-                health_after="skipped:no-playbook",
+                # Keep the suggested id as genuine provenance — it is what RCA
+                # named, even though nothing ran. Downstream filters must key on
+                # result == ESCALATED, never on an empty playbook_id.
+                playbook_id=suggested or "",
+                result=RemediationResult.ESCALATED,
+                health_after=reason,
                 ts=datetime.now(UTC),
+                # Defaults (HITL / "dry_run") would claim a run was planned and
+                # rehearsed; nothing was planned, approved or executed.
+                hitl_mode=HitlMode.DISABLED,
+                mode="none",
+                steps=[],
             )
+            # The only outcome-producing path here that had no audit trail.
+            _audit_best_effort(gate, situation.id, "escalate", "escalated")
         else:
             outcome = execute_remediation(
                 situation,
@@ -52,3 +132,4 @@ def run_consumer(
                 poll_interval_seconds,
             )
         publish_model(bus, "remediation.outcomes", outcome)
+        guard.set_state(claim_key, "done")

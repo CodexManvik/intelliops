@@ -6,6 +6,7 @@ import {
   CircleNotch,
   Cpu,
   FlowArrow,
+  HandPalm,
   Lightning,
   MagicWand,
   ShieldCheck,
@@ -44,12 +45,12 @@ const METRIC_DOCS: Record<string, { title: string; formula: string; meaning: str
   auto: {
     title: "Auto-remediated",
     meaning: "Share of fixes that ran automatically, because the playbook had earned autonomy (≥3 clean successes).",
-    formula: "auto-mode outcomes ÷ all outcomes",
+    formula: "auto-mode outcomes ÷ attempted remediations (escalations excluded)",
   },
   success: {
     title: "Success rate",
     meaning: "Share of remediations that verified healthy afterward.",
-    formula: "successful outcomes ÷ all outcomes",
+    formula: "successful outcomes ÷ attempted remediations (escalations excluded)",
   },
 };
 
@@ -118,7 +119,7 @@ export function Incidents({
   const { data: seed } = useLiveData(loadSituations, [] as Situation[]);
   const { data: metrics } = useLiveData(loadMetrics, {
     alertsIngested: 0, situationsOpen: 0, noiseReductionPct: 0, mttrMinutes: 0,
-    autoRemediatedPct: 0, suppressedToday: 0, approvalsPending: 0, successRate: 0,
+    autoRemediatedPct: 0, suppressedToday: 0, approvalsPending: 0, successRate: 0, needsAttention: 0,
   } as Metrics);
   const { data: recentOutcomes } = useLiveData(loadOutcomes, [] as OutcomeRow[]);
   const [overrides, setOverrides] = useState<Record<string, Partial<Situation>>>({});
@@ -134,7 +135,7 @@ export function Incidents({
         const o = overrides[s.id];
         if (!o) return s;
         // server reached a terminal state → discard the optimistic flip
-        if (s.status === "resolved" || s.status === "failed") return s;
+        if (s.status === "resolved" || s.status === "failed" || s.status === "needs_attention") return s;
         return { ...s, ...o };
       }),
     [seed, overrides],
@@ -148,7 +149,7 @@ export function Incidents({
       let changed = false;
       for (const [id, patch] of Object.entries(o)) {
         const srv = seed.find((s) => s.id === id);
-        if (srv && (srv.status === "resolved" || srv.status === "failed")) {
+        if (srv && (srv.status === "resolved" || srv.status === "failed" || srv.status === "needs_attention")) {
           changed = true; // drop it — server is terminal
         } else {
           next[id] = patch;
@@ -249,7 +250,9 @@ export function Incidents({
     }
   }
 
-  const stageIndex = shown ? order.indexOf(shown.status === "failed" ? "acting" : shown.status) : 0;
+  const stageIndex = shown
+    ? order.indexOf(shown.status === "failed" || shown.status === "needs_attention" ? "acting" : shown.status)
+    : 0;
 
   return (
     <div className="space-y-5">
@@ -257,7 +260,7 @@ export function Incidents({
         <MetricCard docKey="noise" value={`${metrics.noiseReductionPct}%`} sub={`${metrics.alertsIngested.toLocaleString()} alerts → ${metrics.situationsOpen} open`} />
         <MetricCard docKey="mttr" value={metrics.mttrMinutes > 0 ? `${metrics.mttrMinutes}m` : "—"} sub={metrics.mttrMinutes > 0 ? "mean time to resolve" : "no fixes yet"} />
         <MetricCard docKey="auto" value={`${metrics.autoRemediatedPct}%`} sub="ran without a human" />
-        <MetricCard docKey="success" value={`${Math.round(metrics.successRate * 100)}%`} sub="verified healthy" />
+        <MetricCard docKey="success" value={`${Math.round(metrics.successRate * 100)}%`} sub={metrics.needsAttention > 0 ? `${metrics.needsAttention} escalated · needs a human` : "verified healthy"} />
       </div>
 
       <div>
@@ -344,7 +347,11 @@ export function Incidents({
                   <div className="space-y-1.5">
                     {stageDefs.map((st, i) => {
                       const done = i < stageIndex;
-                      const now = i === stageIndex && shown.status !== "resolved" && shown.status !== "failed";
+                      const now =
+                        i === stageIndex &&
+                        shown.status !== "resolved" &&
+                        shown.status !== "failed" &&
+                        shown.status !== "needs_attention";
                       const doneAll = shown.status === "resolved";
                       const isDone = done || doneAll;
                       return (
@@ -511,6 +518,30 @@ export function Incidents({
                           </div>
                         )}
                         <div className="font-mono text-2xs text-ink-3">gate failed closed — nothing executed</div>
+                      </div>
+                    </div>
+                  ) : shown.status === "needs_attention" ? (
+                    <div className="flex items-start gap-3">
+                      <span className="mt-0.5 flex h-9 w-9 flex-none items-center justify-center rounded-full bg-sev-attention/15 text-sev-attention"><HandPalm size={17} weight="fill" /></span>
+                      <div>
+                        <div className="text-sm font-medium text-ink">
+                          Needs attention · <span className="font-mono text-sev-attention">{shown.outcome?.health_after ?? "escalated"}</span>
+                        </div>
+                        <p className="mt-1.5 font-mono text-2xs text-ink-3">
+                          No automated fix was attempted — the system had no candidate runbook for this
+                          situation. <span className="text-ink-2">Nothing was executed, and this is not a failed
+                          remediation</span>: it is excluded from the success rate. A human decides what happens next.
+                        </p>
+                        <div className="mt-3 flex gap-2">
+                          <button
+                            onClick={draftWithAI}
+                            disabled={proposing}
+                            className="group flex items-center gap-2 rounded-full bg-signal px-5 py-2.5 text-sm font-medium text-white transition-all duration-300 ease-fluid active:scale-[0.97] disabled:opacity-50"
+                          >
+                            {proposing ? <CircleNotch size={15} weight="bold" className="animate-spin" /> : <Sparkle size={15} weight="light" />}
+                            {proposing ? "Drafting…" : "Draft a runbook with AI"}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ) : shown.hitl_mode === "auto" ? (

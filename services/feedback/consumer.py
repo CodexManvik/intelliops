@@ -2,6 +2,8 @@
 
 Consumes remediation.outcomes, labels each into the training store, and — when a
 playbook earns a clean track record — proposes it for graduation exactly once.
+Escalations are skipped: nothing was attempted, so they are not evidence about
+any runbook and must never reach the training store the whole loop reads from.
 The graduator callable performs the promotion (the governance graduate call in
 the running service; a fake in tests). Runs in a daemon thread via lifespan."""
 
@@ -10,19 +12,34 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 
-from common.contracts import RemediationOutcome
+from common.contracts import RemediationOutcome, RemediationResult
 from common.envelope import iter_models
+from common.idempotency import NullGuard
 from services.feedback.graduate import playbook_stats, should_graduate
 from services.feedback.label import label_outcome
 
 
 def run_consumer(
-    bus, store, graduator: Callable[[str], None], min_successes: int, stop_event: threading.Event
+    bus,
+    store,
+    graduator: Callable[[str], None],
+    min_successes: int,
+    stop_event: threading.Event,
+    guard=None,
 ) -> None:
+    guard = guard if guard is not None else NullGuard()
     graduated: set[str] = set()
-    for outcome in iter_models(bus, "remediation.outcomes", "feedback", RemediationOutcome):
+    for outcome in iter_models(
+        bus, "remediation.outcomes", "feedback", RemediationOutcome, guard=guard, dlq=bus
+    ):
         if stop_event.is_set():
             break
+        if outcome.result == RemediationResult.ESCALATED:
+            continue  # nothing was attempted - not evidence about any runbook
+        if outcome.health_after.startswith("interrupted:"):
+            # An attempt that died mid-flight is a non-decision: we do not know
+            # whether the runbook worked, so it is no evidence either way.
+            continue
         store.append(label_outcome(outcome))
         pid = outcome.playbook_id
         if pid and pid not in graduated:

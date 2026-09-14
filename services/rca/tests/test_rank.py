@@ -442,3 +442,22 @@ def test_error_restart_invariant_holds_on():
     sel = _StubSelector({"restart-pod": 0.80, "scale-service": 0.30})
     hyps = rank_hypotheses(sit, EnrichmentContext(), store=_PlaybookStore(), selector=sel)
     assert hyps[0].suggested_runbook_id == "restart-pod"  # never scale, on
+
+
+def test_service_up_routes_to_restart_not_scale():
+    """A process that stopped serving is recycled, not scaled — new replicas of a
+    wedged image are still wedged. Ranked above every capacity rule."""
+    ctx = EnrichmentContext()
+    hyps = rank_hypotheses(_situation(name="service_up"), ctx)
+    assert hyps[0].suggested_runbook_id == "restart-pod"
+    assert hyps[0].confidence == 0.7
+
+
+def test_unmapped_metric_family_escalates():
+    """The escalation contract: a detectable anomaly in a family no rule knows
+    must reach the undetermined fallback with NO runbook, so the action service
+    escalates to a human instead of guessing."""
+    ctx = EnrichmentContext()
+    hyps = rank_hypotheses(_situation(name="tls_handshake_failures"), ctx)
+    assert hyps[0].suggested_runbook_id is None
+    assert "undetermined" in hyps[0].description

@@ -48,6 +48,13 @@ env:
   AUTH_MODE: "off"
   STORE_BACKEND: postgres
   BUS_BACKEND: redis
+  # Durability posture. at_least_once needs a STABLE consumer name per consumer and
+  # replicas:1 (see ADR-033); the chart pins replicas:1, so it is safe to flip.
+  BUS_DELIVERY: "at_most_once"      # at_least_once in values-live
+  BUS_DLQ_MODE: "off"               # on in values-live (park poison payloads)
+  BUS_IDEMPOTENCY_MODE: "off"       # redis in values-live (makes redelivery safe)
+  READ_REBUILD_MODE: "off"          # replay in values-live (console survives a restart)
+  CORRELATION_GROUP_BY: "window"    # service in values-live (concurrent faults stay apart)
   CORRELATOR_KIND: "river"          # robust in values-live (seasonal baselines)
   DETECTION_POLICY: "off"           # on in values-live (Phase 2)
   RUNBOOK_SELECTOR_MODE: "off"      # embedding in values-live (Phase 3)

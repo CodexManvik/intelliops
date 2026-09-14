@@ -31,10 +31,20 @@ _TOPICS = [
 
 
 def _run_topic(
-    bus, model: ReadModel, topic: str, model_type, method: str, stop_event: threading.Event
+    bus,
+    model: ReadModel,
+    topic: str,
+    model_type,
+    method: str,
+    stop_event: threading.Event,
+    dlq=None,
 ) -> None:
     apply = getattr(model, method)
-    for parsed in iter_models(bus, topic, _GROUP, model_type):
+    # No idempotency guard here on purpose: re-applying a projection event is
+    # harmless, and a durable guard would suppress exactly the replay the
+    # cold-start rebuild depends on. The DLQ still applies - an undecodable
+    # payload must not kill this thread and stall the console.
+    for parsed in iter_models(bus, topic, _GROUP, model_type, dlq=dlq):
         if stop_event.is_set():
             break
         apply(parsed)
@@ -44,7 +54,9 @@ def run_consumer(bus, model: ReadModel, stop_event: threading.Event) -> list[thr
     threads = []
     for topic, model_type, method in _TOPICS:
         t = threading.Thread(
-            target=_run_topic, args=(bus, model, topic, model_type, method, stop_event), daemon=True
+            target=_run_topic,
+            args=(bus, model, topic, model_type, method, stop_event, bus),
+            daemon=True,
         )
         t.start()
         threads.append(t)

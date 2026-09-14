@@ -55,7 +55,11 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    app.state.bus = make_bus(settings)
+    # The consumer name MUST stay stable across restarts: under at-least-once the
+    # pending-entry self-drain re-serves entries recorded against THIS name, so a
+    # per-process name would strand an un-acked entry. Scaling a consumer past
+    # replicas:1 needs per-pod names plus XAUTOCLAIM (see ADR-033).
+    app.state.bus = make_bus(settings, consumer_name=settings.bus_consumer_name or "c1")
 
     _is_exempt = auth_exempt or (lambda method, path: path in ("/health", "/ready"))
 

@@ -16,6 +16,7 @@ from common.config import get_settings
 from services.base import create_app
 from services.read.consumer import run_consumer
 from services.read.projection import ReadModel
+from services.read.rebuild import rebuild
 
 
 def _redact_endpoint(endpoint: str) -> str:
@@ -40,6 +41,12 @@ async def lifespan(app: FastAPI):
         ttl_seconds=settings.read_situation_ttl_seconds,
         max_situations=settings.read_situations_max,
     )
+    # Cold start: replay recent history so the console is not blank after a
+    # restart. Returns None when disabled or on any failure, in which case we
+    # keep the fresh (empty) model and tail as before.
+    rebuilt = rebuild(app.state.bus, settings)
+    if rebuilt is not None:
+        model = rebuilt
     app.state.model = model
     model.bind_loop(asyncio.get_running_loop())
     app.state.consumer_stop = stop_event

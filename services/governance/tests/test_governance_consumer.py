@@ -138,3 +138,22 @@ def test_consumer_stops_on_stop_event():
     stop.set()
     run_consumer(InfBus([]), ds, stop)
     assert ds.by_signature("sig-x")[0].outcome == "unknown"  # loop broke before doing any work
+
+
+def test_consumer_ignores_escalated_outcome():
+    """An escalation means the draft was never executed, so the author's own
+    decision must stay at the honest resting state rather than being replayed
+    back to it as a failure of work it never did."""
+    ds = InMemoryAuthorDecisionStore()
+    ds.record(_decision(playbook_id="ai-sig-e-1", signature="sig-e"))
+    bus = ScriptedBus(
+        [
+            _raw_outcome(
+                RemediationResult.ESCALATED,
+                playbook_id="ai-sig-e-1",
+                health_after="escalated:unknown-runbook",
+            )
+        ]
+    )
+    _run(bus, ds)
+    assert ds.by_signature("sig-e")[0].outcome == "unknown"

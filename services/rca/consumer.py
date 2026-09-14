@@ -22,6 +22,7 @@ from common.contracts import (
     SituationStatus,
 )
 from common.envelope import iter_models, publish_model
+from common.idempotency import NullGuard
 from common.interfaces import AuditSink, ContextProvider, ExplanationProvider, PlaybookStore
 from services.rca.adapters.runbook_selector import NullRunbookSelector
 from services.rca.enrich import enrich
@@ -79,8 +80,12 @@ def run_consumer(
     stop_event: threading.Event,
     reliability_provider=None,
     selector=None,
+    guard=None,
 ) -> None:
-    for situation in iter_models(bus, "situations.detected", "rca", Situation):
+    guard = guard if guard is not None else NullGuard()
+    for situation in iter_models(
+        bus, "situations.detected", "rca", Situation, guard=guard, dlq=bus
+    ):
         if stop_event.is_set():
             break
         diagnosed = diagnose(

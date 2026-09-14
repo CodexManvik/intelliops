@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     correlation_z_threshold: float = 3.0
     correlation_window_seconds: float = 30.0
     correlator_kind: str = "river"  # "river" | "robust" | "trained"
+    # How anomalies are bucketed before windowing. "window" (default) puts every
+    # event in one bucket, so concurrent faults on different services merge into
+    # a single Situation. "service" buckets by the event's service label, so they
+    # stay separate incidents. Default preserves historical behaviour (ADR-012).
+    correlation_group_by: str = "window"  # "window" | "service"
     correlation_seasonal_buckets: int = 24
     correlation_robust_window: int = 128
     correlation_robust_warmup: int = 30
@@ -71,6 +76,37 @@ class Settings(BaseSettings):
     # so the real length can drift slightly above N between trims). 0 disables the
     # cap (kept 0-safe for tests / an operator who wants unbounded).
     bus_stream_maxlen: int = 100_000
+    # --- Delivery semantics (issue #53) ---
+    # "at_most_once" (default, unchanged) acks each entry BEFORE handing it to the
+    # handler, so a crash mid-handler loses it. "at_least_once" defers the ack until
+    # the consumer comes back for the next entry, and re-serves this consumer's own
+    # un-acked entries on reconnect -- so a crash redelivers instead of losing.
+    bus_delivery: str = "at_most_once"  # "at_most_once" | "at_least_once"
+    # A poison payload (one this build cannot decode) would otherwise be redelivered
+    # forever under at_least_once. With the DLQ on it is parked after
+    # bus_max_delivery_attempts and the consumer moves on. Independent of
+    # bus_delivery: DLQ-on with at_most_once already stops a decode error killing a
+    # consumer thread.
+    bus_dlq_mode: str = "off"  # "off" | "on"
+    bus_dlq_topic_suffix: str = ".dlq"
+    bus_max_delivery_attempts: int = 5
+    # Redelivery is only safe if consumers can recognise a repeat. "off" leaves every
+    # guard call site inert (today's behaviour); "redis" shares the bus client;
+    # "memory" is process-local and does NOT survive a restart.
+    bus_idempotency_mode: str = "off"  # "off" | "redis" | "memory"
+    bus_idempotency_ttl_seconds: int = 86_400
+    # MUST stay stable across restarts: the pending-entry self-drain re-serves entries
+    # recorded against this consumer name. Empty falls back to "c1".
+    bus_consumer_name: str = ""
+    # Cold-start rebuild of the read projection (issue #58). "off" keeps today's
+    # behaviour: a restarted read-service resumes past its acks and shows an empty
+    # console until new traffic arrives. "replay" re-reads a bounded window of the
+    # raw streams into a shadow model first.
+    read_rebuild_mode: str = "off"  # "off" | "replay"
+    read_rebuild_window_seconds: float = 3600.0
+    # Safety valve: tripping it discards the WHOLE rebuild rather than serving a
+    # partial projection.
+    read_rebuild_max_entries: int = 20_000
 
     # --- RCA explanation (on-by-default via template; LLM opt-in via endpoint) ---
     llm_explanation_endpoint: str = ""  # empty = TemplateExplanationProvider, no network

@@ -8,7 +8,10 @@ export default {
         ground: { DEFAULT: "#FFFFFF", raised: "#FFFFFF", sunken: "#F5F5F7" },
         ink: { DEFAULT: "#1D1D1F", 2: "#6E6E73", 3: "#86868B", 4: "#C7C7CC" },
         signal: { DEFAULT: "#0071E3", dim: "#0058B0", glow: "rgba(0,113,227,0.14)" },
-        sev: { ok: "#34C759", warn: "#FF9500", crit: "#FF3B30", info: "#5E5CE6" },
+        // `attention` is the fifth severity tone, added for the escalated
+        // outcome: "stopped, a human is needed" must not look like warn
+        // ("currently remediating") or crit ("the fix failed").
+        sev: { ok: "#34C759", warn: "#FF9500", crit: "#FF3B30", info: "#5E5CE6", attention: "#AF52DE" },
       },
       fontFamily: {
         sans: ["Geist", "ui-sans-serif", "system-ui", "sans-serif"],

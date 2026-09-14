@@ -9,6 +9,7 @@ import httpx
 from fastapi import FastAPI
 
 from common.config import get_settings
+from common.idempotency import make_guard
 from common.stores import make_stores
 from services.base import create_app, db_ready
 from services.feedback.consumer import run_consumer
@@ -57,6 +58,7 @@ async def lifespan(app: FastAPI):
             _make_graduator(),
             settings.graduation_min_successes,
             stop_event,
+            make_guard(settings, app.state.bus),
         ),
         daemon=True,
     )

@@ -6,6 +6,7 @@ import {
   Circuitry,
   Cpu,
   Gauge,
+  HandPalm,
   Lightning,
   MagicWand,
   Pulse,
@@ -39,6 +40,7 @@ import { system as mockSystem } from "../data/mock";
 import type {
   Metrics,
   OutcomeRow,
+  RemediationResult,
   Playbook,
   ProposedPlaybook,
   Situation,
@@ -137,6 +139,10 @@ const outcomeSkin: Record<string, { tone: string; icon: JSX.Element; label: stri
   success: { tone: "text-sev-ok bg-sev-ok/10 border-sev-ok/25", icon: <CheckCircle size={12} weight="fill" />, label: "success" },
   rolled_back: { tone: "text-sev-warn bg-sev-warn/10 border-sev-warn/25", icon: <ArrowsClockwise size={12} weight="bold" />, label: "rolled back" },
   failure: { tone: "text-sev-crit bg-sev-crit/10 border-sev-crit/25", icon: <XCircle size={12} weight="fill" />, label: "failure" },
+  // Typed Record<string, ...> and read with a `?? outcomeSkin.failure` fallback, so a missing
+  // entry here is invisible to tsc and would paint every escalation red — the exact operator
+  // misread this state exists to prevent.
+  escalated: { tone: "text-sev-attention bg-sev-attention/10 border-sev-attention/25", icon: <HandPalm size={12} weight="fill" />, label: "escalated" },
 };
 
 /** Honest AI-explainer posture, derived only from server-reported system.llm. */
@@ -153,7 +159,7 @@ function aiExplainerState(llm: SystemInfo["llm"]) {
 export function Overview({ onView }: { onView: (v: View) => void }) {
   const { data: metrics } = useLiveData(loadMetrics, {
     alertsIngested: 0, situationsOpen: 0, noiseReductionPct: 0, mttrMinutes: 0,
-    autoRemediatedPct: 0, suppressedToday: 0, approvalsPending: 0, successRate: 0,
+    autoRemediatedPct: 0, suppressedToday: 0, approvalsPending: 0, successRate: 0, needsAttention: 0,
   } as Metrics);
   const { data: sits } = useLiveData(loadSituations, [] as Situation[]);
   const { data: outcomes } = useLiveData(loadOutcomes, [] as OutcomeRow[]);
@@ -178,7 +184,7 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
   );
 
   const tally = useMemo(() => {
-    const t = { success: 0, rolled_back: 0, failure: 0 };
+    const t: Record<RemediationResult, number> = { success: 0, rolled_back: 0, failure: 0, escalated: 0 };
     for (const o of outcomes) t[o.result] = (t[o.result] ?? 0) + 1;
     return t;
   }, [outcomes]);
@@ -263,7 +269,7 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
             label="Success rate"
             value={Math.round(metrics.successRate * 100)}
             suffix="%"
-            sub="verified healthy after fix"
+            sub={metrics.needsAttention > 0 ? `${metrics.needsAttention} escalated · needs a human` : "verified healthy after fix"}
             spark={sparks.success}
             color="#34C759"
           />
@@ -473,6 +479,7 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
                     <span className="text-sev-ok">{tally.success}✓</span>
                     <span className="text-sev-warn">{tally.rolled_back}↺</span>
                     <span className="text-sev-crit">{tally.failure}✕</span>
+                    <span className="text-sev-attention">{tally.escalated}⤴</span>
                   </span>
                 }
               >
@@ -492,7 +499,7 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
                           {skin.icon}
                           <span className="hidden sm:inline">{skin.label}</span>
                         </span>
-                        <span className="min-w-0 flex-1 truncate text-sm text-ink">{o.playbook_id}</span>
+                        <span className="min-w-0 flex-1 truncate text-sm text-ink">{o.playbook_id || <span className="text-ink-3">no runbook — needs a human</span>}</span>
                         <span className="hidden font-mono text-2xs text-ink-3 sm:inline">{o.service}</span>
                         <span className="font-mono text-2xs text-ink-3">{timeAgo(o.ts)}</span>
                       </div>

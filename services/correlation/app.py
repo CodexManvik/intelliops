@@ -12,6 +12,7 @@ from sqlalchemy import text
 
 from common.config import get_settings
 from common.envelope import publish_model
+from common.idempotency import make_guard
 from common.stores import make_stores
 from services.base import create_app, db_ready
 from services.correlation.adapters import make_correlator
@@ -55,8 +56,7 @@ def run_flusher(
     """
     last_snapshot = time.monotonic()
     while not stop_event.wait(period_seconds):
-        emitted = engine.flush()
-        if emitted is not None:
+        for emitted in engine.flush_all():
             publish_model(bus, "situations.detected", emitted)
         _drain_suppressed(bus, engine)
         now = time.monotonic()
@@ -103,6 +103,7 @@ async def lifespan(app: FastAPI):
     engine = CorrelationEngine(
         make_correlator(settings),
         window_seconds=settings.correlation_window_seconds,
+        group_by=settings.correlation_group_by,
     )
     app.state.engine = engine
     # Reload-on-boot: restore the durable baseline + reliability BEFORE the
@@ -138,7 +139,9 @@ async def lifespan(app: FastAPI):
     app.state.baseline_store = baseline_store
     app.state.model_store = model_store
     thread = threading.Thread(
-        target=run_consumer, args=(app.state.bus, engine, stop_event), daemon=True
+        target=run_consumer,
+        args=(app.state.bus, engine, stop_event, make_guard(settings, app.state.bus)),
+        daemon=True,
     )
     thread.start()
     flusher = threading.Thread(

@@ -21,6 +21,11 @@ def playbook_stats(records: list[TrainingRecord], playbook_id: str) -> dict:
             failures += 1
         elif r.result == RemediationResult.ROLLED_BACK:
             rollbacks += 1
+        elif r.result == RemediationResult.ESCALATED:
+            # Counted in no bucket, on purpose: nothing was attempted, so it is no
+            # evidence for or against this playbook. Scoring it as a failure would
+            # disqualify it forever (should_graduate demands failures == 0).
+            continue
     return {"successes": successes, "failures": failures, "rollbacks": rollbacks}
 
 

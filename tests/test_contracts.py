@@ -100,7 +100,12 @@ def test_enums_have_exact_values():
         "failed",
     }
     assert {m.value for m in HitlMode} == {"auto", "hitl", "disabled"}
-    assert {r.value for r in RemediationResult} == {"success", "failure", "rolled_back"}
+    assert {r.value for r in RemediationResult} == {
+        "success",
+        "failure",
+        "rolled_back",
+        "escalated",
+    }
 
 
 def test_reversible_playbook_defaults():

@@ -80,6 +80,27 @@ def test_failure_outcome_marks_situation_failed():
     assert rm.situations()[0]["status"] == "failed"
 
 
+def test_escalated_outcome_marks_situation_needs_attention():
+    rm = ReadModel(max_outcomes=10)
+    rm.apply_detected(_sit())
+    rm.apply_outcome(
+        RemediationOutcome(
+            situation_id="sit-1",
+            playbook_id="",
+            result=RemediationResult.ESCALATED,
+            health_after="escalated:no-diagnosis",
+            ts=TS,
+            mode="none",
+        )
+    )
+    s = rm.situations()[0]
+    assert s["status"] == "needs_attention"
+    assert s["stages"]["needs_attention"] is not None
+    out = rm.outcomes()[0]
+    assert out["result"] == "escalated"
+    assert out["mttr_ms"] is None  # nothing was attempted, so nothing was repaired
+
+
 def test_outcomes_capped_most_recent_first():
     rm = ReadModel(max_outcomes=2)
     for i in range(3):
