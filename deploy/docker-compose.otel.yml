@@ -1,0 +1,47 @@
+# OTLP ingress overlay — opt-in.
+#
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.otel.yml up -d
+#
+# Adds an OpenTelemetry Collector so IntelliOps can observe ANY OTel-instrumented
+# system, not just Meridian. Point an app's OTLP exporter at:
+#
+#   grpc  localhost:4317      (in-network: otel-collector:4317)
+#   http  localhost:4318      (in-network: otel-collector:4318)
+#
+# e.g. to observe the OpenTelemetry Demo, run it on this network with
+#   OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+#
+# Nothing in the base stack changes: without this overlay the collector does not
+# exist, and ingestion keeps polling exactly the metric families it does today.
+
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.116.1
+    container_name: intelliops-otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol/config.yml"]
+    volumes:
+      - ./otel-collector-config.yml:/etc/otelcol/config.yml:ro
+    ports:
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+      - "8889:8889" # the Prometheus endpoint our Prometheus scrapes
+    healthcheck:
+      test: ["CMD", "/otelcol-contrib", "--version"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  # Prometheus gains the collector as a scrape target. Everything it already
+  # scraped (demo-app, the four Meridian services) is untouched.
+  prometheus:
+    volumes:
+      - ./prometheus.otel.yml:/etc/prometheus/prometheus.yml:ro
+
+  # Widen ingestion's PromQL selector to include the OTel families as well as
+  # Meridian's. A selector, not a code change - PrometheusSource treats its query
+  # as an opaque string (ADR-020).
+  ingestion:
+    environment:
+      INTELLIOPS_PROMETHEUS_QUERY: '{__name__=~"cpu_usage|meridian_error_rate|request_rate|latency_p50_ms|latency_p99_ms|memory_usage_mb|saturation|queue_depth|db_pool_in_use|db_pool_max|disk_usage_percent|service_up|tls_handshake_failures|otel_http_server_request_duration_ms|otel_http_server_error_rate|otel_rpc_server_duration_ms|otel_process_cpu_utilization|otel_process_memory_usage_mb|otel_queue_depth"}'
