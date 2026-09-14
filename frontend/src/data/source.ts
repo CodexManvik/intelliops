@@ -1,6 +1,6 @@
 import * as api from "./api";
 import * as mock from "./mock";
-import type { LlmProbe, ProposedPlaybook, RunSummary, Situation, SystemInfo, TraceStep } from "./types";
+import type { LlmProbe, MetricHistory, ProposedPlaybook, RunSummary, Situation, SystemInfo, TraceStep } from "./types";
 
 const LIVE = import.meta.env.VITE_DATA_MODE === "live";
 
@@ -28,6 +28,19 @@ export const loadOutcomes = LIVE ? api.loadOutcomes : async () => mock.outcomes;
 export const loadAudit = LIVE ? api.loadAudit : async () => mock.audit;
 export const loadPlaybooks = LIVE ? api.loadPlaybooks : async () => mock.playbooks;
 export const loadMetrics = LIVE ? api.loadMetrics : async () => mock.metrics;
+// No mock history: a fabricated graph is exactly what this replaced. In mock
+// mode the chart shows its honest "no data" state instead.
+export const loadMetricHistory = LIVE
+  ? api.loadMetricHistory
+  : async (metric: string): Promise<MetricHistory> => ({
+      metric,
+      available: false,
+      reason: "mock mode - no metric history",
+      start: 0,
+      end: 0,
+      step_seconds: 0,
+      series: [],
+    });
 export const decideApproval = LIVE
   ? api.decideApproval
   : async () => {

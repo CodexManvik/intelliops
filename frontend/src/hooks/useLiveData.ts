@@ -1,45 +1,106 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { openStream } from "../data/api";
 
 const LIVE = import.meta.env.VITE_DATA_MODE === "live";
+
+/* ---------------------------------------------------------------------------
+   ONE shared EventSource for the whole app.
+
+   Each useLiveData used to open its own. A view mounts three or four of these,
+   and a browser allows only ~6 concurrent HTTP/1.1 connections per origin — so
+   the later panels' streams sat permanently in CONNECTING and those panels
+   never refreshed, while the header still advertised "streaming".
+
+   One connection, many subscribers, reference-counted so it closes when the
+   last consumer unmounts.
+--------------------------------------------------------------------------- */
+
+type Sub = () => void;
+
+let es: EventSource | null = null;
+let subs = new Set<Sub>();
+let streamHealthy = false;
+
+function ensureStream() {
+  if (es || !LIVE) return;
+  try {
+    es = openStream();
+    es.onopen = () => {
+      streamHealthy = true;
+    };
+    es.onmessage = () => {
+      streamHealthy = true;
+      subs.forEach((fn) => fn());
+    };
+    es.onerror = () => {
+      // EventSource reconnects on its own; the poll below is the real backstop.
+      streamHealthy = false;
+    };
+  } catch {
+    es = null;
+    streamHealthy = false;
+  }
+}
+
+function subscribe(fn: Sub): () => void {
+  subs.add(fn);
+  ensureStream();
+  return () => {
+    subs.delete(fn);
+    if (subs.size === 0) {
+      es?.close();
+      es = null;
+      streamHealthy = false;
+    }
+  };
+}
+
+/** True when the shared stream is currently connected. For honest UI badges. */
+export function isStreamHealthy(): boolean {
+  return streamHealthy;
+}
+
+// The stream only nudges on situation-lifecycle transitions, so it can be silent
+// for minutes on a quiet fleet while metrics still move. We therefore ALWAYS
+// poll — the stream just makes updates feel instant when something happens.
+const POLL_MS = 5000;
 
 export function useLiveData<T>(loader: () => Promise<T>, initial: T) {
   const [data, setData] = useState<T>(initial);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Keep the latest loader without making it an effect dependency: an inline
+  // arrow at a call site would otherwise tear the stream down every render.
+  const loaderRef = useRef(loader);
+  loaderRef.current = loader;
 
   useEffect(() => {
-    let alive = true;
+    const ctrl = new AbortController();
+    const alive = () => !ctrl.signal.aborted;
+
     const tick = () =>
-      loader()
-        .then((d) => alive && (setData(d), setError(null)))
-        .catch((e) => alive && setError(String(e)))
-        .finally(() => alive && setLoading(false));
+      loaderRef
+        .current()
+        .then((d) => {
+          if (alive()) {
+            setData(d);
+            setError(null);
+          }
+        })
+        .catch((e) => alive() && setError(String(e)))
+        .finally(() => alive() && setLoading(false));
 
-    tick(); // initial load in every mode
+    tick();
+    if (!LIVE) return () => ctrl.abort();
 
-    if (!LIVE) return () => { alive = false; }; // mock mode: one load, no stream/poll
-
-    let pollId: number | undefined;
-    const startPoll = () => {
-      if (pollId === undefined) pollId = window.setInterval(tick, 5000);
-    };
-
-    let es: EventSource | null = null;
-    try {
-      es = openStream();
-      es.onmessage = () => tick();      // {"type":"changed"} nudge → refetch
-      es.onerror = () => startPoll();   // EventSource auto-reconnects; poll covers hard failures
-    } catch {
-      startPoll();
-    }
-
+    const unsubscribe = subscribe(tick);
+    const pollId = window.setInterval(tick, POLL_MS);
     return () => {
-      alive = false;
-      es?.close();                       // StrictMode double-mount safety
-      if (pollId !== undefined) window.clearInterval(pollId);
+      ctrl.abort();
+      unsubscribe();
+      window.clearInterval(pollId);
     };
-  }, [loader]);
+  }, []);
 
   return { data, loading, error };
 }

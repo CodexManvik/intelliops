@@ -245,3 +245,21 @@ export interface RunSummary {
   step_count: number;
   proposal_id?: string | null;
 }
+
+/** A real time-series from GET /metrics/history (Prometheus, proxied by read). */
+export interface MetricSeries {
+  service: string;
+  /** [unix_seconds, value] pairs, oldest first. */
+  points: [number, number][];
+}
+
+export interface MetricHistory {
+  metric: string;
+  /** false when Prometheus could not be reached - render "no data", never a fake shape. */
+  available: boolean;
+  reason?: string;
+  start: number;
+  end: number;
+  step_seconds: number;
+  series: MetricSeries[];
+}

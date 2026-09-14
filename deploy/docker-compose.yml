@@ -266,6 +266,9 @@ services:
       # from its own env (which never has the LLM variables set).
       INTELLIOPS_RCA_URL: http://rca:8000
       INTELLIOPS_GOVERNANCE_URL: http://governance:8000
+      # /metrics/history proxies Prometheus server-side: the browser cannot query
+      # it directly (no CORS header), and /metrics is point-in-time only.
+      INTELLIOPS_PROMETHEUS_URL: http://prometheus:9090
       PORT: "8000"
     ports:
       - "8007:8000"

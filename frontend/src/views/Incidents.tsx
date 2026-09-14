@@ -125,6 +125,7 @@ export function Incidents({
   const [overrides, setOverrides] = useState<Record<string, Partial<Situation>>>({});
   const [selId, setSelId] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
+  const [pending, setPending] = useState<{ id: string; kind: "approve" | "reject" } | null>(null);
   const [proposing, setProposing] = useState(false);
 
   // merge server data with local optimistic overrides, but let server truth win:
@@ -159,6 +160,16 @@ export function Incidents({
     });
   }, [seed]);
 
+  // The decision is only finished when the SERVER says so. Clearing it on the
+  // POST response would re-offer the gate while remediation is still running.
+  useEffect(() => {
+    if (!pending) return;
+    const srv = seed.find((x) => x.id === pending.id);
+    if (srv && (srv.status === "resolved" || srv.status === "failed" || srv.status === "needs_attention")) {
+      setPending(null);
+    }
+  }, [seed, pending]);
+
   // keep a valid selection as data streams in
   useEffect(() => {
     if ((selId === null || !list.some((s) => s.id === selId)) && list.length > 0) {
@@ -181,9 +192,17 @@ export function Incidents({
     setOverrides((o) => ({ ...o, [id]: { ...o[id], ...patch } }));
   }
 
+  // A decision that has been SENT but whose outcome has not arrived. Tracked
+  // explicitly rather than smuggled through `status`: the POST returning 200
+  // means "the decision was recorded", not "remediation finished", and a reject
+  // is not a terminal state until the server says so.
+  const decisionSent = sel && pending?.id === sel.id ? pending.kind : null;
+  const gateBusy = working || decisionSent !== null;
+
   async function approve() {
-    if (working || !sel) return;
+    if (gateBusy || !sel) return;
     setWorking(true);
+    setPending({ id: sel.id, kind: "approve" });
     update(sel.id, { status: "acting" }); // transient: "awaiting outcome"
     try {
       await decideApproval(`appr-${sel.id}`, "approved");
@@ -209,6 +228,7 @@ export function Incidents({
     } catch (e) {
       pushToast("error", `Approval failed: ${e instanceof Error ? e.message : "unknown"}`);
       update(sel.id, { status: "diagnosed" }); // roll the optimistic flip back
+      setPending(null); // the decision never landed - re-offer the gate
     } finally {
       setWorking(false);
     }
@@ -230,9 +250,12 @@ export function Incidents({
   }
 
   async function reject() {
-    if (working || !sel) return;
+    if (gateBusy || !sel) return;
     setWorking(true);
-    update(sel.id, { status: "failed" });
+    setPending({ id: sel.id, kind: "reject" });
+    // Deliberately NOT an optimistic terminal status: painting "No action taken"
+    // before the server confirms would show a finished state for a decision that
+    // may still fail, and would contradict itself a second later.
     try {
       await decideApproval(`appr-${sel.id}`, "rejected");
       pushToast("success", "Rejected — no action taken");
@@ -245,6 +268,7 @@ export function Incidents({
     } catch (e) {
       pushToast("error", `Reject failed: ${e instanceof Error ? e.message : "unknown"}`);
       update(sel.id, { status: "diagnosed" });
+      setPending(null);
     } finally {
       setWorking(false);
     }
@@ -574,6 +598,26 @@ export function Incidents({
                         </button>
                       </div>
                     </div>
+                  ) : decisionSent !== null || shown.status === "acting" ? (
+                    <div className="flex items-start gap-3">
+                      <span className="mt-0.5 flex h-9 w-9 flex-none items-center justify-center rounded-full bg-signal/15 text-signal">
+                        <CircleNotch size={17} weight="bold" className="animate-spin" />
+                      </span>
+                      <div>
+                        <div className="text-sm font-medium text-ink">
+                          {decisionSent === "reject" ? (
+                            <>Rejecting — holding this incident</>
+                          ) : (
+                            <>Remediating · <span className="font-mono text-signal">{shown.suggested_runbook_id}</span></>
+                          )}
+                        </div>
+                        <p className="mt-1.5 font-mono text-2xs text-ink-3">
+                          {decisionSent === "reject"
+                            ? "Decision recorded. Waiting for action-service to confirm nothing was executed."
+                            : "Decision recorded. action-service is executing the playbook and will verify health before declaring it resolved."}
+                        </p>
+                      </div>
+                    </div>
                   ) : (
                     <div>
                       <div className="flex items-center gap-2">
@@ -583,11 +627,11 @@ export function Incidents({
                       </div>
                       <p className="mt-1.5 font-mono text-2xs text-ink-3">action-service is authorized to <span className="text-ink-2">execute</span> this reversible playbook. Approve to run it, or reject to hold.</p>
                       <div className="mt-3 flex gap-2">
-                        <button onClick={approve} disabled={working} className="group flex items-center gap-2 rounded-full bg-signal px-5 py-2.5 text-sm font-medium text-white transition-all duration-300 ease-fluid active:scale-[0.97] disabled:opacity-50">
-                          {working ? <CircleNotch size={15} weight="bold" className="animate-spin" /> : <Check size={15} weight="bold" />}
-                          {working ? "Executing…" : "Approve & remediate"}
+                        <button onClick={approve} disabled={gateBusy} className="group flex items-center gap-2 rounded-full bg-signal px-5 py-2.5 text-sm font-medium text-white transition-all duration-300 ease-fluid active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50">
+                          {gateBusy ? <CircleNotch size={15} weight="bold" className="animate-spin" /> : <Check size={15} weight="bold" />}
+                          {gateBusy ? "Approving…" : "Approve & remediate"}
                         </button>
-                        <button onClick={reject} disabled={working} className="flex items-center gap-2 rounded-full border border-black/[0.10] bg-black/[0.04] px-5 py-2.5 text-sm text-ink-2 transition-all duration-300 ease-fluid hover:bg-black/[0.06] active:scale-[0.97]">
+                        <button onClick={reject} disabled={gateBusy} className="flex items-center gap-2 rounded-full border border-black/[0.10] bg-black/[0.04] px-5 py-2.5 text-sm text-ink-2 transition-all duration-300 ease-fluid hover:bg-black/[0.06] active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-black/[0.04]">
                           <X size={15} weight="bold" /> Reject
                         </button>
                         {!LIVE && (

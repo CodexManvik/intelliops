@@ -6,6 +6,7 @@ import asyncio
 import hmac
 import json
 import logging
+import re
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -21,6 +22,10 @@ from services.read.projection import ReadModel
 from services.read.rebuild import rebuild
 
 logger = logging.getLogger("intelliops.read.app")
+
+# Both land inside a PromQL selector, so they are allowlisted rather than escaped.
+_SAFE_METRIC = re.compile(r"[a-zA-Z_][a-zA-Z0-9_]{0,80}")
+_SAFE_LABEL = re.compile(r"[a-zA-Z0-9_.:-]{1,80}")
 
 
 def _redact_endpoint(endpoint: str) -> str:
@@ -150,6 +155,77 @@ def system() -> dict:
         "remediator_mode": settings.remediator_mode,
         "auth_mode": settings.auth_mode,
         "llm": _owned_llm_config(settings),
+    }
+
+
+@app.get("/metrics/history")
+def metrics_history(
+    metric: str = "cpu_usage",
+    minutes: float = 15.0,
+    step_seconds: float = 15.0,
+    service: str | None = None,
+) -> dict:
+    """Real per-service time-series for `metric`, proxied from Prometheus.
+
+    The console cannot query Prometheus directly (it sends no CORS header), and
+    /metrics is point-in-time, so without this there is no honest way to draw a
+    live graph. Fails soft: an unreachable Prometheus returns an empty series
+    with `available: false` so the UI can say "no data" instead of inventing a
+    shape.
+
+    `metric` is validated against a strict allowlist pattern rather than being
+    interpolated blind - it lands in a PromQL selector.
+    """
+    settings = get_settings()
+    if not _SAFE_METRIC.fullmatch(metric):
+        raise HTTPException(status_code=400, detail="invalid metric name")
+    if service is not None and not _SAFE_LABEL.fullmatch(service):
+        raise HTTPException(status_code=400, detail="invalid service name")
+
+    minutes = max(1.0, min(minutes, 360.0))
+    step_seconds = max(5.0, min(step_seconds, 300.0))
+    end = time.time()
+    start = end - minutes * 60.0
+    query = metric if service is None else f'{metric}{{service="{service}"}}'
+
+    try:
+        with httpx.Client(timeout=5.0) as client:
+            resp = client.get(
+                f"{settings.prometheus_url}/api/v1/query_range",
+                params={"query": query, "start": start, "end": end, "step": step_seconds},
+            )
+            resp.raise_for_status()
+            body = resp.json()
+        if body.get("status") != "success":
+            raise ValueError(body.get("error", "prometheus returned a non-success status"))
+        series = [
+            {
+                "service": r.get("metric", {}).get("service", "unknown"),
+                # [[unix_seconds, value], ...] - numbers, not Prometheus' strings,
+                # so the client does not have to know the wire quirk.
+                "points": [[float(t), float(v)] for t, v in r.get("values", [])],
+            }
+            for r in body.get("data", {}).get("result", [])
+        ]
+    except Exception as exc:  # noqa: BLE001 - a graph must never 500 the console
+        logger.info("metrics history unavailable for %s: %s", metric, exc)
+        return {
+            "metric": metric,
+            "available": False,
+            "reason": "prometheus unreachable",
+            "start": start,
+            "end": end,
+            "step_seconds": step_seconds,
+            "series": [],
+        }
+
+    return {
+        "metric": metric,
+        "available": True,
+        "start": start,
+        "end": end,
+        "step_seconds": step_seconds,
+        "series": series,
     }
 
 
