@@ -264,9 +264,9 @@ export const audit: AuditRow[] = [
 ];
 
 export const playbooks: Playbook[] = [
-  { id: "restart-pod", name: "Restart Pod", hitl_mode: "auto", reversible: true, successes: 12, rollbacks: 0, failures: 0, graduated: true },
-  { id: "rollback-deploy", name: "Rollback Deployment", hitl_mode: "hitl", reversible: true, successes: 2, rollbacks: 0, failures: 1, graduated: false },
-  { id: "scale-service", name: "Scale Service Horizontally", hitl_mode: "hitl", reversible: true, successes: 4, rollbacks: 1, failures: 0, graduated: false },
+  { id: "restart-pod", name: "Restart Pod", hitl_mode: "auto", reversible: true, successes: 12, rollbacks: 0, failures: 0 },
+  { id: "rollback-deploy", name: "Rollback Deployment", hitl_mode: "hitl", reversible: true, successes: 2, rollbacks: 0, failures: 1 },
+  { id: "scale-service", name: "Scale Service Horizontally", hitl_mode: "hitl", reversible: true, successes: 4, rollbacks: 1, failures: 0 },
 ];
 
 /**

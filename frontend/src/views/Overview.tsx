@@ -38,6 +38,7 @@ import {
 } from "../data/source";
 import { system as mockSystem } from "../data/mock";
 import { LiveChart } from "../components/LiveChart";
+import { isGraduated } from "../data/types";
 import type {
   MetricHistory,
   Metrics,
@@ -200,7 +201,10 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
   const { data: history } = useLiveData(historyLoader, EMPTY_HISTORY);
 
   const open = useMemo(
-    () => sits.filter((s) => !["resolved", "suppressed"].includes(s.status)),
+    // Mirrors read/projection.py _OPEN exactly. The old list excluded a
+    // "suppressed" status the backend never emits and counted "failed" as open,
+    // so this number disagreed with the one /metrics reported beside it.
+    () => sits.filter((s) => ["detected", "diagnosed", "acting", "needs_attention"].includes(s.status)),
     [sits],
   );
 
@@ -212,7 +216,7 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
 
   const autoCount = open.filter((s) => s.hitl_mode === "auto").length;
   const hitlCount = open.filter((s) => s.hitl_mode === "hitl").length;
-  const graduated = playbooks.filter((p) => p.graduated).length;
+  const graduated = playbooks.filter(isGraduated).length;
   const pendingProposals = proposals.filter((p) => p.status === "proposed").length;
   const explainer = aiExplainerState(sys.llm);
 

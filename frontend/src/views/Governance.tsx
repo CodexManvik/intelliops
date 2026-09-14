@@ -5,7 +5,17 @@ import { approveProposal, loadAudit, loadOutcomes, loadPlaybooks, loadProposals,
 import { useLiveData } from "../hooks/useLiveData";
 import { pushToast } from "../hooks/useToast";
 import { Reveal as Section } from "../hooks/useReveal";
+import { isGraduated } from "../data/types";
 import type { AuditRow, OutcomeRow, Playbook, ProposedPlaybook } from "../data/types";
+
+/** Only `allow` is green. Anything unrecognised is neutral, never a false OK. */
+function decisionTone(decision: string): string {
+  if (decision === "allow") return "text-sev-ok";
+  if (decision === "deny") return "text-sev-crit";
+  if (decision === "pending") return "text-sev-warn";
+  if (decision === "escalated") return "text-sev-attention";
+  return "text-ink-2";
+}
 
 const gates = [
   {
@@ -240,7 +250,7 @@ export function Governance() {
                     <span className="text-ink-3"> {a.action} </span>
                     <span className="text-ink">{a.resource}</span>
                   </span>
-                  <span className={`${a.decision === "deny" ? "text-sev-crit" : a.decision === "pending" ? "text-sev-warn" : a.decision === "escalated" ? "text-sev-attention" : "text-sev-ok"}`}>{a.decision}</span>
+                  <span className={decisionTone(a.decision)}>{a.decision}</span>
                 </div>
               ))}
             </div>
@@ -293,7 +303,7 @@ export function Governance() {
                   <div key={p.id} className="flex items-center gap-2 rounded-lg bg-black/[0.03] px-3 py-2.5">
                     <span className={`h-1.5 w-1.5 rounded-full ${p.reversible ? "bg-sev-ok" : "bg-sev-crit"}`} />
                     <span className="flex-1 text-sm text-ink">{p.name}</span>
-                    <span className={`rounded-md px-2 py-0.5 font-mono text-2xs ${p.graduated ? "bg-signal/10 text-signal-dim" : "bg-black/[0.05] text-ink-2"}`}>{p.hitl_mode}</span>
+                    <span className={`rounded-md px-2 py-0.5 font-mono text-2xs ${isGraduated(p) ? "bg-signal/10 text-signal-dim" : "bg-black/[0.05] text-ink-2"}`}>{p.hitl_mode}</span>
                   </div>
                 ))}
               </div>

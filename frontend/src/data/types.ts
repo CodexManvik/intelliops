@@ -105,11 +105,18 @@ export interface Playbook {
   name: string;
   hitl_mode: HitlMode;
   reversible: boolean;
-  successes: number;
-  rollbacks: number;
-  failures: number;
-  graduated: boolean;
+  symptoms?: string | null;
+  // GET /playbooks does not serve a track record. These were declared required,
+  // so every consumer read `undefined` and rendered 0 forever - the "graduated
+  // playbooks" tile contradicted the copy directly above it. Optional now, and
+  // graduation is derived from hitl_mode instead (see isGraduated).
+  successes?: number;
+  rollbacks?: number;
+  failures?: number;
 }
+
+/** Graduation IS hitl -> auto, and hitl_mode is served, so this needs no new API. */
+export const isGraduated = (p: Playbook): boolean => p.hitl_mode === "auto";
 
 export interface ServiceHealth {
   name: string;

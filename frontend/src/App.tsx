@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { MotionConfig } from "framer-motion";
 import { Shell, type View } from "./components/Shell";
 import { Overview } from "./views/Overview";
 import { Incidents } from "./views/Incidents";
@@ -17,7 +18,11 @@ export default function App() {
   // at opacity 0 under StrictMode's double-invoke). Entrance polish comes from
   // a CSS keyframe on the keyed wrapper plus the per-section whileInView reveals
   // inside each view, which are unaffected.
+  // reducedMotion="user" makes EVERY framer-motion animation in the tree honour
+  // prefers-reduced-motion. It was previously respected only by CSS keyframes,
+  // so motion-sensitive users still got the full spring/layout choreography.
   return (
+    <MotionConfig reducedMotion="user">
     <Shell view={view} onView={setView}>
       <div key={view} className="view-enter">
         {view === "overview" && <Overview onView={setView} />}
@@ -27,5 +32,6 @@ export default function App() {
         {view === "settings" && <System />}
       </div>
     </Shell>
+    </MotionConfig>
   );
 }

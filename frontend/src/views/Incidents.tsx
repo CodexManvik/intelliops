@@ -31,6 +31,26 @@ const stageDefs = [
 
 const order: SituationStatus[] = ["detected", "diagnosed", "acting", "resolved"];
 
+/** What actually happened, per reason. The old copy claimed "gate failed closed
+ *  - nothing executed" for every failure, which is false for a rollback (a fix
+ *  ran and was undone) and dangerously false for an interrupted attempt, where
+ *  the whole point is that we do NOT know whether the cluster was changed. */
+function failureNote(reason: string | undefined): string {
+  if (!reason) return "no outcome detail recorded";
+  if (reason === "unhealthy:rolled-back")
+    return "the fix ran, health did not recover, and it was rolled back";
+  if (reason.startsWith("interrupted:"))
+    return "the attempt was interrupted mid-flight — whether the cluster changed is UNKNOWN, so a human must check";
+  if (reason === "aborted:timeout")
+    return "nobody decided inside the approval window — the gate refused rather than guess";
+  if (reason === "aborted:rejected") return "a human rejected this fix — nothing executed";
+  if (reason.startsWith("denied:")) return "RBAC denied the execution — nothing executed";
+  if (reason.startsWith("refused:")) return "the playbook is not reversible, so the gate refused it";
+  if (reason.startsWith("preflight")) return "the sandbox rehearsal failed, so it was never applied for real";
+  if (reason.startsWith("skipped:")) return "the gate skipped this — nothing executed";
+  return "gate failed closed — nothing executed";
+}
+
 const METRIC_DOCS: Record<string, { title: string; formula: string; meaning: string }> = {
   noise: {
     title: "Noise reduction",
@@ -541,7 +561,7 @@ export function Incidents({
                             ✗ still anomalous after fix: <span className="text-sev-warn">{metricNames(shown).join(", ")}</span> → rolled back
                           </div>
                         )}
-                        <div className="font-mono text-2xs text-ink-3">gate failed closed — nothing executed</div>
+                        <div className="font-mono text-2xs text-ink-3">{failureNote(shown.outcome?.health_after)}</div>
                       </div>
                     </div>
                   ) : shown.status === "needs_attention" ? (
