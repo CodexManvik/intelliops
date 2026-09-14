@@ -1,0 +1,63 @@
+# OpenTelemetry Collector — the OTLP ingress for IntelliOps.
+#
+# IntelliOps' ingestion service speaks PromQL, not OTLP. This collector is the
+# adapter: anything instrumented with OpenTelemetry (the OpenTelemetry Demo, a
+# real service, an SDK in any language) points its OTLP exporter here, and the
+# collector re-publishes those metrics on a Prometheus endpoint that IntelliOps'
+# existing Prometheus scrapes. No IntelliOps service code changes.
+#
+#   instrumented app  --OTLP-->  this collector  --/metrics-->  Prometheus
+#                                                                   |
+#                                                        ingestion polls PromQL
+#
+# Opt-in: nothing here runs unless you start the otel overlay
+# (docker compose -f docker-compose.yml -f docker-compose.otel.yml up).
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+          # Browser-based OTel SDKs need CORS; harmless for server-side exporters.
+        cors:
+          allowed_origins:
+            - "http://*"
+            - "https://*"
+
+processors:
+  batch:
+    timeout: 5s
+  # RCA keys hypotheses on the `service` label, and the correlator attributes an
+  # incident by it. OTel carries the name as the `service.name` resource
+  # attribute, so promote it to a metric label named exactly `service` — without
+  # this every OTel metric would arrive unattributed and every incident would be
+  # blamed on "unknown".
+  transform/service_label:
+    metric_statements:
+      - context: datapoint
+        statements:
+          - set(attributes["service"], resource.attributes["service.name"])
+            where resource.attributes["service.name"] != nil
+
+exporters:
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    # Keep OTel's own resource attributes available for debugging, but the
+    # `service` label above is what IntelliOps actually keys on.
+    resource_to_telemetry_conversion:
+      enabled: true
+    # Without this, counters reset to 0 on collector restart and the z-score
+    # correlator reads the reset as a huge negative anomaly.
+    enable_open_metrics: true
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [transform/service_label, batch]
+      exporters: [prometheus]
+  telemetry:
+    logs:
+      level: info

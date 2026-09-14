@@ -147,6 +147,9 @@ export function Sparkline({
   height?: number;
   width?: number;
 }) {
+  // An empty or single-point series used to throw (data[length-1] on []) or
+  // emit NaN coordinates. Render nothing rather than a broken path.
+  if (!data || data.length < 2) return null;
   const max = Math.max(...data);
   const min = Math.min(...data);
   const span = max - min || 1;

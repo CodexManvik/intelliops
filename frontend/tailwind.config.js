@@ -6,7 +6,11 @@ export default {
     extend: {
       colors: {
         ground: { DEFAULT: "#FFFFFF", raised: "#FFFFFF", sunken: "#F5F5F7" },
-        ink: { DEFAULT: "#1D1D1F", 2: "#6E6E73", 3: "#86868B", 4: "#C7C7CC" },
+        // ink-3 carries nearly all the operational detail at 11px. At #86868B it
+        // measured 3.33:1 on the card ground - below WCAG AA 4.5:1 - and ink-4 was
+        // 1.55:1, effectively invisible. Darkened to clear AA while keeping the
+        // greyscale hierarchy intact.
+        ink: { DEFAULT: "#1D1D1F", 2: "#5A5A5F", 3: "#6B6B70", 4: "#8A8A8F" },
         signal: { DEFAULT: "#0071E3", dim: "#0058B0", glow: "rgba(0,113,227,0.14)" },
         // `attention` is the fifth severity tone, added for the escalated
         // outcome: "stopped, a human is needed" must not look like warn

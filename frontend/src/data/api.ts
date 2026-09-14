@@ -2,6 +2,7 @@ import type {
   AuditRow,
   BaselineInfo,
   LlmProbe,
+  MetricHistory,
   Metrics,
   OutcomeRow,
   Playbook,
@@ -76,6 +77,12 @@ export const approveProposal = (id: string, decidedBy: string) =>
 
 export const rejectProposal = (id: string, decidedBy: string) =>
   postJSON<ProposedPlaybook>(`${GOV}/playbooks/proposed/${id}/reject`, { decided_by: decidedBy });
+
+export const loadMetricHistory = (metric: string, minutes = 15, service?: string) => {
+  const q = new URLSearchParams({ metric, minutes: String(minutes) });
+  if (service) q.set("service", service);
+  return getJSON<MetricHistory>(`${READ}/metrics/history?${q}`);
+};
 
 export function openStream(): EventSource {
   const url = new URL(`${READ}/stream`);

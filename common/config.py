@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     correlation_robust_warmup: int = 30
     governance_mode: str = "in_process"  # "in_process" | "http"
     governance_url: str = "http://localhost:8005"
+    # read-service asks rca for the authoritative LLM config rather than
+    # guessing from its own environment (which never has it set).
+    rca_url: str = "http://localhost:8003"
     read_outcomes_max: int = 200
     read_situation_ttl_seconds: float = 600.0
     read_situations_max: int = 50

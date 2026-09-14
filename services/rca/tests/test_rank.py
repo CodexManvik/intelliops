@@ -461,3 +461,13 @@ def test_unmapped_metric_family_escalates():
     hyps = rank_hypotheses(_situation(name="tls_handshake_failures"), ctx)
     assert hyps[0].suggested_runbook_id is None
     assert "undetermined" in hyps[0].description
+
+
+def test_otel_duration_metrics_map_to_the_latency_rule():
+    """OpenTelemetry names latency `duration` (http.server.request.duration).
+    Without that token an OTel-sourced latency incident matches no rule and
+    escalates, so the OTLP ingress would look broken."""
+    ctx = EnrichmentContext()
+    for metric in ("otel_http_server_request_duration_ms", "otel_rpc_server_duration_ms"):
+        hyps = rank_hypotheses(_situation(name=metric), ctx)
+        assert hyps[0].suggested_runbook_id == "scale-service", metric

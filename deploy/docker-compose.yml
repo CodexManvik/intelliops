@@ -117,11 +117,13 @@ services:
       PORT: "8000"
       INTELLIOPS_STORE_BACKEND: postgres
       INTELLIOPS_DATABASE_URL: postgresql+psycopg://intelliops:intelliops@postgres:5432/intelliops
-      # --- Optional: enable the LLM explanation provider (default is the offline template) ---
-      # INTELLIOPS_LLM_EXPLANATION_ENDPOINT: "https://api.openai.com/v1"
-      # INTELLIOPS_LLM_EXPLANATION_MODEL: "gpt-4o-mini"
-      # INTELLIOPS_LLM_EXPLANATION_API_KEY: "sk-..."
-      # Or configure it live from the console's System view — no restart needed.
+      # --- LLM explanation provider. Empty endpoint = the offline template, no network.
+      # Values come from deploy/.env (gitignored); see deploy/.env.example. Any
+      # OpenAI-compatible endpoint works (OpenAI, Groq, vLLM, Ollama).
+      # It can also be configured live from the console's System view - no restart.
+      INTELLIOPS_LLM_EXPLANATION_ENDPOINT: "${INTELLIOPS_LLM_ENDPOINT:-}"
+      INTELLIOPS_LLM_EXPLANATION_MODEL: "${INTELLIOPS_LLM_MODEL:-gpt-4o-mini}"
+      INTELLIOPS_LLM_EXPLANATION_API_KEY: "${INTELLIOPS_LLM_API_KEY:-}"
     ports:
       - "8003:8000"
     volumes:
@@ -182,6 +184,13 @@ services:
       PORT: "8000"
       INTELLIOPS_STORE_BACKEND: postgres
       INTELLIOPS_DATABASE_URL: postgresql+psycopg://intelliops:intelliops@postgres:5432/intelliops
+      # --- AI runbook author. "off" = NullRunbookAuthor, no network, no drafting.
+      # Set these in deploy/.env (gitignored) to turn the agentic author on.
+      INTELLIOPS_RUNBOOK_AUTHOR_MODE: "${INTELLIOPS_RUNBOOK_AUTHOR_MODE:-off}"
+      INTELLIOPS_LLM_RUNBOOK_ENDPOINT: "${INTELLIOPS_LLM_ENDPOINT:-}"
+      INTELLIOPS_LLM_RUNBOOK_MODEL: "${INTELLIOPS_LLM_MODEL:-gpt-4o-mini}"
+      INTELLIOPS_LLM_RUNBOOK_API_KEY: "${INTELLIOPS_LLM_API_KEY:-}"
+      INTELLIOPS_LLM_RUNBOOK_TIMEOUT_SECONDS: "${INTELLIOPS_LLM_TIMEOUT_SECONDS:-30}"
     ports:
       - "8005:8000"
     healthcheck:
@@ -253,6 +262,13 @@ services:
       INTELLIOPS_REDIS_URL: redis://redis:6379
       INTELLIOPS_LOG_FORMAT: json
       SERVICE_MODULE: services.read.app:app
+      # /system asks the owning services for their config instead of guessing
+      # from its own env (which never has the LLM variables set).
+      INTELLIOPS_RCA_URL: http://rca:8000
+      INTELLIOPS_GOVERNANCE_URL: http://governance:8000
+      # /metrics/history proxies Prometheus server-side: the browser cannot query
+      # it directly (no CORS header), and /metrics is point-in-time only.
+      INTELLIOPS_PROMETHEUS_URL: http://prometheus:9090
       PORT: "8000"
     ports:
       - "8007:8000"

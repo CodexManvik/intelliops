@@ -105,11 +105,18 @@ export interface Playbook {
   name: string;
   hitl_mode: HitlMode;
   reversible: boolean;
-  successes: number;
-  rollbacks: number;
-  failures: number;
-  graduated: boolean;
+  symptoms?: string | null;
+  // GET /playbooks does not serve a track record. These were declared required,
+  // so every consumer read `undefined` and rendered 0 forever - the "graduated
+  // playbooks" tile contradicted the copy directly above it. Optional now, and
+  // graduation is derived from hitl_mode instead (see isGraduated).
+  successes?: number;
+  rollbacks?: number;
+  failures?: number;
 }
+
+/** Graduation IS hitl -> auto, and hitl_mode is served, so this needs no new API. */
+export const isGraduated = (p: Playbook): boolean => p.hitl_mode === "auto";
 
 export interface ServiceHealth {
   name: string;
@@ -244,4 +251,22 @@ export interface RunSummary {
   signature: string;
   step_count: number;
   proposal_id?: string | null;
+}
+
+/** A real time-series from GET /metrics/history (Prometheus, proxied by read). */
+export interface MetricSeries {
+  service: string;
+  /** [unix_seconds, value] pairs, oldest first. */
+  points: [number, number][];
+}
+
+export interface MetricHistory {
+  metric: string;
+  /** false when Prometheus could not be reached - render "no data", never a fake shape. */
+  available: boolean;
+  reason?: string;
+  start: number;
+  end: number;
+  step_seconds: number;
+  series: MetricSeries[];
 }

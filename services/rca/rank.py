@@ -109,7 +109,11 @@ def rank_hypotheses(
 
     # Rule: latency/queueing/request-surge metric names — points to capacity
     # contention, not a wedged process, so scale rather than restart.
-    if any(tok in names for tok in ("latency", "queue_depth", "request_rate")):
+    # "duration" is OpenTelemetry's word for what Meridian calls "latency"
+    # (OTel semantic conventions: http.server.request.duration,
+    # rpc.server.duration). Without it every OTel-sourced latency incident would
+    # match no rule and escalate, which is technically honest but useless.
+    if any(tok in names for tok in ("latency", "duration", "queue_depth", "request_rate")):
         hypotheses.append(
             RootCauseHypothesis(
                 situation_id=situation.id,
