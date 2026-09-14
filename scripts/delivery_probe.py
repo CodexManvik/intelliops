@@ -5,10 +5,10 @@ partway through (a crash mid-processing), then reconnects with the same consumer
 group and drains the rest. It reports how many events the handler actually
 completed, and therefore how many were lost.
 
-Under **at-most-once** (today's default: `RedisBus.consume` XACKs at
-`common/bus.py:71`, before the `yield` on the next line) the entry that was in
-flight when the handler raised has already been acked, so it is never
-redelivered and `lost` is non-zero.
+Under **at-most-once** (today's default: `RedisBus.consume` XACKs an entry
+immediately BEFORE yielding it) the entry that was in flight when the handler
+raised has already been acked, so it is never redelivered and `lost` is
+non-zero.
 
 Under **at-least-once** that entry is still pending, is redelivered on
 reconnect, and `lost` is 0.

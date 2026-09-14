@@ -336,3 +336,53 @@ def test_dlq_off_by_default_leaves_the_entry_pending_forever():
         gen.close()
     assert bus._r.exists("t.dlq") == 0
     assert _pending(bus, "t", "g") == 1
+
+
+def test_decode_error_still_raises_when_the_dlq_is_off():
+    """The DLQ is opt-in. With defaults, an undecodable payload must keep
+    propagating exactly as before this feature existed - silently parking it
+    would change DEFAULT behaviour, not just add a safety net."""
+    from pydantic import ValidationError
+
+    from common.contracts import Situation
+    from common.envelope import iter_models
+
+    bus = _bus("at_most_once")  # dlq_mode defaults to "off"
+    bus.publish("t", {"data": "not json at all"})
+    gen = iter_models(bus, "t", "g", Situation, dlq=bus)
+    with pytest.raises(ValidationError):
+        next(gen)
+    gen.close()
+    assert bus._r.exists("t.dlq") == 0
+
+
+def test_decode_error_is_parked_when_the_dlq_is_on():
+    from datetime import UTC, datetime
+
+    from common.contracts import Situation, SituationStatus
+    from common.envelope import iter_models, publish_model
+
+    bus = _bus("at_most_once", dlq_mode="on")
+    bus.publish("t", {"data": "not json at all"})
+    ts = datetime(2026, 9, 14, tzinfo=UTC)
+    publish_model(
+        bus,
+        "t",
+        Situation(
+            id="s1",
+            status=SituationStatus.DETECTED,
+            member_events=[],
+            severity="high",
+            first_seen=ts,
+            last_seen=ts,
+            signature="sig",
+        ),
+    )
+    gen = iter_models(bus, "t", "g", Situation, dlq=bus)
+    # The poison is parked and the consumer survives to deliver the next message.
+    assert next(gen).id == "s1"
+    gen.close()
+    parked = bus._r.xrange("t.dlq")
+    assert len(parked) == 1
+    assert parked[0][1]["_dlq_reason"].startswith("decode:")
+    assert parked[0][1]["_dlq_topic"] == "t"

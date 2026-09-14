@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from collections import OrderedDict
 from typing import Protocol
 
@@ -61,29 +62,46 @@ class NullGuard:
 
 
 class MemoryGuard:
-    """Process-local bounded LRU. Lost on restart — see the module docstring."""
+    """Process-local bounded LRU with a TTL. Lost on restart - see the module docstring.
 
-    def __init__(self, max_keys: int = 50_000) -> None:
+    The TTL is honoured so this behaves like RedisGuard for anything that reasons
+    about expiry; the LRU cap is the second, independent bound. An entry evicted
+    by the cap is indistinguishable from one that never existed, which is why the
+    cap is generous and this guard is documented as the weaker option.
+    """
+
+    def __init__(self, max_keys: int = 50_000, ttl_seconds: int = 86_400) -> None:
         self._max = max_keys
-        self._seen: OrderedDict[str, str] = OrderedDict()
+        self._ttl = ttl_seconds
+        self._seen: OrderedDict[str, tuple[str, float]] = OrderedDict()
         self._lock = threading.Lock()
 
     def _touch(self, key: str, value: str) -> None:
-        self._seen[key] = value
+        self._seen[key] = (value, time.monotonic() + self._ttl)
         self._seen.move_to_end(key)
         while len(self._seen) > self._max:
             self._seen.popitem(last=False)
 
+    def _live(self, key: str) -> str | None:
+        entry = self._seen.get(key)
+        if entry is None:
+            return None
+        value, expires_at = entry
+        if time.monotonic() >= expires_at:
+            self._seen.pop(key, None)
+            return None
+        return value
+
     def claim(self, key: str) -> bool:
         with self._lock:
-            if key in self._seen:
+            if self._live(key) is not None:
                 return False
             self._touch(key, "1")
             return True
 
     def state(self, key: str) -> str | None:
         with self._lock:
-            return self._seen.get(key)
+            return self._live(key)
 
     def set_state(self, key: str, value: str) -> None:
         with self._lock:
@@ -125,8 +143,8 @@ def make_guard(settings, bus=None) -> IdempotencyGuard:
                 "bus_idempotency_mode=redis but the bus has no Redis client; "
                 "falling back to MemoryGuard (process-local, lost on restart)"
             )
-            return MemoryGuard()
+            return MemoryGuard(ttl_seconds=ttl)
         return RedisGuard(client, ttl_seconds=ttl)
     if mode == "memory":
-        return MemoryGuard()
+        return MemoryGuard(ttl_seconds=ttl)
     return NullGuard()

@@ -130,11 +130,47 @@ def test_partial_rebuild_is_never_swapped_in(bus):
 
 def test_rebuild_advances_the_live_consumer_group(bus):
     """After a successful replay the shadow owns that history, so the live tail
-    must not re-apply it."""
-    publish_model(bus, "situations.detected", _sit())
+    must not re-apply it. Asserts the group is positioned EXACTLY at the last
+    replayed entry - a weaker check (lag/pending) passes even with no feature."""
+    publish_model(bus, "situations.detected", _sit("sit-a"))
+    publish_model(bus, "situations.detected", _sit("sit-b"))
+    last_id = bus._r.xrange("situations.detected")[-1][0]
+
     assert rebuild(bus, _Settings()) is not None
-    pending = bus._r.xpending("situations.detected", "read-model")["pending"]
-    assert pending == 0
-    # Nothing new to serve: the group was advanced past the replayed entry.
-    info = bus._r.xinfo_groups("situations.detected")[0]
-    assert info["lag"] == 0 or info["last-delivered-id"] != "0-0"
+
+    info = next(g for g in bus._r.xinfo_groups("situations.detected") if g["name"] == "read-model")
+    assert info["last-delivered-id"] == last_id
+    assert bus._r.xpending("situations.detected", "read-model")["pending"] == 0
+
+
+def test_rebuild_does_not_move_the_group_backwards(bus):
+    """If the live group is already ahead of the replay, re-pointing it would
+    re-deliver events the shadow already holds."""
+    publish_model(bus, "situations.detected", _sit("sit-a"))
+    last_id = bus._r.xrange("situations.detected")[-1][0]
+    bus._r.xgroup_create("situations.detected", "read-model", id="0", mkstream=True)
+    bus._r.xgroup_setid("situations.detected", "read-model", id=last_id)
+
+    s = _Settings()
+    s.read_rebuild_window_seconds = 0.001  # window excludes the entry
+    assert rebuild(bus, s) is not None
+
+    info = next(g for g in bus._r.xinfo_groups("situations.detected") if g["name"] == "read-model")
+    assert info["last-delivered-id"] == last_id  # unchanged, not rewound
+
+
+def test_rebuild_survives_a_redis_outage(bus):
+    """A Redis failure must degrade to a cold start, not kill read-service startup."""
+    import redis as _redis
+
+    class _Broken:
+        def __getattr__(self, _name):
+            def boom(*a, **kw):
+                raise _redis.ConnectionError("redis down")
+
+            return boom
+
+    class _BrokenBus:
+        _r = _Broken()
+
+    assert rebuild(_BrokenBus(), _Settings()) is None

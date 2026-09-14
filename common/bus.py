@@ -62,29 +62,56 @@ class RedisBus:
     def _attempts_key(self, group: str, topic: str, entry_id: str) -> str:
         return f"bus:attempts:{group}:{topic}:{entry_id}"
 
-    def send_to_dlq(self, topic: str, fields: dict, reason: str, group: str) -> None:
-        """Park an entry on `{topic}{suffix}` with why it was parked."""
+    def send_to_dlq(self, topic: str, fields: dict, reason: str, group: str) -> bool:
+        """Park an entry on `{topic}{suffix}`. False when the DLQ is switched off.
+
+        The caller needs that answer: with the DLQ off a decode error must keep
+        propagating exactly as it did before this feature existed, rather than
+        being silently swallowed.
+        """
+        if self._dlq_mode != "on":
+            return False
         self.publish(
             topic + self._dlq_suffix,
             {**fields, "_dlq_reason": reason, "_dlq_topic": topic, "_dlq_group": group},
         )
+        return True
 
-    def _entries(self, topic: str, group: str, drain_first: bool) -> Iterator[tuple[str, dict]]:
-        """Yield (entry_id, fields) forever, owning group creation and reconnects.
+    def consume(self, topic: str, group: str) -> Iterator[dict]:
+        """Yield each entry's fields.
 
-        Resilient: a Redis ConnectionError/TimeoutError — Redis not yet up at
-        startup, or a mid-run blip — must NOT kill the consumer thread (that
-        silently stops the service processing the stream). Catch it, back off,
-        retry the whole read.
+        Resilient: a Redis ConnectionError/TimeoutError - Redis not yet up at
+        startup, or a mid-run blip - must NOT kill the consumer thread (that
+        silently stops the service processing the stream). EVERY Redis call in
+        this loop, the ack included, sits inside that retry for exactly that
+        reason.
 
-        When `drain_first`, one pass over this consumer's OWN pending entries
-        (start id "0") runs before tailing with ">", which never returns pending
-        entries. That pass is what actually recovers an un-acked entry after a
-        crash — deferring the ack alone would make events durable but
+        DELIVERY SEMANTICS (issue #53), selected by `bus_delivery`:
+
+        - "at_most_once" (default, unchanged): XACK fires BEFORE the entry is
+          yielded, so a crash / validation error / DB failure in the handler
+          loses that event permanently.
+        - "at_least_once": the ack fires the instant the caller RESUMES this
+          generator - being resumed is the only proof the handler finished. If
+          it raises, breaks on stop_event, or abandons the generator, the entry
+          stays pending and the self-drain re-serves it on reconnect.
+
+        The ack is NOT in a finally:/GeneratorExit handler, deliberately: an
+        abandoned in-flight entry must stay pending. The flip side is that this
+        relies on the caller being resumed, so on a runtime that defers
+        generator finalization the single in-flight entry degrades to
+        at-most-once - no worse than the default. See ADR-033.
+
+        Under at_least_once a first pass over this consumer's OWN pending
+        entries (start id "0") runs before tailing with ">", which never returns
+        pending entries. That pass is what actually recovers an un-acked entry
+        after a crash - deferring the ack alone would make events durable but
         unreachable. It repeats after a reconnect, since the PEL survives.
         """
+        at_least_once = self._delivery == "at_least_once"
+        dlq_on = self._dlq_mode == "on"
         group_ready = False
-        drained = not drain_first
+        drained = not at_least_once
         while True:
             try:
                 if not group_ready:
@@ -99,16 +126,44 @@ class RedisBus:
                         group, self._consumer, {topic: "0"}, count=_DRAIN_BATCH
                     )
                     drained = True
-                    for _stream, entries in resp or []:
-                        for entry_id, fields in entries:
-                            yield entry_id, fields
-                    continue
-                resp = self._r.xreadgroup(group, self._consumer, {topic: ">"}, count=1, block=1000)
+                else:
+                    resp = self._r.xreadgroup(
+                        group, self._consumer, {topic: ">"}, count=1, block=1000
+                    )
                 if not resp:
                     continue
                 for _stream, entries in resp:
                     for entry_id, fields in entries:
-                        yield entry_id, fields
+                        if not at_least_once:
+                            self._r.xack(topic, group, entry_id)
+                            yield fields
+                            continue
+                        if dlq_on:
+                            # A payload this build cannot handle would otherwise be
+                            # redelivered forever. Park it and move on rather than
+                            # wedge the consumer.
+                            key = self._attempts_key(group, topic, entry_id)
+                            attempts = int(self._r.incr(key))
+                            self._r.expire(key, self._idempotency_ttl)
+                            if attempts > self._max_delivery_attempts:
+                                logger.warning(
+                                    "bus: entry %s on %s exceeded %s delivery attempts; "
+                                    "sending to DLQ",
+                                    entry_id,
+                                    topic,
+                                    self._max_delivery_attempts,
+                                )
+                                self.send_to_dlq(topic, fields, "max-delivery-attempts", group)
+                                self._r.xack(topic, group, entry_id)
+                                self._r.delete(key)
+                                continue
+                        yield fields
+                        # Resumed => the caller finished this entry. Acking HERE
+                        # (not when the next entry happens to arrive) means an
+                        # idle topic does not sit with a completed entry pending.
+                        self._r.xack(topic, group, entry_id)
+                        if dlq_on:
+                            self._r.delete(self._attempts_key(group, topic, entry_id))
             except (redis.ConnectionError, redis.TimeoutError) as exc:
                 logger.warning(
                     "bus consume on %s lost Redis (%s); retrying in %ss",
@@ -117,62 +172,8 @@ class RedisBus:
                     _RECONNECT_BACKOFF_SECONDS,
                 )
                 group_ready = False  # re-ensure the group after reconnect
-                drained = not drain_first  # the PEL survived; re-drain it
+                drained = not at_least_once  # the PEL survived; re-drain it
                 time.sleep(_RECONNECT_BACKOFF_SECONDS)
-
-    def consume(self, topic: str, group: str) -> Iterator[dict]:
-        """Yield each entry's fields.
-
-        DELIVERY SEMANTICS (issue #53), selected by `bus_delivery`:
-
-        - "at_most_once" (default, unchanged): XACK fires BEFORE the entry is
-          yielded, so a crash / validation error / DB failure in the handler
-          loses that event permanently.
-        - "at_least_once": the ack is deferred until the caller comes BACK for
-          the next entry. Being resumed is the only proof the handler finished
-          — if it raises, or breaks on stop_event, or abandons the generator,
-          the entry stays pending and the self-drain re-serves it on reconnect.
-
-        Note the ack is NOT in a finally:/GeneratorExit handler, deliberately:
-        an abandoned in-flight entry must stay pending. The flip side is that
-        this relies on the caller being resumed, so on a runtime that defers
-        generator finalization the single in-flight entry degrades to
-        at-most-once — no worse than the default. See ADR-033.
-        """
-        at_least_once = self._delivery == "at_least_once"
-        dlq_on = self._dlq_mode == "on"
-        pending_ack: str | None = None
-        for entry_id, fields in self._entries(topic, group, drain_first=at_least_once):
-            # ACK POINT: we were resumed, so the previously yielded entry was
-            # handled. Inert under at_most_once, where pending_ack is never set.
-            if pending_ack is not None:
-                self._r.xack(topic, group, pending_ack)
-                if dlq_on:
-                    self._r.delete(self._attempts_key(group, topic, pending_ack))
-                pending_ack = None
-            if not at_least_once:
-                self._r.xack(topic, group, entry_id)
-                yield fields
-                continue
-            if dlq_on:
-                # A payload this build cannot handle would otherwise be redelivered
-                # forever. Park it and move on rather than wedge the consumer.
-                key = self._attempts_key(group, topic, entry_id)
-                attempts = int(self._r.incr(key))
-                self._r.expire(key, self._idempotency_ttl)
-                if attempts > self._max_delivery_attempts:
-                    logger.warning(
-                        "bus: entry %s on %s exceeded %s delivery attempts; sending to DLQ",
-                        entry_id,
-                        topic,
-                        self._max_delivery_attempts,
-                    )
-                    self.send_to_dlq(topic, fields, "max-delivery-attempts", group)
-                    self._r.xack(topic, group, entry_id)
-                    self._r.delete(key)
-                    continue
-            pending_ack = entry_id
-            yield fields
 
     def ping(self) -> None:
         """Raise if the bus backend is unreachable (readiness probe uses this)."""
@@ -238,16 +239,23 @@ class KafkaBus:
             enable_auto_commit=not at_least_once,
             value_deserializer=lambda b: json.loads(b.decode()),
         )
-        committed = True
+        from kafka import OffsetAndMetadata, TopicPartition
+
         for record in consumer:
-            # Same resume-point rule as RedisBus: being asked for the next
-            # record is the only proof the previous one was handled.
-            if not committed:
-                consumer.commit()
-                committed = True
-            if at_least_once:
-                committed = False
+            if not at_least_once:
+                yield record.value
+                continue
             yield record.value
+            # Resumed => handled. Commit THIS record's offset explicitly:
+            # a bare commit() would commit the consumer's current position,
+            # which kafka-python has already advanced past later records.
+            consumer.commit(
+                {
+                    TopicPartition(record.topic, record.partition): OffsetAndMetadata(
+                        record.offset + 1, None
+                    )
+                }
+            )
 
     def ping(self) -> None:
         """Check Kafka connectivity by creating a temporary admin client."""
@@ -286,6 +294,7 @@ def make_bus(settings: Settings, consumer_name: str = "c1") -> RedisBus | KafkaB
         return KafkaBus(
             bootstrap_servers=settings.kafka_bootstrap_servers,
             consumer_name=consumer_name,
+            delivery=settings.bus_delivery,
         )
     else:
         raise ValueError(

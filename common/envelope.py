@@ -20,6 +20,10 @@ from pydantic import BaseModel, ValidationError
 
 logger = logging.getLogger(__name__)
 
+# Marks an event whose handler actually completed. A bare claim (set by
+# guard.claim) means "someone started this", which is NOT the same thing.
+_DONE = "done"
+
 T = TypeVar("T", bound=BaseModel)
 
 
@@ -58,18 +62,37 @@ def iter_models(
         try:
             parsed = decode_model(fields, model_type)
         except ValidationError as exc:
-            if dlq is None:
-                raise  # today's behaviour, exactly: the consumer thread dies
-            dlq.send_to_dlq(topic, fields, f"decode:{exc.__class__.__name__}", group)
+            # send_to_dlq returns False when the DLQ is switched off, in which
+            # case we must re-raise: silently swallowing a decode error would
+            # change DEFAULT behaviour, not just add an opt-in safety net.
+            parked = dlq is not None and dlq.send_to_dlq(
+                topic, fields, f"decode:{exc.__class__.__name__}", group
+            )
+            if not parked:
+                raise
             logger.warning(
                 "undecodable message on %s parked in the DLQ (%s)", topic, exc.__class__.__name__
             )
             continue
+
+        # Two-phase idempotency. Claiming before the handler runs would be WRONG:
+        # a handler that crashes leaves the claim taken, so the bus's redelivery
+        # is skipped and acked and the event is lost - turning at-least-once back
+        # into at-most-once. So a failed claim only skips when the earlier attempt
+        # actually FINISHED (_DONE); an unfinished one is re-processed.
+        key = None
         if guard is not None:
             event_id = fields.get("id")
             # No id means the message predates the envelope id; let it through
             # rather than silently dropping a legitimate backlog entry.
-            if event_id is not None and not guard.claim(f"{group}:{event_id}"):
-                logger.debug("skipping already-processed event %s on %s", event_id, topic)
-                continue
+            if event_id is not None:
+                key = f"{group}:{event_id}"
+                if not guard.claim(key) and guard.state(key) == _DONE:
+                    logger.debug("skipping already-processed event %s on %s", event_id, topic)
+                    continue
+
         yield parsed
+
+        # Resumed => the handler returned without raising. Only now is it done.
+        if key is not None:
+            guard.set_state(key, _DONE)

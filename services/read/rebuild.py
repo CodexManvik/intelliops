@@ -59,8 +59,40 @@ def _ensure_group(client, topic: str) -> None:
             raise
 
 
+def _group_position(client, topic: str) -> str | None:
+    """The group's last-delivered id, or None if there is no group yet."""
+    try:
+        for g in client.xinfo_groups(topic):
+            if g.get("name") == _GROUP:
+                return g.get("last-delivered-id")
+    except redis.ResponseError:
+        return None  # stream does not exist yet
+    return None
+
+
+def _id_sort_key(entry_id: str) -> tuple[int, int]:
+    """Redis ids are `<ms>-<seq>`; compare numerically, not lexically."""
+    ms, _, seq = entry_id.partition("-")
+    try:
+        return (int(ms), int(seq or 0))
+    except ValueError:
+        return (0, 0)
+
+
 def rebuild(bus, settings) -> ReadModel | None:
-    """Replay recent history into a fresh ReadModel, or None to cold-start."""
+    """Replay recent history into a fresh ReadModel, or None to cold-start.
+
+    Never raises: any Redis failure degrades to a normal (empty) cold start
+    rather than taking read-service's startup down with it.
+    """
+    try:
+        return _rebuild(bus, settings)
+    except (redis.ConnectionError, redis.TimeoutError) as exc:
+        logger.warning("read rebuild: Redis unavailable (%s); cold-starting instead", exc)
+        return None
+
+
+def _rebuild(bus, settings) -> ReadModel | None:
     if getattr(settings, "read_rebuild_mode", "off") != "replay":
         return None
     client = getattr(bus, "_r", None)
@@ -74,14 +106,21 @@ def rebuild(bus, settings) -> ReadModel | None:
         ttl_seconds=settings.read_situation_ttl_seconds,
         max_situations=settings.read_situations_max,
     )
-    start_id = _window_start_id(settings.read_rebuild_window_seconds)
+    window_start = _window_start_id(settings.read_rebuild_window_seconds)
     max_entries = settings.read_rebuild_max_entries
     last_ids: dict[str, str] = {}
     total = 0
 
     for topic, model_type, method in _REPLAY_ORDER:
         apply = getattr(shadow, method)
-        cursor = start_id
+        # Start from the EARLIER of the window and where the live group already
+        # is. If the group were behind the window, everything in between would be
+        # in neither the shadow nor the tail - silently missing from the console.
+        # (The group's last-delivered id is exclusive, so step past it.)
+        cursor = window_start
+        pos = _group_position(client, topic)
+        if pos and _id_sort_key(pos) < _id_sort_key(window_start):
+            cursor = f"({pos}"
         seen = 0
         while True:
             try:
@@ -113,11 +152,26 @@ def rebuild(bus, settings) -> ReadModel | None:
         total += seen
 
     # Only now that every topic replayed cleanly do we take ownership of the
-    # offsets: point the live consumer group past what the shadow already has.
-    for topic, last_id in last_ids.items():
+    # offsets. EVERY replayed topic is handled, not just those that had entries:
+    # a topic left un-advanced would have its pre-window history delivered by the
+    # live tail AFTER the shadow already holds later events, inverting the
+    # ordering this module depends on.
+    for topic, _model_type, _method in _REPLAY_ORDER:
+        last_id = last_ids.get(topic)
         try:
             _ensure_group(client, topic)
-            client.xgroup_setid(topic, _GROUP, id=last_id)
+            if last_id is not None:
+                # Never move the group BACKWARD: if it is already ahead of what we
+                # replayed, re-pointing it would re-deliver events the shadow has.
+                pos = _group_position(client, topic)
+                if pos is None or _id_sort_key(last_id) > _id_sort_key(pos):
+                    client.xgroup_setid(topic, _GROUP, id=last_id)
+            # XGROUP SETID does not clear pending entries, so under at_least_once
+            # the self-drain would re-serve everything we just replayed and apply
+            # it a second time. The replay is authoritative for this range.
+            pending = client.xpending_range(topic, _GROUP, "-", "+", 1000)
+            for entry in pending:
+                client.xack(topic, _GROUP, entry["message_id"])
         except redis.ResponseError as exc:
             logger.warning("read rebuild: could not set group id on %s: %s", topic, exc)
 

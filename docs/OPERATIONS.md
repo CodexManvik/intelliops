@@ -102,8 +102,10 @@ receiving a message and finishing it **loses that message** - it is not redelive
 
 ### `at_least_once`
 
-The ack is deferred until the caller comes **back** for the next entry: being resumed is
-the only proof the handler finished. If the handler raises, breaks on `stop_event`, or
+The ack fires the instant the caller **resumes** the generator: being resumed is the only
+proof the handler finished. (It is not deferred until the next entry happens to arrive -
+that would leave a completed entry pending indefinitely on an idle topic, and a restart
+would then re-serve work that was already done.) If the handler raises, breaks on `stop_event`, or
 abandons the generator, the entry stays pending.
 
 Deferring the ack alone would make events durable but *unreachable*, because

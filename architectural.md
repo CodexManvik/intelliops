@@ -1692,9 +1692,13 @@ reports **LOST 1**. The same probe reports **LOST 0** once the ack moves.
 **Decision.** Four pieces, each behind a switch defaulting to today's behaviour
 ([ADR-012](#adr-012--config-switched-adapter-selection-with-test-safe-defaults)).
 
-- **Ack on resume** (`bus_delivery=at_least_once`). `RedisBus.consume` acks the previously
-  yielded entry when the caller comes *back* for the next one — being resumed is the only
-  proof the handler finished. Deliberately **not** in a `finally:`/`GeneratorExit` handler:
+- **Ack on resume** (`bus_delivery=at_least_once`). `RedisBus.consume` acks the yielded
+  entry the instant the caller *resumes* the generator — being resumed is the only proof
+  the handler finished. Acking when the *next entry arrives* instead looks equivalent and
+  is not: on an idle topic a completed entry would stay pending indefinitely, and the next
+  restart would re-serve work already done. Every Redis call in that loop, the ack
+  included, sits inside the ConnectionError retry, so a mid-run blip is retried rather
+  than killing the consumer thread. Deliberately **not** in a `finally:`/`GeneratorExit` handler:
   a crash, a `stop_event` break, or an abandoned generator must all leave the entry pending.
   (Verified that all six consumers check `stop_event` *after* receiving and *before*
   handling, so a break genuinely means unhandled.) Kafka gets the same treatment via

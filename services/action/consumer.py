@@ -70,7 +70,11 @@ def run_consumer(
         # redelivery must never silently re-run a remediation. Keyed on the
         # situation (not the event id) so a re-emitted diagnosis is caught too.
         # Inert by default: NullGuard.claim always wins.
-        claim_key = f"action:exec:{situation.id}"
+        # situation.id is a content hash of the member fingerprints, so the same
+        # incident SHAPE recurring later reuses it. first_seen makes the claim
+        # per-occurrence; without it a recurring incident would be blocked for the
+        # whole idempotency TTL with no outcome and no escalation.
+        claim_key = f"action:exec:{situation.id}:{situation.first_seen.isoformat()}"
         if not guard.claim(claim_key):
             if guard.state(claim_key) == "done":
                 continue  # already fully handled; do not re-execute or re-publish
