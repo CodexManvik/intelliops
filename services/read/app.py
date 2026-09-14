@@ -5,10 +5,12 @@ from __future__ import annotations
 import asyncio
 import hmac
 import json
+import logging
 import threading
 import time
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
@@ -17,6 +19,8 @@ from services.base import create_app
 from services.read.consumer import run_consumer
 from services.read.projection import ReadModel
 from services.read.rebuild import rebuild
+
+logger = logging.getLogger("intelliops.read.app")
 
 
 def _redact_endpoint(endpoint: str) -> str:
@@ -88,22 +92,64 @@ def situation_detail(sid: str) -> dict:
     return detail
 
 
+# /system aggregates settings that OTHER services own. Reading them out of
+# read-service's own environment is simply wrong - the LLM variables are set on
+# rca, so read reported "template, not configured" while rca had a live model.
+# Ask the owner instead, cache briefly (this endpoint is polled), and fail soft.
+_SYSTEM_CACHE_SECONDS = 5.0
+_llm_cache: dict = {"at": 0.0, "value": None}
+
+
+def _owned_llm_config(settings) -> dict:
+    """The authoritative LLM state, from rca. Falls back to local env on failure."""
+    now = time.monotonic()
+    if _llm_cache["value"] is not None and now - _llm_cache["at"] < _SYSTEM_CACHE_SECONDS:
+        return _llm_cache["value"]
+    value = None
+    try:
+        with httpx.Client(timeout=2.0) as client:
+            headers = (
+                {"Authorization": f"Bearer {settings.auth_token}"}
+                if settings.auth_mode == "token" and settings.auth_token
+                else {}
+            )
+            resp = client.get(f"{settings.rca_url}/config/llm", headers=headers)
+            resp.raise_for_status()
+            body = resp.json()
+        value = {
+            "provider": body.get("provider", "template"),
+            "endpoint_configured": bool(body.get("endpoint_configured")),
+            "endpoint": body.get("endpoint", ""),
+            "model": body.get("model", ""),
+            "last_probe": body.get("last_probe"),
+            "source": "rca",
+        }
+    except Exception as exc:  # noqa: BLE001 - /system must never 500 on a peer being down
+        logger.debug("could not reach rca for llm config: %s", exc)
+        endpoint = settings.llm_explanation_endpoint
+        value = {
+            "provider": "openai-compatible" if endpoint else "template",
+            "endpoint_configured": bool(endpoint),
+            "endpoint": _redact_endpoint(endpoint),
+            "model": settings.llm_explanation_model,
+            "last_probe": None,
+            # Say so, rather than presenting a guess as fact.
+            "source": "unavailable",
+        }
+    _llm_cache.update(at=now, value=value)
+    return value
+
+
 @app.get("/system")
 def system() -> dict:
     settings = get_settings()
-    endpoint = settings.llm_explanation_endpoint
     return {
         "correlator_kind": settings.correlator_kind,
         "bus_backend": settings.bus_backend,
         "store_backend": settings.store_backend,
         "remediator_mode": settings.remediator_mode,
         "auth_mode": settings.auth_mode,
-        "llm": {
-            "provider": "openai-compatible" if endpoint else "template",
-            "endpoint_configured": bool(endpoint),
-            "endpoint": _redact_endpoint(endpoint),
-            "model": settings.llm_explanation_model,
-        },
+        "llm": _owned_llm_config(settings),
     }
 
 

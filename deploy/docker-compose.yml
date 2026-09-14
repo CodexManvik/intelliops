@@ -262,6 +262,10 @@ services:
       INTELLIOPS_REDIS_URL: redis://redis:6379
       INTELLIOPS_LOG_FORMAT: json
       SERVICE_MODULE: services.read.app:app
+      # /system asks the owning services for their config instead of guessing
+      # from its own env (which never has the LLM variables set).
+      INTELLIOPS_RCA_URL: http://rca:8000
+      INTELLIOPS_GOVERNANCE_URL: http://governance:8000
       PORT: "8000"
     ports:
       - "8007:8000"
