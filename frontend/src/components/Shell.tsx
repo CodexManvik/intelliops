@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Circuitry, ListChecks, Pulse, SquaresFour, ShieldCheck, Waveform } from "@phosphor-icons/react";
 import { fluid } from "./primitives";
 import { ToastHost } from "../hooks/useToast";
+import { onConnectionHealth } from "../hooks/useLiveData";
+import { WarningCircle } from "@phosphor-icons/react";
 
 export type View = "overview" | "incidents" | "governance" | "agent-activity" | "settings";
 
@@ -24,9 +26,30 @@ export function Shell({
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  // A backend that has fallen over used to look exactly like a healthy, quiet
+  // fleet: zeros everywhere and a "streaming" badge. Say it out loud instead.
+  const [failing, setFailing] = useState(0);
+  useEffect(() => onConnectionHealth(setFailing), []);
 
   return (
     <div className="relative min-h-[100dvh]">
+      <AnimatePresence>
+        {failing > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
+            role="alert"
+            className="fixed inset-x-0 top-0 z-50 flex items-center justify-center gap-2 bg-sev-crit/12 px-4 py-2 text-sm text-sev-crit backdrop-blur-xl"
+          >
+            <WarningCircle size={15} weight="fill" />
+            <span>
+              Can't reach the backend — {failing} data source{failing > 1 ? "s" : ""} failing. What
+              you see below may be stale.
+            </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
       {/* ambient field */}
       <div className="mesh pointer-events-none fixed inset-0 z-0" aria-hidden />
 

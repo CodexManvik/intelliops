@@ -364,8 +364,11 @@ export function Incidents({
         {/* detail */}
         {sel && shown ? (
         <div className="lg:col-span-7">
-          <AnimatePresence mode="wait">
-            <m.div key={sel.id} initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}>
+          {/* Not mode="wait": that held the column empty for the exit AND the
+              enter - ~800ms of nothing on every incident click. Concurrent, and
+              faster, so selection feels instant. */}
+          <AnimatePresence initial={false}>
+            <m.div key={sel.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.18, ease: [0.32, 0.72, 0, 1] }}>
               <Bezel coreClassName="p-6">
                 {/* header */}
                 <div className="flex flex-wrap items-start justify-between gap-3">
