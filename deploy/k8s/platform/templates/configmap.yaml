@@ -23,6 +23,10 @@ data:
   INTELLIOPS_CORRELATION_GROUP_BY: {{ .Values.env.CORRELATION_GROUP_BY | quote }}
   # The Redis Service is named plainly (see redis.yaml), NOT <release>-prefixed.
   INTELLIOPS_REDIS_URL: {{ printf "redis://redis:6379/0" | quote }}
+  # read-service asks the service that OWNS each setting for /system rather than
+  # reporting its own env as fact. Without these it falls back to local values and
+  # honestly labels them unverified - correct, but unverified.
+  INTELLIOPS_RCA_URL: {{ printf "http://rca:8000" | quote }}
   # INTELLIOPS_DATABASE_URL is NOT here — it embeds the DB password, so it lives
   # in the `postgres-credentials` Secret and reaches services via envFrom:secretRef
   # (issue #57). (It uses the psycopg v3 driver + the plain `postgres` Service host.)
