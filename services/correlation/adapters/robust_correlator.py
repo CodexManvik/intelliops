@@ -104,6 +104,37 @@ class RobustCorrelator(BaseCorrelator):
             signature=signature,
         )
 
+    def baseline_snapshot(self) -> dict:
+        """Per-metric {name: {mean, std}} for attaching to an emitted Situation.
+
+        Post-remediation verification (services/action/verify.py) asks whether a
+        firing metric has returned to its baseline, and looks it up BY METRIC
+        NAME. Without this method the engine attached no baseline at all under
+        CORRELATOR_KIND=robust and every score-only metric was unverifiable, so
+        a successful fix was always reported as a rollback.
+
+        Samples are pooled across the seasonal hour buckets: the verifier has no
+        bucket context, and a metric-level baseline is the stable thing to
+        compare a just-recovered value against. The estimators match detect()'s
+        (median / MAD -> sigma), so verification agrees with the detection that
+        produced the situation.
+        """
+        pooled: dict[str, list[float]] = {}
+        for (name, _bucket), win in list(self._windows.items()):  # list() = live-resize guard
+            if win:
+                pooled.setdefault(name, []).extend(win)
+
+        out: dict = {}
+        for name, samples in pooled.items():
+            arr = np.fromiter(samples, dtype=float, count=len(samples))
+            med = float(np.median(arr))
+            mad = float(np.median(np.abs(arr - med)))
+            # std 0.0 is a real, meaningful answer here: the metric never moved.
+            # service_up is exactly that, and verify.py treats it as the
+            # strongest possible baseline rather than a missing one.
+            out[name] = {"mean": med, "std": mad * _MAD_C}
+        return out
+
     def snapshot(self) -> list[dict]:
         out: list[dict] = []
         for (name, bucket), win in list(self._windows.items()):  # list() = live-resize guard

@@ -83,9 +83,11 @@ def test_make_health_checker_k8s_builds_per_metric():
         detection_latency_ceiling_ms = 500.0
         correlation_z_threshold = 3.0
         prometheus_url = "http://prom:9090"
+        health_check_timeout_seconds = 45.0
 
     checker = _make_health_checker(S())
     assert isinstance(checker, KubernetesHealthChecker)
+    assert checker._timeout == 45.0  # from settings, not the old hardcoded 30.0
     assert checker._policy is not None
     assert checker._policy.enabled is True
     assert checker._query_value is not None

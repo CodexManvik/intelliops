@@ -8,3 +8,25 @@ docs
 tests
 data
 models
+# Docker's ignore patterns do NOT recurse: the bare `.venv` above matches only
+# the one at the context root. A cold `kind-up-full.sh` was shipping 400MB+ of
+# build context because frontend/node_modules and the virtualenvs inside
+# .claude/worktrees (one holds a full CPU torch install) were all being sent.
+# None of it is used by any Dockerfile - the images install their own deps.
+**/node_modules
+**/.venv
+**/.pytest_cache
+**/.ruff_cache
+**/__pycache__
+**/*.pyc
+.claude
+.github
+*.md
+
+# Same non-recursive trap as `.venv` above: the bare `tests` and `docs` entries
+# match ONLY the ones at the context root, so every per-service suite under
+# services/*/tests was shipping into the production images - measured at 83 test
+# files, 556 KB of the 1744 KB /app/services tree (32%). Nothing imports them at
+# runtime and the build uses --no-install-project, so they are pure payload.
+**/tests
+**/docs

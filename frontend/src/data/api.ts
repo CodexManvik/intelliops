@@ -84,8 +84,26 @@ export const loadMetricHistory = (metric: string, minutes = 15, service?: string
   return getJSON<MetricHistory>(`${READ}/metrics/history?${q}`);
 };
 
+/** Absolute URL for an EventSource, from a base that may be RELATIVE.
+ *
+ * The console image is built with relative bases so nginx can proxy the backend
+ * same-origin (deploy/Dockerfile.frontend sets VITE_READ_URL=/api/read,
+ * VITE_GOV_URL=/api/gov). `new URL("/api/gov/...")` with no second argument
+ * throws `TypeError: Failed to construct 'URL': Invalid URL` - it only worked in
+ * local dev, where .env.example supplies absolute http://localhost:PORT bases.
+ *
+ * That threw on every SSE open in the deployed console. useLiveData swallows it
+ * (so live updates silently degraded to polling and nobody noticed), but
+ * AgentActivity calls openAgentRunStream straight from an effect, so clicking
+ * "Draft a runbook with AI" unmounted the whole React tree - a blank page.
+ *
+ * An absolute base still wins over the second argument, so dev is unaffected. */
+function streamUrl(path: string): URL {
+  return new URL(path, window.location.origin);
+}
+
 export function openStream(): EventSource {
-  const url = new URL(`${READ}/stream`);
+  const url = streamUrl(`${READ}/stream`);
   if (AUTH_TOKEN) url.searchParams.set("token", AUTH_TOKEN);
   return new EventSource(url.toString()); // no withCredentials — conflicts with wildcard CORS
 }
@@ -107,7 +125,7 @@ export const loadAgentRun = (runId: string) =>
   getJSON<{ run_id: string; steps: TraceStep[] }>(`${GOV}/agent-runs/${runId}`).then((r) => r.steps);
 
 export function openAgentRunStream(runId: string): EventSource {
-  const url = new URL(`${GOV}/agent-runs/${runId}/stream`);
+  const url = streamUrl(`${GOV}/agent-runs/${runId}/stream`);
   if (AUTH_TOKEN) url.searchParams.set("token", AUTH_TOKEN);
   return new EventSource(url.toString()); // no withCredentials — conflicts with wildcard CORS
 }

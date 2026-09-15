@@ -16,6 +16,7 @@ class _S:
     detection_saturation_percent_threshold = 90.0
     detection_latency_ceiling_ms = 500.0
     correlation_z_threshold = 3.0
+    health_check_timeout_seconds = 90.0
 
 
 def test_dry_run_defaults():
@@ -28,4 +29,11 @@ def test_k8s_mode_selects_k8s_adapters():
     s.remediator_mode = "k8s"
     s.health_check_mode = "k8s"
     assert isinstance(_make_remediator(s), KubernetesRemediator)
-    assert isinstance(_make_health_checker(s), KubernetesHealthChecker)
+    checker = _make_health_checker(s)
+    assert isinstance(checker, KubernetesHealthChecker)
+    # The deadline must come from settings. It was hardcoded to 30.0, which
+    # exactly equals the default terminationGracePeriodSeconds, so the
+    # "readyReplicas == replicas" signal (the surge pod counts until the OLD pod
+    # is gone) could not go true in time and every successful restart was
+    # reported as a rollback.
+    assert checker._timeout == 90.0

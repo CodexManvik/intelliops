@@ -79,13 +79,22 @@ def _make_health_checker(settings):
 
         policy = _make_detection_policy(settings)
 
-        def query_value(name: str) -> float | None:
+        def query_value(name: str, service: str | None = None) -> float | None:
             # Instant-query the current value of the FIRING metric by name (not cpu).
             # max across series -> the worst-behaving instance must be recovered.
+            #
+            # SCOPED to the incident's service when one is known. Querying the
+            # bare metric name made this answer a different question than the one
+            # asked: service_up's max across the four Meridian services is 1.0
+            # whenever any single one is up, so a still-down service verified as
+            # recovered. Unscoped it is also too strict in reverse - an unrelated
+            # service breaching a threshold would block this incident's
+            # verification forever.
+            query = f'{name}{{service="{service}"}}' if service else name
             try:
                 r = httpx.get(
                     f"{settings.prometheus_url}/api/v1/query",
-                    params={"query": name},
+                    params={"query": query},
                     timeout=5.0,
                 )
                 results = r.json().get("data", {}).get("result", [])
@@ -99,6 +108,7 @@ def _make_health_checker(settings):
             policy=policy,
             query_value=query_value,
             z_threshold=settings.correlation_z_threshold,
+            timeout_seconds=settings.health_check_timeout_seconds,
         )
     return AlwaysHealthyChecker()
 

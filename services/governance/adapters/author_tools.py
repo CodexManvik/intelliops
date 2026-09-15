@@ -67,6 +67,127 @@ ACTION_NOTES: dict[str, str] = {
 _SUMMARY_TRUNCATE_CHARS = 120
 
 
+def _literal_values(model, field: str) -> list:
+    """The allowed values of a closed Literal field, read from the contract.
+
+    Derived, never retyped: the tool schema the model is shown and the model
+    that validates its answer must not be able to disagree.
+    """
+    import typing
+
+    annotation = model.model_fields[field].annotation
+    # `X | None` (probe) -> unwrap to the Literal before reading its args.
+    for candidate in (annotation, *typing.get_args(annotation)):
+        args = typing.get_args(candidate)
+        if args and all(isinstance(a, str) for a in args):
+            return list(args)
+    return []
+
+
+def _step_schema() -> dict:
+    """JSON Schema for one RemediationStep, mirroring common/contracts.py."""
+    from common.contracts import RemediationStep
+
+    return {
+        "type": "object",
+        "required": ["action"],
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": _literal_values(RemediationStep, "action"),
+                "description": "The remediation action. Closed set - see list_available_actions.",
+            },
+            "note": {
+                "type": "string",
+                "description": "Human-readable annotation; for `wait`, what is being waited for.",
+            },
+            "replicas": {
+                "type": "integer",
+                "description": "For `scale` only: a DELTA, e.g. 2 or -2 (not an absolute count).",
+            },
+            "cpu_limit": {
+                "type": "string",
+                "description": "For `patch_resource_limits`: new CPU ceiling, e.g. 500m.",
+            },
+            "mem_limit": {
+                "type": "string",
+                "description": "For `patch_resource_limits`: new memory ceiling, e.g. 512Mi.",
+            },
+            "container": {
+                "type": "string",
+                "description": "Which container to patch; omit for the first/only one.",
+            },
+            "revision": {
+                "type": "integer",
+                "description": "For `rollback_to_revision`: the Deployment revision to return to.",
+            },
+            "probe": {
+                "type": "string",
+                "enum": _literal_values(RemediationStep, "probe"),
+                "description": "For `patch_probe`: which probe to adjust.",
+            },
+            "initial_delay_seconds": {"type": "integer"},
+            "period_seconds": {"type": "integer"},
+            "timeout_seconds": {
+                "type": "integer",
+                "description": "The PROBE's timeout, not a remediation timeout.",
+            },
+            "failure_threshold": {"type": "integer"},
+        },
+        "additionalProperties": False,
+    }
+
+
+def _playbook_schema() -> dict:
+    """JSON Schema for the drafted Playbook.
+
+    No `id`: the server assigns one (`ai-<sig>-<uuid>`), and a model-authored id
+    is precisely what must not be trusted.
+    """
+    from common.contracts import HitlMode
+
+    step = _step_schema()
+    return {
+        "type": "object",
+        "required": ["name", "match_rule", "steps", "hitl_mode"],
+        "properties": {
+            "name": {
+                "type": "string",
+                "description": "Short human-readable name for the runbook.",
+            },
+            "match_rule": {
+                "type": "string",
+                "description": "When this runbook applies, keyed on the incident signature.",
+            },
+            "symptoms": {
+                "type": "string",
+                "description": "Plain-language when-this-applies - the semantic match target.",
+            },
+            "hitl_mode": {
+                "type": "string",
+                "enum": [m.value for m in HitlMode],
+                "description": "Human-in-the-loop posture. Use hitl unless there is a specific "
+                "reason not to require an approval.",
+            },
+            "reversible": {
+                "type": "boolean",
+                "description": "True only if rollback_steps genuinely undo the steps.",
+            },
+            "steps": {
+                "type": "array",
+                "items": step,
+                "description": "Ordered remediation steps.",
+            },
+            "rollback_steps": {
+                "type": "array",
+                "items": step,
+                "description": "Ordered steps that undo `steps` if health is not restored.",
+            },
+        },
+        "additionalProperties": False,
+    }
+
+
 def summarize_result(name: str, result: dict) -> str:
     """Turn one tool's raw result dict into a compact one-line digest.
 
@@ -210,10 +331,12 @@ TOOL_SCHEMAS: list[dict] = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "playbook": {
-                        "type": "object",
-                        "description": "The drafted Playbook (id, name, match_rule, steps, hitl_mode, reversible, rollback_steps).",
-                    },
+                    # Fully specified on purpose. As a bare {"type": "object"}
+                    # with a prose field list the model had to guess the closed
+                    # vocabularies, and got them wrong every time (hitl_mode
+                    # "manual", invented per-step `target`), so submit_runbook
+                    # never validated and the agent always gave up.
+                    "playbook": _playbook_schema(),
                     "rationale": {
                         "type": "string",
                         "description": "Why this runbook: the reasoning tying incident facts to the chosen steps.",
