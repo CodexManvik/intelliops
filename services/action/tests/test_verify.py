@@ -99,11 +99,46 @@ def test_default_metric_missing_baseline_fails_safe():
 
 
 def test_default_metric_zero_std_baseline_fails_safe():
+    # Still 210 against a flat baseline of 200: the metric has NOT come back, so
+    # this stays False - but now because it genuinely has not recovered, not
+    # because a zero-variance baseline was treated as unusable.
     sit = _sit(
         [("memory_usage_mb", 210.0)], baseline={"memory_usage_mb": {"mean": 200.0, "std": 0.0}}
     )
     healthy = build_metric_healthy(sit, lambda name: 210.0, ON)
     assert healthy() is False
+
+
+def test_zero_std_baseline_back_at_the_mean_IS_recovered():
+    """A perfectly flat baseline must still be verifiable.
+
+    `service_up` is pinned at exactly 1.0, so its baseline std is 0. Treating
+    std <= 0 as "no usable baseline" made the metric unverifiable forever: every
+    restart-pod remediation reported `rolled_back` on a real cluster even though
+    the pod had restarted and service_up had returned to 1.
+    """
+    sit = _sit([("service_up", 0.0)], baseline={"service_up": {"mean": 1.0, "std": 0.0}})
+    assert build_metric_healthy(sit, lambda name: 1.0, ON)() is True
+
+
+def test_zero_std_baseline_still_down_is_not_recovered():
+    sit = _sit([("service_up", 0.0)], baseline={"service_up": {"mean": 1.0, "std": 0.0}})
+    assert build_metric_healthy(sit, lambda name: 0.0, ON)() is False
+
+
+def test_metric_still_far_BELOW_baseline_is_not_recovered():
+    """The false-success case: a downward anomaly must not read as recovered.
+
+    _baseline_score returns a SIGNED z and DetectionPolicy.is_anomaly's default
+    branch asks `score > z_threshold`, which only catches upward movement. The
+    correlators score on magnitude, so detection saw service_up fall 1 -> 0
+    while verification computed -20.0, concluded -20 > 3 was False, and called a
+    service that was STILL DOWN successfully remediated.
+    """
+    sit = _sit([("service_up", 0.0)], baseline={"service_up": {"mean": 1.0, "std": 0.05}})
+    assert build_metric_healthy(sit, lambda name: 0.0, ON)() is False
+    # and the genuine recovery is still recognised
+    assert build_metric_healthy(sit, lambda name: 1.0, ON)() is True
 
 
 def test_all_firing_metrics_must_recover():
@@ -169,3 +204,46 @@ def test_malformed_baseline_value_does_not_raise():
     sit = _sit([("memory_usage_mb", 210.0)], baseline={"memory_usage_mb": "oops-not-a-dict"})
     healthy = build_metric_healthy(sit, lambda name: 210.0, ON)
     assert healthy() is False  # no usable baseline -> fail-safe, and crucially: no exception
+
+
+def test_metric_query_is_scoped_to_the_incidents_service():
+    """The metric must be verified for the service the incident is about.
+
+    query_value used to run the bare metric name and take max() across every
+    series, so service_up's max over four Meridian services was 1.0 whenever any
+    one of them was up - a still-down service verified as recovered.
+    """
+    seen: list[tuple] = []
+
+    def q(name, service=None):
+        seen.append((name, service))
+        return 1.0
+
+    ev = TelemetryEvent(
+        source="test",
+        kind=TelemetryKind.METRIC,
+        name="service_up",
+        value=0.0,
+        ts=NOW,
+        fingerprint="fp-service_up",
+        labels={"service": "meridian-validation"},
+    )
+    sit = Situation(
+        id="sit-scope",
+        status=SituationStatus.ACTING,
+        member_events=[ev],
+        severity="high",
+        first_seen=NOW,
+        last_seen=NOW,
+        signature="sig-scope",
+        baseline={"service_up": {"mean": 1.0, "std": 0.0}},
+    )
+    build_metric_healthy(sit, q, ON)()
+    assert seen == [("service_up", "meridian-validation")]
+
+
+def test_one_argument_query_value_still_works():
+    """The documented contract is Callable[[str], float | None]; honour it."""
+    sit = _sit([("service_up", 0.0)], baseline={"service_up": {"mean": 1.0, "std": 0.0}})
+    # _sit builds events with no labels, and this lambda takes only a name.
+    assert build_metric_healthy(sit, lambda name: 1.0, ON)() is True

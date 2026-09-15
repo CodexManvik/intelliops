@@ -58,6 +58,15 @@ class Settings(BaseSettings):
     # --- K8s remediation settings (test-safe defaults) ---
     remediator_mode: str = "dry_run"  # "dry_run" | "k8s"
     health_check_mode: str = "always"  # "always" | "k8s"
+    # How long the post-remediation check waits for BOTH signals (pod
+    # convergence + metric recovery). Must exceed the target's
+    # terminationGracePeriodSeconds: during a rolling restart
+    # status.replicas counts the surge pod, so readyReplicas == replicas
+    # cannot hold until the OLD pod is fully gone. The previous hardcoded
+    # 30.0 exactly equalled the default 30s grace period and so timed out
+    # by ~0.8s on every single restart, turning a successful fix into a
+    # reported rollback.
+    health_check_timeout_seconds: float = 90.0
     sandbox_mode: str = "off"  # "off" | "k8s"
     k8s_namespace: str = "intelliops-demo"
     meridian_ops_target_mode: str = "compose"  # "compose" | "k8s"

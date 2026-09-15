@@ -209,6 +209,10 @@ class TrainedCorrelator(BaseCorrelator):
     def correlate(self, events: list[TelemetryEvent], severity: str = "low") -> Situation:
         return self._robust.correlate(events, severity=severity)
 
+    def baseline_snapshot(self) -> dict:
+        """Delegate: the online baseline is the composed RobustCorrelator's."""
+        return self._robust.baseline_snapshot()
+
     def snapshot(self) -> list[dict]:
         # ENGINE BASELINE path: the robust windows, NOT the model artifact.
         return self._robust.snapshot()

@@ -211,6 +211,12 @@ class ReadModel:
                 "hitl_mode": o.hitl_mode.value
                 if hasattr(o.hitl_mode, "value")
                 else str(o.hitl_mode),
+                # Whether a real cluster was touched. The nested per-situation
+                # outcome already carried this, but the flat /outcomes feed - the
+                # one the console's history renders - dropped it, so "we really
+                # restarted a pod" and "we simulated it" were indistinguishable
+                # downstream. It is the whole point of the k8s posture.
+                "mode": getattr(o, "mode", "dry_run"),
                 "mttr_ms": mttr_ms,
             },
         )
