@@ -100,6 +100,9 @@ demoApp:
   port: 8080
 meridian:
   enabled: true
+  # Bind the gateway to a host port so /api/ops/fault is reachable without a
+  # kubectl port-forward. 0/empty keeps it cluster-internal.
+  gatewayNodePort: 30808
   image: ""              # "" → base image
   services:
     - { name: meridian-gateway, module: "services.meridian.gateway.app:app" }
@@ -109,6 +112,9 @@ meridian:
 prometheus:
   enabled: true
   image: prom/prometheus:v2.54.1   # pinned for reproducibility (not :latest)
+  # Host-reachable so a demo can show the raw series behind an incident.
+  # 0/empty keeps it cluster-internal.
+  nodePort: 30090
 
 # The React console: nginx serving the built SPA + same-origin reverse-proxy to
 # the read service (SSE-safe). Exposed via NodePort for the browser on kind.

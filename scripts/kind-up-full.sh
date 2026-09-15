@@ -74,6 +74,18 @@ fi
 
 helm "${HELM_ARGS[@]}"
 
+# --- 3b. force the new images to actually run -------------------------------
+# The image tag never changes (:latest / :full) and the chart uses
+# imagePullPolicy: IfNotPresent, so Helm sees an identical pod spec and keeps
+# the OLD pods. Without this, re-running the script after a code change
+# rebuilds and loads images, reports success, and deploys nothing.
+echo "→ Restarting workloads so the freshly-loaded images take effect…"
+for d in ingestion correlation rca action governance feedback read console \
+         demo-app meridian-gateway meridian-validation meridian-aggregation \
+         meridian-reporting; do
+  kubectl -n "$NAMESPACE" rollout restart "deploy/$d" >/dev/null 2>&1 || true
+done
+
 # --- 4. wait ---------------------------------------------------------------
 echo "→ Waiting for rollouts…"
 for d in ingestion correlation rca action governance feedback read console demo-app prometheus \
@@ -86,7 +98,8 @@ echo ""
 echo "✓ IntelliOps is up in kind cluster '$CLUSTER'."
 echo "  Console (live UI):   http://localhost:30080"
 echo "  Read service:        http://localhost:30007"
-echo "  Prometheus/Meridian: in-cluster (add a NodePort to inspect directly)."
+echo "  Meridian gateway:    http://localhost:30808  (inject faults here)"
+echo "  Prometheus:          http://localhost:30090"
 echo ""
 echo "  Inject a fault via the demo-app / Meridian /admin/fault endpoint and watch"
 echo "  detect → diagnose → approve → real pod remediation → per-metric verify in the console."
