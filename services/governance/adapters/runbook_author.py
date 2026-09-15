@@ -137,7 +137,17 @@ def _post_chat_completion(
         # the server advises (header first, then the message body).
         return None, "rate_limited", _parse_retry_after(resp)
     if resp.status_code != 200:
-        logger.info("runbook author endpoint status %s; no draft", resp.status_code)
+        # Log WHY. Without the body a 4xx is undiagnosable: a run ends `gave_up`
+        # with nothing in the log but a bare status code, and the operator cannot
+        # tell a rejected tool schema from an exhausted token budget from a bad
+        # model name. Truncated, and this endpoint's errors carry no secrets -
+        # the key travels in the request header, never the response.
+        detail = ""
+        try:
+            detail = " ".join(resp.text[:400].split())
+        except Exception:  # noqa: BLE001 - diagnostics must never break drafting
+            detail = "<unreadable body>"
+        logger.info("runbook author endpoint status %s; no draft: %s", resp.status_code, detail)
         return None, "terminal", None
     return resp, "ok", None
 

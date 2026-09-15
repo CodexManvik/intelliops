@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { MotionConfig } from "framer-motion";
 import { Shell, type View } from "./components/Shell";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Overview } from "./views/Overview";
 import { Incidents } from "./views/Incidents";
 import { Governance } from "./views/Governance";
@@ -25,11 +26,15 @@ export default function App() {
     <MotionConfig reducedMotion="user">
     <Shell view={view} onView={setView}>
       <div key={view} className="view-enter">
-        {view === "overview" && <Overview onView={setView} />}
-        {view === "incidents" && <Incidents onView={setView} onFocusRun={setFocusRun} />}
-        {view === "governance" && <Governance />}
-        {view === "agent-activity" && <AgentActivity focusRun={focusRun} setFocusRun={setFocusRun} />}
-        {view === "settings" && <System />}
+        {/* One view throwing must not blank the console. Keyed on `view` so
+            navigating away from a broken panel clears the error. */}
+        <ErrorBoundary resetKey={view}>
+          {view === "overview" && <Overview onView={setView} />}
+          {view === "incidents" && <Incidents onView={setView} onFocusRun={setFocusRun} />}
+          {view === "governance" && <Governance />}
+          {view === "agent-activity" && <AgentActivity focusRun={focusRun} setFocusRun={setFocusRun} />}
+          {view === "settings" && <System />}
+        </ErrorBoundary>
       </div>
     </Shell>
     </MotionConfig>
