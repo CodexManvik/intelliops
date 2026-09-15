@@ -145,15 +145,86 @@ def _owned_llm_config(settings) -> dict:
     return value
 
 
+# Which service OWNS each field. Reading these out of read-service's own
+# environment was not a staleness bug - it reported a different process's
+# configuration as fact (store_backend "file" while five services ran Postgres,
+# and on the k8s overlay it would claim river/dry_run while the cluster actually
+# ran robust with real remediation).
+_POSTURE_OWNERS = {
+    "correlator_kind": "correlation",
+    "detection_policy": "correlation",
+    "correlation_group_by": "correlation",
+    "remediator_mode": "action",
+    "health_check_mode": "action",
+    "sandbox_mode": "action",
+    "store_backend": "governance",
+    "runbook_selector_mode": "rca",
+}
+_posture_cache: dict = {"at": 0.0, "value": None}
+
+
+def _peer_url(settings, service: str) -> str | None:
+    # In compose/k8s every service listens on 8000 behind its own DNS name; the
+    # two we already have explicit settings for win, so an override still works.
+    if service == "rca":
+        return settings.rca_url
+    if service == "governance":
+        return settings.governance_url
+    base = settings.governance_url.rsplit("//", 1)[-1]
+    if "://" not in settings.governance_url or ":" not in base:
+        return None
+    port = base.rsplit(":", 1)[1]
+    scheme = settings.governance_url.split("://", 1)[0]
+    return f"{scheme}://{service}:{port}"
+
+
+def _owned_posture(settings) -> dict:
+    """Ask each owning service what it is actually running. Fails soft."""
+    now = time.monotonic()
+    if _posture_cache["value"] is not None and now - _posture_cache["at"] < _SYSTEM_CACHE_SECONDS:
+        return _posture_cache["value"]
+
+    headers = (
+        {"Authorization": f"Bearer {settings.auth_token}"}
+        if settings.auth_mode == "token" and settings.auth_token
+        else {}
+    )
+    fetched: dict[str, dict] = {}
+    out: dict = {}
+    with httpx.Client(timeout=2.0) as client:
+        for field, owner in _POSTURE_OWNERS.items():
+            if owner not in fetched:
+                fetched[owner] = {}
+                url = _peer_url(settings, owner)
+                if url:
+                    try:
+                        resp = client.get(f"{url}/config/posture", headers=headers)
+                        resp.raise_for_status()
+                        fetched[owner] = resp.json()
+                    except Exception as exc:  # noqa: BLE001 - never 500 on a peer
+                        logger.debug("posture unavailable from %s: %s", owner, exc)
+            body = fetched[owner]
+            if field in body:
+                out[field] = body[field]
+            else:
+                # Say the value is unverified rather than pass our own env off
+                # as the other service's configuration.
+                out[field] = getattr(settings, field, None)
+                out.setdefault("_unverified", []).append(field)
+
+    _posture_cache.update(at=now, value=out)
+    return out
+
+
 @app.get("/system")
 def system() -> dict:
     settings = get_settings()
+    posture = _owned_posture(settings)
     return {
-        "correlator_kind": settings.correlator_kind,
+        # read-service genuinely owns these two - it is the process answering.
         "bus_backend": settings.bus_backend,
-        "store_backend": settings.store_backend,
-        "remediator_mode": settings.remediator_mode,
         "auth_mode": settings.auth_mode,
+        **posture,
         "llm": _owned_llm_config(settings),
     }
 
