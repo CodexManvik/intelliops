@@ -18,6 +18,15 @@ models
 **/.pytest_cache
 **/.ruff_cache
 **/__pycache__
+**/*.pyc
 .claude
 .github
 *.md
+
+# Same non-recursive trap as `.venv` above: the bare `tests` and `docs` entries
+# match ONLY the ones at the context root, so every per-service suite under
+# services/*/tests was shipping into the production images - measured at 83 test
+# files, 556 KB of the 1744 KB /app/services tree (32%). Nothing imports them at
+# runtime and the build uses --no-install-project, so they are pure payload.
+**/tests
+**/docs

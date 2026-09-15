@@ -24,7 +24,7 @@ def test_playbook_parameter_is_actually_specified():
     pb = _playbook_schema()
     assert pb["type"] == "object"
     # A bare {"type": "object"} is what caused the bug.
-    assert "properties" in pb and pb["properties"], "playbook parameter has no schema"
+    assert pb.get("properties"), "playbook parameter has no schema"
 
 
 def test_hitl_mode_enum_matches_the_contract():
@@ -54,7 +54,9 @@ def test_required_fields_are_the_ones_the_validator_demands():
         for name, f in Playbook.model_fields.items()
         if f.is_required() and name != "id"  # id is server-assigned
     }
-    assert demanded <= set(pb["required"]), f"schema does not require {demanded - set(pb['required'])}"
+    assert demanded <= set(pb["required"]), (
+        f"schema does not require {demanded - set(pb['required'])}"
+    )
 
 
 def test_a_schema_shaped_submission_validates_as_a_playbook():

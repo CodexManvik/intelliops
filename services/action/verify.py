@@ -15,7 +15,6 @@ from collections.abc import Callable
 from common.contracts import Situation, TelemetryEvent, TelemetryKind
 from services.correlation.detection_policy import DetectionPolicy, classify
 
-
 # A window with zero spread still tells us something exact: the metric never
 # moved. Returning "no baseline" there made a perfectly flat metric unverifiable
 # forever. Mirrors _FLAT_TOLERANCE / _FLAT_STEP_SCORE in RobustCorrelator.
