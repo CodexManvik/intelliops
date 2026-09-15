@@ -1,3 +1,4 @@
+import math
 from datetime import UTC, datetime, timedelta
 
 from common.contracts import TelemetryEvent, TelemetryKind
@@ -22,15 +23,41 @@ def _feed_flat(c, name="cpu", value=10.0, n=40, hour=0):
         c.detect(_event(name=name, value=value, ts=ts0 + timedelta(seconds=i)))
 
 
-def test_flat_metric_never_flags():
-    """MAD == 0 (all-same values) must score 0.0, never inf/nan."""
+def test_flat_metric_unchanged_does_not_flag():
+    """MAD == 0 with an UNCHANGED value must score 0.0, never inf/nan."""
     c = RobustCorrelator(z_threshold=3.0, warmup_samples=10)
     _feed_flat(c, value=10.0, n=40)
     score = c.detect(_event(value=10.0, ts=datetime(2026, 8, 13, 0, 1, 0, tzinfo=UTC)))
     assert score == 0.0
-    # even a different value against a flat baseline must not blow up
-    score2 = c.detect(_event(value=999.0, ts=datetime(2026, 8, 13, 0, 1, 1, tzinfo=UTC)))
-    assert score2 == 0.0
+
+
+def test_step_off_a_flat_baseline_is_detected():
+    """Regression: this correlator was permanently blind to the most obvious
+    anomaly there is.
+
+    MAD == 0 means every sample in the window is identical, so the old code
+    returned 0.0 for ANY value - a metric pinned at 0.4 that jumped to 46.4
+    scored 0.00 forever while RiverCorrelator scored 10.91. It was measured
+    against the real tls_handshake_failures series, whose baseline is exactly
+    constant, which meant the whole escalation path could never fire under
+    `robust`. The previous version of this test asserted the broken behaviour,
+    which is why nothing caught it.
+
+    The inf/nan guard that test was really protecting is still asserted below.
+    """
+    c = RobustCorrelator(z_threshold=3.0, warmup_samples=10)
+    _feed_flat(c, value=10.0, n=40)
+    score = c.detect(_event(value=999.0, ts=datetime(2026, 8, 13, 0, 1, 1, tzinfo=UTC)))
+    assert score > 3.0, "a step off a perfectly flat baseline must be an anomaly"
+    assert math.isfinite(score), "must never be inf/nan"
+
+
+def test_tiny_float_noise_on_a_flat_baseline_does_not_flag():
+    """A re-published identical value must not read as an anomaly."""
+    c = RobustCorrelator(z_threshold=3.0, warmup_samples=10)
+    _feed_flat(c, value=10.0, n=40)
+    score = c.detect(_event(value=10.0 + 1e-12, ts=datetime(2026, 8, 13, 0, 1, 2, tzinfo=UTC)))
+    assert score == 0.0
 
 
 def test_spike_after_stable_window_scores_high():
