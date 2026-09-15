@@ -270,6 +270,11 @@ class ReadModel:
     _OPEN: ClassVar[set[str]] = {"detected", "diagnosed", "acting", "needs_attention"}
 
     def metrics(self) -> dict:
+        # Enforce the same cap situations() does. Without this the two endpoints
+        # count different sets, and the console renders them side by side: the
+        # noise-reduction tile said "N alerts -> 3 open" while the incident list
+        # directly beneath it showed 2. Same projection, two answers.
+        self._enforce_cap()
         sits = list(self._sits.values())
         outs = self._outcomes
         # Escalations are "we never tried", so they belong in neither the numerator

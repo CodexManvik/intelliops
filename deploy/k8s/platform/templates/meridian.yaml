@@ -53,10 +53,18 @@ metadata:
     {{- include "intelliops.labels" $root | nindent 4 }}
     {{- include "intelliops.selectorLabels" (dict "root" $root "name" .name) | nindent 4 }}
 spec:
+  {{- if and (eq .name "meridian-gateway") $root.Values.meridian.gatewayNodePort }}
+  # The gateway owns /api/ops/fault, so a demo needs it reachable from the host.
+  # kind-config-full.yaml already reserves this port.
+  type: NodePort
+  {{- end }}
   selector:
     {{- include "intelliops.selectorLabels" (dict "root" $root "name" .name) | nindent 4 }}
   ports:
     - port: 8000
       targetPort: 8000
+      {{- if and (eq .name "meridian-gateway") $root.Values.meridian.gatewayNodePort }}
+      nodePort: {{ $root.Values.meridian.gatewayNodePort }}
+      {{- end }}
 {{- end }}
 {{- end }}

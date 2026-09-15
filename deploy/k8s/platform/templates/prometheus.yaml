@@ -76,9 +76,17 @@ metadata:
     {{- include "intelliops.labels" . | nindent 4 }}
     {{- include "intelliops.selectorLabels" (dict "root" . "name" "prometheus") | nindent 4 }}
 spec:
+  {{- if .Values.prometheus.nodePort }}
+  # Reachable from the host so a demo can show the raw series behind an incident.
+  # kind-config-full.yaml already reserves this port.
+  type: NodePort
+  {{- end }}
   selector:
     {{- include "intelliops.selectorLabels" (dict "root" . "name" "prometheus") | nindent 4 }}
   ports:
     - port: 9090
       targetPort: 9090
+      {{- if .Values.prometheus.nodePort }}
+      nodePort: {{ .Values.prometheus.nodePort }}
+      {{- end }}
 {{- end }}
