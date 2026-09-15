@@ -160,66 +160,135 @@ docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.auth.yml do
 ## Act 2 — real remediation on a kind cluster (the climax)
 
 The same loop, but approving restarts a **real pod** and a **real health check** verifies recovery.
-This is the PPO centerpiece. The cluster mechanics (kubeconfig rewrite, the Windows `/tmp` gotcha,
-the network join) are covered in **[deploy/k8s/README.md](../deploy/k8s/README.md)** — follow it for
-the exact setup; the narrative below is the demo flow.
+This is the PPO centerpiece, and it is a **single self-contained cluster** — all seven services,
+the Meridian sample production system, demo-app, Postgres, Redis, Prometheus and the React console
+run *inside* kind. There is no compose stack and no kubeconfig plumbing in this path.
 
-### 1. Bring up the cluster
+> Every command below was run end-to-end against a cluster built from
+> `kind delete cluster` on 2026-09-15; the timings quoted are what it actually did.
 
-```bash
-./scripts/kind-up.sh
-```
-
-Creates the `intelliops` kind cluster, builds + loads the demo-app image, applies the demo
-namespace + Prometheus, and waits for the rollouts. Then export the container-facing kubeconfig
-(the exact `sed` rewrite is in the k8s README — the in-container kubeconfig can't use kind's
-`127.0.0.1` server address).
-
-### 2. Start the stack with the k8s overlay
+### 1. Bring the whole platform up
 
 ```bash
-docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.k8s.yml up --build
+GROQ_API_KEY=gsk_... ./scripts/kind-up-full.sh
 ```
 
-The overlay sets `REMEDIATOR_MODE=k8s` + `HEALTH_CHECK_MODE=k8s` on the action service, points
-ingestion + action at the in-cluster Prometheus, joins action to the `kind` network, and mounts the
-kubeconfig. (You can layer the auth overlay from Act 1 on top too, if you want auth on for this run.)
+That builds the three images, loads them into kind, installs the chart with the **LIVE** posture
+(`values-live.yaml`: `robust` correlation, `embedding` runbook selection, **real k8s remediation**,
+per-metric health verification, at-least-once delivery), and wires your key into a Secret. Without
+`GROQ_API_KEY` the stack still comes up and LLM explanations fall back to template.
 
-### 3. Break the in-cluster workload
+A cold run takes a while: it pulls a CPU torch wheel, bakes the embedding model, and pulls
+`postgres:16`/`redis:7`/`prom/prometheus` from Docker Hub. The script now **fails loudly** if any
+workload never becomes ready rather than printing a checkmark over a broken stack.
 
-Break the **in-cluster** demo-app (not the compose one) — in `k8s` mode ingestion scrapes the
-in-cluster Prometheus:
+When it finishes:
+
+| What | URL |
+|---|---|
+| Console (the live UI) | http://localhost:30080 |
+| Read service | http://localhost:30007 |
+| Meridian gateway (inject faults here) | http://localhost:30808 |
+| Prometheus | http://localhost:30090 |
+
+Confirm it is genuinely up — the banner is not proof on its own:
 
 ```bash
-kubectl -n intelliops-demo exec deploy/demo-app -- \
-  python -c "import urllib.request; urllib.request.urlopen(urllib.request.Request('http://localhost:8080/break', method='POST'))"
+kubectl get pods
+curl -s http://localhost:30007/system | python -m json.tool
 ```
 
-### 4. Approve → watch a real pod remediate
+`/system` asks each service what it is *actually* running, so `remediator_mode` reading `k8s` is the
+cluster's own answer, not the read service's environment.
 
-Watch the console detect and diagnose it, then **Approve** at the HITL gate. In another terminal:
+### 2. Break a real workload
+
+Meridian's four services are the fault source. The gateway is the one bound to a host port; reach
+the others through any pod. `crash` drives `service_up` 1 → 0, which is the cleanest story because
+the fix is a pod restart you can watch:
 
 ```bash
-kubectl -n intelliops-demo get pods -w
+kubectl exec deploy/read -- python -c "import httpx; print(httpx.post('http://meridian-validation:8000/admin/fault', json={'type':'crash','magnitude':1.0}, timeout=10).text)"
 ```
 
-You'll see the `demo-app` pod terminate and a fresh one come up — a real `rollout restart`. The
-in-cluster `cpu_usage` recovers, the health check (also in `k8s` mode) confirms, and the outcome is
-`success / healthy` — a **real** recovery, not a simulated one.
-
-> **The reversible-only safety property (ADR-007):** if the fix doesn't restore health, the action
-> service runs the real `rollback_steps` and reports `rolled_back` rather than a false success. The
-> `restart-pod` playbook is the clean-success path; `scale-service` may roll back (scaling doesn't
-> clear the in-process fault). See [deploy/k8s/README.md](../deploy/k8s/README.md) for which
-> playbook does what on the real cluster.
-
-### 5. Tear down
+Watch the target in another terminal:
 
 ```bash
-./scripts/kind-down.sh
-# stop the compose stack separately:
-docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.k8s.yml down
+kubectl get pods -l app.kubernetes.io/name=meridian-validation -w
 ```
+
+### 3. Detect → diagnose → approve
+
+The console shows the incident appear, then a hypothesis and a suggested runbook. From the CLI:
+
+```bash
+curl -s http://localhost:30007/situations | python -m json.tool
+```
+
+Measured across three verified runs: the Situation appeared **17-30s** after injection (Prometheus
+scrape + ingestion poll + correlation window), RCA attached `service is down — the process stopped
+serving` → `restart-pod` **8-14s** later once the correlator is warm (the first incident after a
+cold start took ~90s while baselines filled), and the approval request followed in **under a
+second**. Budget ~45s from injection to the HITL gate, and do not narrate it as instant.
+
+Nothing runs until a human decides. Approve in the console, or:
+
+```bash
+kubectl exec deploy/read -- python -c "import httpx; print(httpx.post('http://governance:8000/approvals/appr-<situation-id>/decide', json={'decision':'approved','decided_by':'oncall-alice'}, timeout=20).status_code)"
+```
+
+### 4. Watch a real pod remediate, and a real check verify it
+
+The `kubectl get pods -w` window shows the pod **terminate and a new one come up** — a real
+`rollout restart`, about **5s** after approval. The pod *name changes*, which is the proof this is
+not dry-run. Then:
+
+```bash
+curl -s http://localhost:30007/outcomes | python -m json.tool
+```
+
+The outcome carries `"mode": "k8s"` — a real cluster was touched — and `"result": "success"` once
+the per-metric check confirms `service_up` is back to its baseline **for that service**. The
+verification predicate converges in about **8s**.
+
+> **The reversible-only safety property (ADR-007):** if health is not restored, the action service
+> runs the real `rollback_steps` and reports `rolled_back` rather than a false success.
+
+### 5. The gap path — an incident with no runbook
+
+The more interesting half. `unknown_signal` moves `tls_handshake_failures`, a metric family **no RCA
+rule matches**:
+
+```bash
+kubectl exec deploy/read -- python -c "import httpx; print(httpx.post('http://meridian-reporting:8000/admin/fault', json={'type':'unknown_signal','magnitude':1.0}, timeout=10).text)"
+```
+
+It is still detected — `tls_handshake_failures` has a perfectly flat baseline, and the `robust`
+correlator handles zero-variance windows — but no runbook is invented for it. The incident reaches
+**needs_attention**, and the console offers **"Draft a runbook with AI"**: the governance agent
+reads the incident plus past outcomes, calls tools, and proposes a `ProposedPlaybook` for a human to
+approve. Nothing it drafts is auto-applied.
+
+### 6. Reset between runs
+
+**Do this before demoing.** The action service consumes diagnosed incidents serially and waits
+inline for a human decision, so an incident left undecided blocks later ones until it times out
+(`HITL_POLL_TIMEOUT_SECONDS`, 120s in the live posture). Clear the slate:
+
+```bash
+for s in meridian-gateway meridian-validation meridian-reporting meridian-aggregation; do
+  kubectl exec deploy/read -- python -c "import httpx; httpx.post('http://$s:8000/admin/clear', json={}, timeout=10)"
+done
+curl -s -X POST http://localhost:30007/reset
+kubectl exec deploy/read -- python -c "import httpx; [httpx.post(u, json={}, timeout=15) for u in ['http://governance:8000/reset-approvals','http://governance:8000/reset-proposed']]"
+```
+
+### 7. Tear down
+
+```bash
+kind delete cluster --name intelliops
+```
+
 
 ---
 

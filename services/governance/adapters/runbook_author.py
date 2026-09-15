@@ -344,7 +344,13 @@ class RunbookAuthorAgent:
         toolbox_factory: Callable[[Situation], AuthorToolbox] | None = None,
         timeout_seconds: float = 10.0,
         max_attempts: int = 3,
-        max_rounds: int = 6,
+        # The agent spends one round per tool call. It has five read tools and
+        # uses all of them for grounding, so a budget of 6 left exactly one
+        # round to submit and none to correct a rejected submission - a single
+        # invalid draft ended the run with no proposal. 9 leaves room for the
+        # research pass plus a couple of resubmits, and the loop still exits
+        # immediately on the first VALID submit, so a healthy run costs no more.
+        max_rounds: int = 9,
         http_client=None,
     ) -> None:
         self._base = base_url.rstrip("/")
