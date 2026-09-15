@@ -36,15 +36,8 @@ CMD ["sh", "-c", "uvicorn \"$SERVICE_MODULE\" --host 0.0.0.0 --port \"$PORT\""]
 FROM builder-base AS full
 RUN uv sync --frozen --no-dev --extra ml --extra k8s --no-install-project
 
-COPY common/ ./common/
-COPY services/ ./services/
-COPY policies/ ./policies/
-COPY config/ ./config/
-COPY deploy/playbooks/ ./data/playbooks/
-COPY alembic.ini ./alembic.ini
-COPY alembic/ ./alembic/
-RUN uv sync --frozen --no-dev --extra ml --extra k8s --no-install-project
-
+# Everything from here to the source COPY depends only on the dependency set,
+# so it stays cached when project source changes. Keep the COPYs last.
 # torch is used for INFERENCE ONLY (sentence-transformers .encode for cosine fit;
 # no training/CUDA). pyproject.toml pins torch to the CPU-only PyTorch index
 # (`[tool.uv.sources]` + `[[tool.uv.index]] pytorch-cpu`), so the `uv sync` above
@@ -66,6 +59,15 @@ RUN /app/.venv/bin/python -c "from sentence_transformers import SentenceTransfor
 # cluster). Loads straight from the cache above.
 ENV HF_HUB_OFFLINE=1
 ENV TRANSFORMERS_OFFLINE=1
+
+COPY common/ ./common/
+COPY services/ ./services/
+COPY policies/ ./policies/
+COPY config/ ./config/
+COPY deploy/playbooks/ ./data/playbooks/
+COPY alembic.ini ./alembic.ini
+COPY alembic/ ./alembic/
+RUN uv sync --frozen --no-dev --extra ml --extra k8s --no-install-project
 
 ENV PATH="/app/.venv/bin:${PATH}"
 ENV SERVICE_MODULE=services.ingestion.app:app

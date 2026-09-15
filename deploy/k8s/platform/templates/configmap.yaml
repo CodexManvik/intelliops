@@ -54,6 +54,10 @@ data:
   # How long the action service waits for a human HITL decision before aborting.
   # The default 30s is too short to click Approve in the UI live — raised in values-live.
   INTELLIOPS_HITL_POLL_TIMEOUT_SECONDS: {{ .Values.env.HITL_POLL_TIMEOUT_SECONDS | quote }}
+  # Post-remediation verification deadline. MUST exceed the target's
+  # terminationGracePeriodSeconds or a successful fix is reported as a
+  # rollback (the old pod still counts toward status.replicas).
+  INTELLIOPS_HEALTH_CHECK_TIMEOUT_SECONDS: {{ .Values.env.HEALTH_CHECK_TIMEOUT_SECONDS | quote }}
   # LLM explainer endpoint/model (non-secret). The API KEY is NOT here — it is
   # injected on the rca pod via a Secret (secretKeyRef), never the configmap.
   INTELLIOPS_LLM_EXPLANATION_ENDPOINT: {{ .Values.env.LLM_EXPLANATION_ENDPOINT | quote }}

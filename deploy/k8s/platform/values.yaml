@@ -61,6 +61,10 @@ env:
   REMEDIATOR_MODE: "dry_run"        # k8s in values-live (real remediation)
   SANDBOX_MODE: "off"               # k8s in values-live (pre-flight rehearsal)
   HEALTH_CHECK_MODE: "always"       # k8s in values-live (Phase 4 per-metric verify)
+  # Must stay comfortably above the remediated workload's termination grace
+  # period; see the configmap comment. 30 (the old hardcoded value) equalled
+  # the default grace period and so always lost by a fraction of a second.
+  HEALTH_CHECK_TIMEOUT_SECONDS: "90"
   PROMETHEUS_URL: "http://prometheus:9090"
   TELEMETRY_MODE: "file"            # "prometheus" in values-live (poll real metrics)
   PROMETHEUS_QUERY: "cpu_usage"     # values-live widens this to all metric families
@@ -104,6 +108,10 @@ meridian:
   # kubectl port-forward. 0/empty keeps it cluster-internal.
   gatewayNodePort: 30808
   image: ""              # "" → base image
+  # Stateless simulators with nothing to flush. Kept well below the health
+  # check's deadline so a remediated pod stops counting toward status.replicas
+  # quickly and verification can actually observe recovery.
+  terminationGracePeriodSeconds: 5
   services:
     - { name: meridian-gateway, module: "services.meridian.gateway.app:app" }
     - { name: meridian-validation, module: "services.meridian.validation.app:app" }

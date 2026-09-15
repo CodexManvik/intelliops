@@ -21,8 +21,22 @@ env:
   SANDBOX_MODE: "off"
   HEALTH_CHECK_MODE: "k8s"           # Phase 4 — verify the firing metric recovered
   # A human needs time to click Approve in the console before the action service
-  # gives up and aborts:timeout. 10 minutes.
-  HITL_POLL_TIMEOUT_SECONDS: "600"
+  # gives up and aborts:timeout.
+  #
+  # This is ALSO the blast radius of a known limitation: services/action/consumer.py
+  # consumes `situations.diagnosed` in a single serial loop and performs the HITL
+  # wait inline, so an incident nobody decides blocks EVERY later incident for
+  # this long. Measured on a live cluster: one undecided approval backed up 25
+  # events (group=action lag=25) while the read model stayed at lag=0, and the
+  # escalation path - which needs no approval at all - was stuck behind it.
+  # At 600 that was a ~4h stall. 120s is still ample to narrate and click, and
+  # caps the damage if an incident is left undecided.
+  #
+  # The real fix is to stop blocking the consume loop on human input; that
+  # cannot be done by simply threading the loop, because RedisBus.consume acks
+  # at the point the generator resumes, so dispatching to a pool would ack
+  # before the work completed and silently break at-least-once delivery.
+  HITL_POLL_TIMEOUT_SECONDS: "120"
   PROMETHEUS_URL: "http://prometheus:9090"
   # Ingestion polls Prometheus live. The query is a __name__ regex selector across
   # every USE+RED family the arc detects, so faults on any of them flow into a

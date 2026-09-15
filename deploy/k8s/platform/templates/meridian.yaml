@@ -26,10 +26,23 @@ spec:
       labels:
         {{- include "intelliops.selectorLabels" (dict "root" $root "name" .name) | nindent 8 }}
     spec:
+      # These are stateless fault simulators with nothing to flush. The default
+      # 30s grace directly delays post-remediation verification: during a rolling
+      # restart status.replicas counts the surge pod, so the health check's
+      # readyReplicas == replicas cannot hold until the OLD pod is gone. Measured
+      # at the 30s default the predicate first went true at 30.8s; at 5s it
+      # converges in ~6s, which is also what makes the demo feel immediate.
+      terminationGracePeriodSeconds: {{ $root.Values.meridian.terminationGracePeriodSeconds | default 5 }}
       containers:
         - name: {{ .name }}
           image: {{ $img | quote }}
           imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          # The shared platform env. Meridian was the only workload that did not
+          # mount it, so it never received INTELLIOPS_REDIS_URL and its /ready
+          # was permanently 503 on a dependency it could actually reach.
+          envFrom:
+            - configMapRef:
+                name: intelliops-env
           env:
             - name: SERVICE_MODULE
               value: {{ .module | quote }}

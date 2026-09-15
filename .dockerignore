@@ -8,3 +8,16 @@ docs
 tests
 data
 models
+# Docker's ignore patterns do NOT recurse: the bare `.venv` above matches only
+# the one at the context root. A cold `kind-up-full.sh` was shipping 400MB+ of
+# build context because frontend/node_modules and the virtualenvs inside
+# .claude/worktrees (one holds a full CPU torch install) were all being sent.
+# None of it is used by any Dockerfile - the images install their own deps.
+**/node_modules
+**/.venv
+**/.pytest_cache
+**/.ruff_cache
+**/__pycache__
+.claude
+.github
+*.md
