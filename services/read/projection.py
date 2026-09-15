@@ -124,6 +124,10 @@ class ReadModel:
             "peak_score": s.peak_score,
             "baseline": s.baseline,
             "first_seen": _epoch_ms(s.first_seen),
+            # Required by the Situation contract. The console posts a situation
+            # back to governance for AI drafting, and without this that request
+            # is rejected 422 - the projection was not round-trippable.
+            "last_seen": _epoch_ms(s.last_seen),
             "hypotheses": existing.get("hypotheses", []),
             "suggested_runbook_id": existing.get("suggested_runbook_id"),
             "hitl_mode": existing.get("hitl_mode", "hitl"),

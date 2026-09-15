@@ -80,11 +80,27 @@ helm "${HELM_ARGS[@]}"
 # the OLD pods. Without this, re-running the script after a code change
 # rebuilds and loads images, reports success, and deploys nothing.
 echo "→ Restarting workloads so the freshly-loaded images take effect…"
-for d in ingestion correlation rca action governance feedback read console \
-         demo-app meridian-gateway meridian-validation meridian-aggregation \
-         meridian-reporting; do
-  kubectl -n "$NAMESPACE" rollout restart "deploy/$d" >/dev/null 2>&1 || true
+# Listed on one line on purpose: backslash continuations in a CRLF-checked-out
+# script become an escaped CR instead of a line join.
+RESTART_TARGETS="ingestion correlation rca action governance feedback read console demo-app meridian-gateway meridian-validation meridian-aggregation meridian-reporting"
+RESTARTED=0
+for d in $RESTART_TARGETS; do
+  # Deliberately NOT silenced. The first version of this step hid its own output
+  # behind >/dev/null 2>&1 || true and then failed invisibly - the script
+  # reported success while the cluster kept running the PREVIOUS build, which is
+  # the exact failure this step exists to prevent. A restart that cannot happen
+  # has to be visible.
+  if kubectl -n "$NAMESPACE" rollout restart "deploy/$d" 2>&1 | sed 's/^/    /'; then
+    RESTARTED=$((RESTARTED + 1))
+  else
+    echo "    ! could not restart deploy/$d - it may still be running OLD code" >&2
+  fi
 done
+echo "  restarted $RESTARTED workload(s)."
+if [ "$RESTARTED" -eq 0 ]; then
+  echo "  ! NOTHING was restarted - the cluster is probably still running the" >&2
+  echo "    previous images. Re-run, or: kubectl rollout restart deploy/<name>" >&2
+fi
 
 # --- 4. wait ---------------------------------------------------------------
 echo "→ Waiting for rollouts…"

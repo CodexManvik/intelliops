@@ -280,3 +280,36 @@ def test_finalize_proposal_called_directly_matches_sync_endpoint_shape():
     assert decisions[0].playbook_id == proposal.playbook.id
     assert decisions[0].disposition == AuthorDecisionDisposition.PENDING
     assert decisions[0].cited_facts == ["fact-1"]
+
+
+def test_draft_accepts_the_read_projection_shape():
+    """Regression: the console posts the READ PROJECTION, not a Situation.
+
+    ProposeRequest used to require the full Situation contract, so every draft
+    from the console 422'd - and the "Draft a runbook with AI" button is only
+    ever offered on a needs_attention incident, whose projection carries a status
+    that is deliberately NOT in SituationStatus, epoch-millisecond timestamps,
+    and member_events without source/fingerprint. The endpoint now asks for the
+    three fields the author actually reads.
+    """
+    from services.governance.app import ProposeRequest
+
+    projection_shaped = {
+        "situation": {
+            "id": "sit-615a054e",
+            "signature": "615a054e",
+            "severity": "high",
+            # everything below is what the projection really sends and the
+            # contract used to choke on:
+            "status": "needs_attention",
+            "first_seen": 1789451685272,
+            "member_events": [{"name": "tls_handshake_failures", "value": 46.4, "kind": "metric"}],
+            "hypotheses": [],
+            "memberCount": 1,
+        },
+        "requested_by": "oncall-alice",
+    }
+    req = ProposeRequest.model_validate(projection_shaped)
+    assert req.situation.id == "sit-615a054e"
+    assert req.situation.signature == "615a054e"
+    assert req.situation.severity == "high"
