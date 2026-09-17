@@ -3,11 +3,12 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "IntelliOps CoE — internal operator console (Overview · Incidents · Governance)",
+  "description": "IntelliOps CoE \u2014 internal operator console (Overview \u00b7 Incidents \u00b7 Governance)",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "build": "node scripts/check-contrast.mjs && tsc -b && vite build",
+    "preview": "vite preview",
+    "check:contrast": "node scripts/check-contrast.mjs"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.7",

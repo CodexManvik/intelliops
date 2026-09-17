@@ -58,7 +58,7 @@ export class ErrorBoundary extends Component<Props, State> {
         <button
           type="button"
           onClick={() => this.setState({ error: null })}
-          className="mt-4 rounded-lg border border-line px-3 py-1.5 text-sm hover:bg-white/5"
+          className="mt-4 rounded-lg border border-line px-3 py-1.5 text-sm hover:bg-surface-2"
         >
           Try again
         </button>

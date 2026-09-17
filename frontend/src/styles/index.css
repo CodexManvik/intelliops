@@ -19,8 +19,108 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
+  /* ------------------------------------------------------------------------
+     Theme tokens.
+
+     Every colour is stored as space-separated RGB channels so Tailwind can
+     write `rgb(var(--ground) / <alpha-value>)` and opacity modifiers keep
+     working (`bg-signal/12`, `border-line/40`). A hex value here would break
+     every one of those.
+
+     Two concrete themes, no media query: a tiny inline script in index.html
+     resolves "system" to `light` or `dark` and stamps `data-theme` on <html>
+     before first paint, and the theme hook keeps it in sync when the OS
+     preference changes. That keeps this file to two blocks instead of a
+     specificity puzzle, and removes the flash of the wrong theme.
+  --------------------------------------------------------------------------- */
+  :root,
+  :root[data-theme="dark"] {
     color-scheme: dark;
+
+    --ground: 10 10 10;
+    --ground-raised: 17 17 17;
+    --ground-sunken: 0 0 0;
+
+    /* A subtle step up from the card, for nested blocks. These replace the
+       `bg-white/[0.0x]` washes, which are invisible on a light ground. */
+    --surface: 20 20 20;
+    --surface-2: 26 26 26;
+    --surface-3: 36 36 36;
+
+    --ink: 237 237 237;
+    --ink-2: 180 180 180;
+    --ink-3: 156 156 156;
+    --ink-4: 142 142 142;
+
+    --line: 36 36 36;
+    --line-strong: 46 46 46;
+
+    --signal: 82 168 255;
+    --signal-dim: 0 114 245;
+
+    --sev-ok: 98 192 115;
+    --sev-warn: 255 178 36;
+    --sev-crit: 255 99 105;
+    --sev-info: 143 143 245;
+    --sev-attention: 191 122 240;
+
+    /* Chart series, in draw order. Dark-ground tuned. */
+    --chart-1: 82 168 255;
+    --chart-2: 98 192 115;
+    --chart-3: 255 178 36;
+    --chart-4: 191 122 240;
+    --chart-5: 255 99 105;
+    --chart-6: 143 143 245;
+
+    --scroll-thumb: 46 46 46;
+    --scroll-thumb-hover: 69 69 69;
+  }
+
+  /* Light is a real inversion, not the dark palette lightened. The surface
+     step flips: on dark a card is LIGHTER than the page, on light it is
+     white against an off-white page, so `raised` still means "this lifts".
+     Every ink tone and every severity colour is re-picked for AA on white
+     rather than reused, because #62C073 on white is 2.1:1. */
+  :root[data-theme="light"] {
+    color-scheme: light;
+
+    --ground: 250 250 250;
+    --ground-raised: 255 255 255;
+    --ground-sunken: 242 242 242;
+
+    --surface: 247 247 247;
+    --surface-2: 240 240 240;
+    --surface-3: 232 232 232;
+
+    --ink: 23 23 23;
+    --ink-2: 74 74 74;
+    --ink-3: 92 92 92;
+    --ink-4: 103 103 103;
+
+    --line: 234 234 234;
+    --line-strong: 214 214 214;
+
+    --signal: 0 96 196;
+    --signal-dim: 0 74 155;
+
+    --sev-ok: 20 104 67;
+    --sev-warn: 138 80 0;
+    --sev-crit: 184 30 36;
+    --sev-info: 67 64 196;
+    --sev-attention: 124 58 173;
+
+    --chart-1: 0 96 196;
+    --chart-2: 20 104 67;
+    --chart-3: 138 80 0;
+    --chart-4: 124 58 173;
+    --chart-5: 184 30 36;
+    --chart-6: 67 64 196;
+
+    --scroll-thumb: 214 214 214;
+    --scroll-thumb-hover: 180 180 180;
+  }
+
+  :root {
     /* One z-scale, so nothing has to reach for 9999 later. */
     --z-base: 0;
     --z-raised: 10;
@@ -42,8 +142,12 @@
        page that just reads as murk. A crisp dark UI gets its depth from 1px
        rules and a real surface step (#0A0A0A page, #111111 card), not from
        ambient glow. */
-    background-color: #0a0a0a;
-    color: #ededed;
+    background-color: rgb(var(--ground));
+    color: rgb(var(--ink));
+    /* The switch itself should read as a change of light, not as a redraw. */
+    transition:
+      background-color 220ms cubic-bezier(0.32, 0.72, 0, 1),
+      color 220ms cubic-bezier(0.32, 0.72, 0, 1);
     font-family: "Geist", ui-sans-serif, system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
@@ -67,8 +171,8 @@
   }
 
   ::selection {
-    background: rgba(82, 168, 255, 0.3);
-    color: #ffffff;
+    background: rgb(var(--signal) / 0.3);
+    color: rgb(var(--ink));
   }
 
   /* Every number in an ops surface is compared against the one above it, so
@@ -84,7 +188,7 @@
   /* Keyboard focus was previously inherited from the browser default, which is
      invisible on a dark ground. */
   :where(a, button, [role="button"], [tabindex]):focus-visible {
-    outline: 2px solid #52a8ff;
+    outline: 2px solid rgb(var(--signal));
     outline-offset: 2px;
     border-radius: 6px;
   }
@@ -102,19 +206,18 @@
   /* thin, unobtrusive scrollbars in the ops surfaces */
   * {
     scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+    scrollbar-color: rgb(var(--scroll-thumb)) transparent;
   }
   *::-webkit-scrollbar {
     width: 8px;
     height: 8px;
   }
   *::-webkit-scrollbar-thumb {
-    /* was a black thumb, i.e. invisible against the dark track */
-    background: #2e2e2e;
+    background: rgb(var(--scroll-thumb));
     border-radius: 8px;
   }
   *::-webkit-scrollbar-thumb:hover {
-    background: #454545;
+    background: rgb(var(--scroll-thumb-hover));
   }
 }
 
@@ -146,7 +249,7 @@
   top: 1rem;
   padding: 0.6rem 1rem;
   border-radius: 0.6rem;
-  background: #111111;
-  color: #ededed;
-  border: 1px solid #2e2e2e;
+  background: rgb(var(--ground-raised));
+  color: rgb(var(--ink));
+  border: 1px solid rgb(var(--line-strong));
 }

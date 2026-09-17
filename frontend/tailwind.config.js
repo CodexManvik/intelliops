@@ -1,34 +1,59 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
-  darkMode: "class",
+  // The theme is stamped on <html> as data-theme by the pre-paint script in
+  // index.html; nothing in the app uses Tailwind's own `dark:` variant.
+  darkMode: ['selector', '[data-theme="dark"]'],
   theme: {
     extend: {
       colors: {
-        // Neutral near-black, in the Vercel/Geist manner: no hue at all, so the
-        // one accent is the only colour on the page that isn't data. The first
-        // pass tinted these blue, which read as murk rather than as a surface.
-        ground: { DEFAULT: "#0A0A0A", raised: "#111111", sunken: "#000000" },
-        // Pure-neutral greys. ink-3 carries most of the 11px operational
-        // detail, so it is set to clear WCAG AA on `raised` (5.8:1) rather than
-        // chosen by eye.
-        ink: { DEFAULT: "#EDEDED", 2: "#A1A1A1", 3: "#8F8F8F", 4: "#7D7D7D" },
-        // Hairlines. These are deliberately VISIBLE: a 1px #2E2E2E rule doing
-        // the work is what separates a crisp dark UI from a soft one, and it
-        // removes the need for shadows to imply an edge.
-        line: { DEFAULT: "#242424", strong: "#2E2E2E" },
+        // Every colour resolves through a CSS custom property holding RGB
+        // channels, so the same class works in both themes and Tailwind's
+        // opacity modifiers still compose (`bg-signal/12`, `border-line/40`).
+        // The values live in src/styles/index.css; this file only names them.
+        ground: {
+          DEFAULT: "rgb(var(--ground) / <alpha-value>)",
+          raised: "rgb(var(--ground-raised) / <alpha-value>)",
+          sunken: "rgb(var(--ground-sunken) / <alpha-value>)",
+        },
+        // A subtle step up from the card, for nested blocks. Replaces the
+        // `bg-white/[0.0x]` washes, which are invisible on a light ground.
+        surface: {
+          DEFAULT: "rgb(var(--surface) / <alpha-value>)",
+          2: "rgb(var(--surface-2) / <alpha-value>)",
+          3: "rgb(var(--surface-3) / <alpha-value>)",
+        },
+        // ink-3 carries most of the 11px operational detail, so each tone is
+        // set to clear WCAG AA on `raised` in BOTH themes rather than chosen
+        // by eye. scripts/check-contrast.mjs enforces it.
+        ink: {
+          DEFAULT: "rgb(var(--ink) / <alpha-value>)",
+          2: "rgb(var(--ink-2) / <alpha-value>)",
+          3: "rgb(var(--ink-3) / <alpha-value>)",
+          4: "rgb(var(--ink-4) / <alpha-value>)",
+        },
+        // Hairlines. Deliberately visible: a 1px rule doing the work is what
+        // separates a crisp UI from a soft one, and it removes the need for
+        // shadows to imply an edge.
+        line: {
+          DEFAULT: "rgb(var(--line) / <alpha-value>)",
+          strong: "rgb(var(--line-strong) / <alpha-value>)",
+        },
         // One accent, used for text, rules, focus and the primary chart series.
-        // Lifted to 7.5:1 on `raised` so it never needs a lighter variant.
-        signal: { DEFAULT: "#52A8FF", dim: "#0072F5", glow: "rgba(82,168,255,0.14)" },
-        // Five severity tones, all AA on `raised`. `attention` stays distinct
-        // from warn and crit: "stopped, a human is needed" must not read as
-        // "currently remediating" or "the fix failed".
+        signal: {
+          DEFAULT: "rgb(var(--signal) / <alpha-value>)",
+          dim: "rgb(var(--signal-dim) / <alpha-value>)",
+          glow: "rgb(var(--signal) / 0.14)",
+        },
+        // Five severity tones. `attention` stays distinct from warn and crit:
+        // "stopped, a human is needed" must not read as "currently
+        // remediating" or "the fix failed".
         sev: {
-          ok: "#62C073",
-          warn: "#FFB224",
-          crit: "#FF6369",
-          info: "#8F8FF5",
-          attention: "#BF7AF0",
+          ok: "rgb(var(--sev-ok) / <alpha-value>)",
+          warn: "rgb(var(--sev-warn) / <alpha-value>)",
+          crit: "rgb(var(--sev-crit) / <alpha-value>)",
+          info: "rgb(var(--sev-info) / <alpha-value>)",
+          attention: "rgb(var(--sev-attention) / <alpha-value>)",
         },
       },
       fontFamily: {

@@ -112,7 +112,7 @@ function Kpi({
   suffix = "",
   sub,
   spark,
-  color = "#52A8FF",
+  color = "rgb(var(--chart-1))",
   decimals = 0,
 }: {
   label: string;
@@ -186,7 +186,7 @@ function aiExplainerState(llm: SystemInfo["llm"]) {
   if (llm.endpoint_configured) {
     return { kind: "unverified" as const, tone: "text-signal bg-signal/10 border-signal/25", icon: <Circuitry size={12} weight="light" />, label: `LLM configured · ${llm.model}` };
   }
-  return { kind: "template" as const, tone: "text-ink-2 bg-white/[0.06] border-line-strong", icon: <Circuitry size={12} weight="light" />, label: "Template (no model wired)" };
+  return { kind: "template" as const, tone: "text-ink-2 bg-surface-2 border-line-strong", icon: <Circuitry size={12} weight="light" />, label: "Template (no model wired)" };
 }
 
 export function Overview({ onView }: { onView: (v: View) => void }) {
@@ -281,7 +281,7 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
             ].map((st, i) => (
               <li
                 key={st.n}
-                className="rounded-lg border border-line bg-white/[0.02] px-3 py-3 transition-colors duration-200 hover:border-line-strong hover:bg-white/[0.04]"
+                className="rounded-lg border border-line bg-surface px-3 py-3 transition-colors duration-200 hover:border-line-strong hover:bg-surface-2"
               >
                 <span className="font-mono text-2xs uppercase tracking-[0.16em] text-ink-4">
                   {String(i + 1).padStart(2, "0")}
@@ -316,21 +316,21 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
             suffix="min"
             decimals={1}
             sub="across successful remediations"
-            color="#8F8FF5"
+            color="rgb(var(--sev-info))"
           />
           <Kpi
             label="Auto-remediated"
             value={metrics.autoRemediatedPct}
             suffix="%"
             sub="ran without a human"
-            color="#62C073"
+            color="rgb(var(--sev-ok))"
           />
           <Kpi
             label="Success rate"
             value={Math.round(metrics.successRate * 100)}
             suffix="%"
             sub={metrics.needsAttention > 0 ? `${metrics.needsAttention} escalated · needs a human` : "verified healthy after fix"}
-            color="#62C073"
+            color="rgb(var(--sev-ok))"
           />
         </div>
       </Section>
@@ -369,7 +369,7 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
                     className={`rounded-full px-2.5 py-1 font-mono text-2xs transition-colors duration-200 ${
                       metric === m.key
                         ? "bg-signal/12 text-signal"
-                        : "text-ink-3 hover:bg-white/[0.05] hover:text-ink-2"
+                        : "text-ink-3 hover:bg-surface-2 hover:text-ink-2"
                     }`}
                   >
                     {m.label}
@@ -416,7 +416,7 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
                         onClick={() => onView("incidents")}
                         className="block w-full text-left"
                       >
-                        <div className="group rounded-lg border border-line bg-white/[0.03] p-4 transition-all duration-500 ease-fluid hover:border-signal/30 hover:bg-signal/[0.04]">
+                        <div className="group rounded-lg border border-line bg-surface p-4 transition-all duration-500 ease-fluid hover:border-signal/30 hover:bg-signal/[0.04]">
                           <div className="flex items-start justify-between gap-3">
                             <div className="flex items-center gap-2">
                               <SevChip sev={s.severity} />
@@ -432,7 +432,7 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
                             <span>{s.memberCount} alerts</span>
                             <span>·</span>
                             {s.suggested_runbook_id ? (
-                              <span className="rounded-md bg-white/[0.06] px-1.5 py-0.5 text-ink-2">
+                              <span className="rounded-md bg-surface-2 px-1.5 py-0.5 text-ink-2">
                                 → {s.suggested_runbook_id}
                               </span>
                             ) : (
@@ -441,7 +441,7 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
                             {top && (
                               <span className="ml-auto flex items-center gap-1.5">
                                 <span className="hidden sm:inline">confidence</span>
-                                <span className="h-1 w-16 overflow-hidden rounded-full bg-white/[0.08]">
+                                <span className="h-1 w-16 overflow-hidden rounded-full bg-surface-3">
                                   <span
                                     className="block h-full rounded-full bg-signal"
                                     style={{ width: `${top.confidence * 100}%` }}
@@ -457,7 +457,7 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
                   })}
                 </div>
               ) : (
-                <div className="rounded-lg border border-dashed border-line-strong bg-white/[0.03] p-10 text-center">
+                <div className="rounded-lg border border-dashed border-line-strong bg-surface p-10 text-center">
                   <CheckCircle size={26} weight="light" className="mx-auto text-sev-ok" />
                   <p className="mt-2 text-sm text-ink-2">No open incidents.</p>
                   <p className="font-mono text-2xs text-ink-3">The fleet is quiet — nothing to approve.</p>
@@ -481,7 +481,7 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
               <Head icon={<ShieldCheck size={16} weight="light" />}>Autonomy &amp; safety</Head>
 
               {/* auto vs hitl split bar */}
-              <div className="rounded-lg bg-white/[0.03] p-4">
+              <div className="rounded-lg bg-surface p-4">
                 <div className="flex items-center justify-between text-2xs">
                   <span className="flex items-center gap-1.5 font-medium text-signal">
                     <Lightning size={13} weight="fill" /> Auto {autoCount}
@@ -490,7 +490,7 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
                     HITL {hitlCount} <ShieldCheck size={13} weight="light" />
                   </span>
                 </div>
-                <div className="mt-2 flex h-2 overflow-hidden rounded-full bg-white/[0.07]">
+                <div className="mt-2 flex h-2 overflow-hidden rounded-full bg-surface-3">
                   <span
                     className="h-full bg-signal transition-all duration-700 ease-fluid"
                     style={{ width: `${pct(autoCount, autoCount + hitlCount)}%` }}
@@ -624,7 +624,7 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
                     return (
                       <div
                         key={i}
-                        className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-white/[0.03]"
+                        className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-surface"
                       >
                         <span className={`inline-flex flex-none items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-2xs ${skin.tone}`}>
                           {skin.icon}
@@ -670,10 +670,10 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
           </p>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {METRIC_FAMILIES.map((m) => (
-              <div key={m.name} className="rounded-lg border border-line bg-white/[0.03] p-3.5">
+              <div key={m.name} className="rounded-lg border border-line bg-surface p-3.5">
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-mono text-2xs font-medium text-ink">{m.name}</span>
-                  <span className="rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-[0.625rem] uppercase tracking-wider text-ink-3">{m.kind}</span>
+                  <span className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[0.625rem] uppercase tracking-wider text-ink-3">{m.kind}</span>
                 </div>
                 <div className="mt-1.5 flex items-center gap-1.5 font-mono text-2xs text-ink-3">
                   <span className="text-ink-3">detect</span>
@@ -698,7 +698,7 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
           </Head>
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
             {FLEET.map((svc) => (
-              <div key={svc.name} className="rounded-lg border border-line bg-white/[0.03] p-3.5">
+              <div key={svc.name} className="rounded-lg border border-line bg-surface p-3.5">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium tracking-tight text-ink">{svc.name}</span>
                   <span className="relative flex h-2 w-2">
@@ -805,7 +805,7 @@ function Stat({
 }: { label: string; value: number; decimals?: number; accent?: boolean; mono?: boolean }) {
   const shown = decimals > 0 ? value.toFixed(decimals) : value.toString();
   return (
-    <div className="rounded-xl border border-line bg-white/[0.03] px-3 py-2.5">
+    <div className="rounded-xl border border-line bg-surface px-3 py-2.5">
       <div className={`${mono ? "font-mono text-xl" : "text-2xl"} font-semibold tracking-tight tnum ${accent ? "text-sev-warn" : "text-ink"}`}>
         {shown}
       </div>
@@ -826,16 +826,16 @@ function AiRow({
   const badge: Record<string, string> = {
     deterministic: "text-signal bg-signal/10 border-signal/20",
     review: "text-sev-warn bg-sev-warn/10 border-sev-warn/25",
-    idle: "text-ink-3 bg-white/[0.05] border-line-strong",
+    idle: "text-ink-3 bg-surface-2 border-line-strong",
     live: "text-sev-ok bg-sev-ok/10 border-sev-ok/25",
-    template: "text-ink-2 bg-white/[0.06] border-line-strong",
+    template: "text-ink-2 bg-surface-2 border-line-strong",
   };
   const Wrap: React.ElementType = onClick ? "button" : "div";
   return (
     <Wrap
       onClick={onClick}
-      className={`flex w-full items-start gap-3 rounded-lg border border-line bg-white/[0.03] p-3.5 text-left ${
-        onClick ? "transition-colors duration-300 hover:bg-white/[0.05]" : ""
+      className={`flex w-full items-start gap-3 rounded-lg border border-line bg-surface p-3.5 text-left ${
+        onClick ? "transition-colors duration-300 hover:bg-surface-2" : ""
       }`}
     >
       <span className="mt-0.5 flex h-8 w-8 flex-none items-center justify-center rounded-xl bg-signal/[0.08] text-signal">

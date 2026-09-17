@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Circuitry, ListChecks, SquaresFour, ShieldCheck, Waveform } from "@phosphor-icons/react";
 import { fluid } from "./primitives";
+import { ThemeToggle } from "./ThemeToggle";
 import { ToastHost } from "../hooks/useToast";
 import { onConnectionHealth } from "../hooks/useLiveData";
 import { WarningCircle } from "@phosphor-icons/react";
@@ -93,13 +94,16 @@ export function Shell({
           </div>
 
           {/* Connection state, derived — not a hardcoded health count. */}
-          <div className="ml-auto hidden items-center gap-2 md:flex">
-            <span
-              className={`h-1.5 w-1.5 rounded-full ${failing > 0 ? "bg-sev-crit" : "bg-sev-ok"}`}
-            />
-            <span className="font-mono text-2xs text-ink-3">
-              {failing > 0 ? `${failing} source${failing > 1 ? "s" : ""} down` : "streaming"}
-            </span>
+          <div className="ml-auto hidden items-center gap-4 md:flex">
+            <div className="flex items-center gap-2">
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${failing > 0 ? "bg-sev-crit" : "bg-sev-ok"}`}
+              />
+              <span className="font-mono text-2xs text-ink-3">
+                {failing > 0 ? `${failing} source${failing > 1 ? "s" : ""} down` : "streaming"}
+              </span>
+            </div>
+            <ThemeToggle />
           </div>
 
           {/* mobile hamburger → fluid X */}

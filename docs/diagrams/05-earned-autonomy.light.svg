@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1300 540" width="1300" height="540" role="img" aria-label="Autonomy is earned, not configured">
+  <defs>
+    <marker id="h-ink3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#5C5C5C"/></marker>
+    <marker id="h-signal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#0060C4"/></marker>
+    <marker id="h-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#146843"/></marker>
+    <marker id="h-crit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#B81E24"/></marker>
+    <marker id="h-warn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#8A5000"/></marker>
+    <marker id="h-attention" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#7C3AAD"/></marker>
+  </defs>
+  <rect width="1300" height="540" fill="#FFFFFF"/>
+  <text x="48" y="56" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="700" fill="#171717" text-anchor="start">Autonomy is earned, not configured</text>
+  <text x="48" y="82" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#5C5C5C" text-anchor="start">ADR-008. The state a playbook is in is a fact about its track record.</text>
+  <rect x="120" y="190" width="330" height="120" rx="10" fill="#F2F2F2" stroke="#8A5000" stroke-width="1.6"/>
+  <text x="136" y="216" font-family="'Courier New', Courier, monospace" font-size="10" font-weight="700" fill="#8A5000" text-anchor="start" letter-spacing="1.2">START HERE</text>
+  <text x="136" y="254" font-family="Arial, Helvetica, sans-serif" font-size="30" font-weight="700" fill="#171717" text-anchor="start">hitl</text>
+  <text x="136" y="274" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#5C5C5C" text-anchor="start">every run waits for a human</text>
+  <rect x="850" y="190" width="330" height="120" rx="10" fill="#F2F2F2" stroke="#146843" stroke-width="1.6"/>
+  <text x="866" y="216" font-family="'Courier New', Courier, monospace" font-size="10" font-weight="700" fill="#146843" text-anchor="start" letter-spacing="1.2">EARNED</text>
+  <text x="866" y="254" font-family="Arial, Helvetica, sans-serif" font-size="30" font-weight="700" fill="#171717" text-anchor="start">auto</text>
+  <text x="866" y="274" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#5C5C5C" text-anchor="start">runs unattended</text>
+  <path d="M458,226 L842,226" stroke="#146843" stroke-width="2" fill="none" marker-end="url(#h-ok)"/>
+  <rect x="517.6" y="200" width="264.79999999999995" height="17" rx="4" fill="#FFFFFF"/>
+  <text x="650" y="212" font-family="'Courier New', Courier, monospace" font-size="11" fill="#146843" text-anchor="middle">3 successes · 0 failures · 0 rollbacks</text>
+  <path d="M842,286 L458,286" stroke="#B81E24" stroke-width="2" fill="none" marker-end="url(#h-crit)"/>
+  <rect x="567.1" y="300" width="165.79999999999998" height="17" rx="4" fill="#FFFFFF"/>
+  <text x="650" y="312" font-family="'Courier New', Courier, monospace" font-size="11" fill="#B81E24" text-anchor="middle">any failure or rollback</text>
+  <rect x="120" y="374" width="1060" height="116" rx="12" fill="#FAFAFA" stroke="#EAEAEA"/>
+  <text x="146" y="406" font-family="'Courier New', Courier, monospace" font-size="11" font-weight="700" fill="#5C5C5C" text-anchor="start" letter-spacing="1.4">WHY THIS IS THE ARGUMENT</text>
+  <text x="146" y="436" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#171717" text-anchor="start">Autonomy is not a setting. A playbook starts human-gated and reaches unattended execution only by being right,</text>
+  <text x="146" y="462" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#171717" text-anchor="start">and it loses that the moment it is wrong. Our run started at 0% autonomous and reached 76.7%.</text>
+</svg>

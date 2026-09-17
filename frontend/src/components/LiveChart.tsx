@@ -30,10 +30,19 @@ import type { MetricHistory } from "../data/types";
      prefers-reduced-motion (see index.css).
 --------------------------------------------------------------------------- */
 
-// Neutral-ground accents. The previous list was iOS system colours, tuned for
-// white; several of them (notably #FF3B30 and #5E5CE6) sat below 4.5:1 on a
-// near-black panel, so the thin strokes disappeared.
-const PALETTE = ["#52A8FF", "#62C073", "#FFB224", "#BF7AF0", "#FF6369", "#8F8FF5"];
+// Series colours resolve through CSS custom properties so they re-pick
+// themselves per theme: the dark set is tuned for a near-black panel, and the
+// light set is darker because #62C073 on white is 2.1:1 and a 1.6px stroke in
+// it simply vanishes. Applied via `style` rather than as an SVG presentation
+// attribute, so the value is parsed as CSS and var() resolves.
+const PALETTE = [
+  "rgb(var(--chart-1))",
+  "rgb(var(--chart-2))",
+  "rgb(var(--chart-3))",
+  "rgb(var(--chart-4))",
+  "rgb(var(--chart-5))",
+  "rgb(var(--chart-6))",
+];
 
 function niceTime(unixSeconds: number): string {
   const d = new Date(unixSeconds * 1000);
@@ -192,15 +201,26 @@ export function LiveChart({
         <defs>
           {model.series.map((s, si) => (
             <linearGradient key={s.service} id={`fill-${gid}-${si}`} x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0%" stopColor={PALETTE[si % PALETTE.length]} stopOpacity={fillTop} />
-              <stop offset="100%" stopColor={PALETTE[si % PALETTE.length]} stopOpacity="0" />
+              <stop
+                offset="0%"
+                stopOpacity={fillTop}
+                style={{ stopColor: PALETTE[si % PALETTE.length] }}
+              />
+              <stop offset="100%" stopOpacity="0" style={{ stopColor: PALETTE[si % PALETTE.length] }} />
             </linearGradient>
           ))}
         </defs>
 
         {ticks.map((v, i) => (
           <g key={i}>
-            <line x1={padL} x2={W - padR} y1={y(v)} y2={y(v)} stroke="#242424" strokeWidth="1" />
+            <line
+              x1={padL}
+              x2={W - padR}
+              y1={y(v)}
+              y2={y(v)}
+              strokeWidth="1"
+              style={{ stroke: "rgb(var(--line))" }}
+            />
             <text
               x={padL - 8}
               y={y(v) + 3}
@@ -241,14 +261,14 @@ export function LiveChart({
               <path
                 d={d}
                 fill="none"
-                stroke={color}
+                style={{ stroke: color }}
                 strokeWidth={compact ? 1.4 : 1.6}
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 vectorEffect="non-scaling-stroke"
                 className="chart-line"
               />
-              <circle cx={x(last[0])} cy={y(last[1])} r="2.5" fill={color} />
+              <circle cx={x(last[0])} cy={y(last[1])} r="2.5" style={{ fill: color }} />
             </g>
           );
         })}
@@ -259,9 +279,9 @@ export function LiveChart({
             x2={hoverX!}
             y1={padT}
             y2={padT + ih}
-            stroke="#454545"
             strokeWidth="1"
             vectorEffect="non-scaling-stroke"
+            style={{ stroke: "rgb(var(--ink-4))" }}
           />
         )}
         {inPlot &&
@@ -271,10 +291,9 @@ export function LiveChart({
               cx={x(r.t)}
               cy={y(r.value)}
               r="3"
-              fill="#0A0A0A"
-              stroke={r.color}
               strokeWidth="1.5"
               vectorEffect="non-scaling-stroke"
+              style={{ fill: "rgb(var(--ground-raised))", stroke: r.color }}
             />
           ))}
       </svg>
