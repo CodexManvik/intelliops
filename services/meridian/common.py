@@ -52,6 +52,7 @@ from prometheus_client import (
 from pydantic import BaseModel
 
 from common.auth import require_token
+from common.telemetry import jitter, jitter_enabled
 from services.base import create_app
 
 CPU_HEALTHY = 18.0
@@ -332,20 +333,30 @@ def make_meridian_service(name: str, domain_routes=None, registry: CollectorRegi
         "disk_usage_percent", "Simulated disk utilization percent", registry=effective_registry
     )
 
+    # Read once at construction: whether this deployment wants live-shaped
+    # telemetry. Off in tests, so every exact-value assertion below still holds.
+    jittering = jitter_enabled()
+
+    def publish(gauge: Gauge, metric: str, value: float) -> None:
+        gauge.set(jitter(metric, name, value) if jittering else value)
+
     @app.get("/metrics")
     def metrics() -> Response:
         state.sample(time.monotonic())
-        cpu_gauge.set(state.cpu)
-        error_gauge.set(state.error_rate)
-        request_rate_gauge.set(state.request_rate)
-        latency_p50_gauge.set(state.latency_p50_ms)
-        latency_p99_gauge.set(state.latency_p99_ms)
-        memory_usage_gauge.set(state.memory_usage_mb)
-        saturation_gauge.set(state.saturation)
-        queue_depth_gauge.set(state.queue_depth)
-        db_pool_in_use_gauge.set(state.db_pool_in_use)
+        publish(cpu_gauge, "cpu_usage", state.cpu)
+        publish(error_gauge, "meridian_error_rate", state.error_rate)
+        publish(request_rate_gauge, "request_rate", state.request_rate)
+        publish(latency_p50_gauge, "latency_p50_ms", state.latency_p50_ms)
+        publish(latency_p99_gauge, "latency_p99_ms", state.latency_p99_ms)
+        publish(memory_usage_gauge, "memory_usage_mb", state.memory_usage_mb)
+        publish(saturation_gauge, "saturation", state.saturation)
+        publish(queue_depth_gauge, "queue_depth", state.queue_depth)
+        publish(db_pool_in_use_gauge, "db_pool_in_use", state.db_pool_in_use)
+        # db_pool_max is a configured pool size, service_up is a boolean, and
+        # tls_handshake_failures drives the escalation demo. None of the three
+        # should wander, so they are set directly.
         db_pool_max_gauge.set(state.db_pool_max)
-        disk_usage_gauge.set(state.disk_usage_percent)
+        publish(disk_usage_gauge, "disk_usage_percent", state.disk_usage_percent)
         service_up_gauge.set(state.service_up)
         tls_handshake_failures_gauge.set(state.tls_handshake_failures)
         return Response(generate_latest(effective_registry), media_type=CONTENT_TYPE_LATEST)

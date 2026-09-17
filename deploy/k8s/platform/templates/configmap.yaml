@@ -21,6 +21,8 @@ data:
   INTELLIOPS_BUS_IDEMPOTENCY_MODE: {{ .Values.env.BUS_IDEMPOTENCY_MODE | quote }}
   INTELLIOPS_READ_REBUILD_MODE: {{ .Values.env.READ_REBUILD_MODE | quote }}
   INTELLIOPS_CORRELATION_GROUP_BY: {{ .Values.env.CORRELATION_GROUP_BY | quote }}
+  # How many anomalous samples a window needs before it counts as an incident.
+  INTELLIOPS_CORRELATION_MIN_EVENTS: {{ .Values.env.CORRELATION_MIN_EVENTS | default "1" | quote }}
   # The Redis Service is named plainly (see redis.yaml), NOT <release>-prefixed.
   INTELLIOPS_REDIS_URL: {{ printf "redis://redis:6379/0" | quote }}
   # read-service asks the service that OWNS each setting for /system rather than
@@ -32,6 +34,13 @@ data:
   # (issue #57). (It uses the psycopg v3 driver + the plain `postgres` Service host.)
   # Correlation / detection / RCA / action posture (safe by default; live overlay flips these).
   INTELLIOPS_CORRELATOR_KIND: {{ .Values.env.CORRELATOR_KIND | quote }}
+  # RobustCorrelator's per-(metric, hour-bucket) window, and how full it must be
+  # before it is allowed to score. Judging on a partly-filled window means
+  # judging against a baseline that has not yet seen the metric's normal range,
+  # which inflates z-scores; requiring a full window is what the "robust" in
+  # this correlator's name is meant to buy.
+  INTELLIOPS_CORRELATION_ROBUST_WINDOW: {{ .Values.env.CORRELATION_ROBUST_WINDOW | default "128" | quote }}
+  INTELLIOPS_CORRELATION_ROBUST_WARMUP: {{ .Values.env.CORRELATION_ROBUST_WARMUP | default "30" | quote }}
   INTELLIOPS_DETECTION_POLICY: {{ .Values.env.DETECTION_POLICY | quote }}
   INTELLIOPS_RUNBOOK_SELECTOR_MODE: {{ .Values.env.RUNBOOK_SELECTOR_MODE | quote }}
   INTELLIOPS_REMEDIATOR_MODE: {{ .Values.env.REMEDIATOR_MODE | quote }}
@@ -42,6 +51,9 @@ data:
   # (poll the query below and publish each series as a TelemetryEvent).
   INTELLIOPS_TELEMETRY_MODE: {{ .Values.env.TELEMETRY_MODE | quote }}
   INTELLIOPS_PROMETHEUS_QUERY: {{ .Values.env.PROMETHEUS_QUERY | quote }}
+  # Simulated-workload idle jitter (common/telemetry.py). Bounded well inside
+  # the correlator's z-threshold, so it cannot manufacture a false incident.
+  INTELLIOPS_TELEMETRY_JITTER: {{ .Values.env.TELEMETRY_JITTER | default "0" | quote }}
   # HITL approvals: in k8s the action + governance services are SEPARATE pods, so
   # the action gate must reach governance over HTTP (not the in-process store) or
   # the console's "Approve" (which hits the governance service) 404s.

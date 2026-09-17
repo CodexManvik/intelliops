@@ -276,3 +276,40 @@ def test_unlabelled_events_share_one_bucket_in_service_mode():
     engine.add(_event(value=120.0, fp="b", ts_sec=2))
     sits = engine.flush_all()
     assert len(sits) == 1
+
+
+def test_min_events_drops_a_lone_excursion():
+    """One sample over the threshold is a sample, not an incident.
+
+    Regression: with the simulated workloads pinned to constants, every window
+    that ever crossed the threshold was a real injected fault, so a single event
+    was enough. Once they emitted real idle variation, isolated excursions
+    started opening incidents - four "database connection-pool exhaustion"
+    situations on services that were healthy. A fault fills the window; an
+    excursion does not.
+    """
+    eng = CorrelationEngine(
+        RiverCorrelator(z_threshold=3.0, warmup_samples=10),
+        window_seconds=30.0,
+        min_events=3,
+    )
+    # A varying baseline, so std is real rather than ~0.
+    for i in range(40):
+        eng.add(_event(value=10.0 + (i % 5) * 0.1, ts_sec=i % 60))
+    eng.add(_event(value=900.0, ts_sec=41))
+    assert eng.flush() is None, "a single anomalous sample must not become an incident"
+
+
+def test_min_events_still_emits_a_sustained_fault():
+    eng = CorrelationEngine(
+        RiverCorrelator(z_threshold=3.0, warmup_samples=10),
+        window_seconds=30.0,
+        min_events=3,
+    )
+    for i in range(40):
+        eng.add(_event(value=10.0 + (i % 5) * 0.1, ts_sec=i % 60))
+    for i in range(8):
+        eng.add(_event(value=900.0, ts_sec=41 + i))
+    sit = eng.flush()
+    assert sit is not None, "a sustained fault must still open an incident"
+    assert len(sit.member_events) >= 3

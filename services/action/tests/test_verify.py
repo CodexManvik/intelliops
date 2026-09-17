@@ -99,14 +99,33 @@ def test_default_metric_missing_baseline_fails_safe():
 
 
 def test_default_metric_zero_std_baseline_fails_safe():
-    # Still 210 against a flat baseline of 200: the metric has NOT come back, so
+    # Still 420 against a flat baseline of 200: the metric has NOT come back, so
     # this stays False - but now because it genuinely has not recovered, not
     # because a zero-variance baseline was treated as unusable.
+    #
+    # This used to assert the same thing at 210. A flat baseline has no spread
+    # to normalise by, so verify now requires a departure of at least half the
+    # baseline before calling a metric unrecovered, matching the rule
+    # RobustCorrelator applies when deciding whether to open the incident at
+    # all. 210 against 200 is a 5% tick, which the detector would never have
+    # flagged, so verification must not fail the fix over it either.
     sit = _sit(
-        [("memory_usage_mb", 210.0)], baseline={"memory_usage_mb": {"mean": 200.0, "std": 0.0}}
+        [("memory_usage_mb", 420.0)], baseline={"memory_usage_mb": {"mean": 200.0, "std": 0.0}}
     )
-    healthy = build_metric_healthy(sit, lambda name: 210.0, ON)
+    healthy = build_metric_healthy(sit, lambda name: 420.0, ON)
     assert healthy() is False
+
+
+def test_zero_std_baseline_small_variation_counts_as_recovered():
+    """The mirror of RobustCorrelator's flat-baseline floor.
+
+    A metric the simulator had pinned to a constant reports 17.34 once it starts
+    emitting real idle variation. The detector does not call that anomalous, so
+    verification must not report a working fix as a rollback because of it.
+    """
+    sit = _sit([("cpu_usage", 92.0)], baseline={"cpu_usage": {"mean": 18.0, "std": 0.0}})
+    healthy = build_metric_healthy(sit, lambda name: 17.34, ON)
+    assert healthy() is True
 
 
 def test_zero_std_baseline_back_at_the_mean_IS_recovered():

@@ -37,6 +37,7 @@ class CorrelationEngine:
         window_seconds: float = 30.0,
         suppress_threshold: float = 0.8,
         group_by: str = "window",
+        min_events: int = 1,
     ) -> None:
         self._correlator = correlator
         self._correlator_factory = lambda: type(correlator)(
@@ -47,6 +48,18 @@ class CorrelationEngine:
         self._window = window_seconds
         self._suppress_threshold = suppress_threshold
         self._group_by = group_by
+        # How many anomalous events a window must hold before it is an incident.
+        #
+        # 1 reproduces the pre-change behaviour EXACTLY, and is the default for
+        # the same reason DetectionPolicy defaults to disabled. But one sample
+        # crossing the threshold is not an incident, it is a sample: real
+        # telemetry wanders, and every detector worth the name requires the
+        # breach to persist (Prometheus spells this `for:`). With a genuine
+        # fault the target emits an anomalous sample on every poll, so a 30s
+        # window holds dozens; an isolated excursion holds one or two. The live
+        # overlay raises this, and the difference is four bogus "connection-pool
+        # exhaustion" incidents versus none.
+        self._min_events = max(1, int(min_events))
         # Keyed by _key(event). In "window" mode there is exactly one key, so
         # this is the old single-buffer behaviour with one dict lookup.
         self._buffers: dict[str, list[TelemetryEvent]] = {}
@@ -111,6 +124,21 @@ class CorrelationEngine:
     def _correlate_buffer(self, key: str = _ALL) -> Situation | None:
         buf = self._buffers.get(key)
         if not buf:
+            return None
+        if len(buf) < self._min_events:
+            # Not (yet) sustained. A buffer younger than the window has not had
+            # its full chance: the background flusher runs on its own timer and
+            # can land a few seconds after a fault starts, and discarding there
+            # would cost a whole window of detection latency. Leave it to keep
+            # filling, and only discard once it has aged out.
+            if (buf[-1].ts - buf[0].ts).total_seconds() < self._window:
+                return None
+            # Aged out and still thin. Drop it rather than routing it to
+            # _suppressed: suppression means "this signature reliably
+            # self-heals", which is a claim about a real incident, and this was
+            # never one.
+            self._buffers.pop(key, None)
+            self._max_scores.pop(key, None)
             return None
         peak = self._max_scores.get(key, 0.0)
         severity = self._correlator._severity_band(peak)

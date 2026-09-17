@@ -23,6 +23,7 @@ from fastapi import Depends, FastAPI, HTTPException, Response
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, generate_latest
 
 from common.auth import require_token
+from common.telemetry import jitter, jitter_enabled
 
 app = FastAPI(title="IntelliOps · demo-app")
 
@@ -101,16 +102,35 @@ def _set_gauges(*, broken: bool) -> None:
     (cpu, latency, memory, saturation, queue_depth) moves together; request
     rate, db pool, and disk stay pinned at baseline (see module docstring).
     """
-    _cpu.set(_CPU_BROKEN if broken else _CPU_HEALTHY)
-    _latency_p50.set(_LATENCY_P50_MS_BROKEN if broken else _LATENCY_P50_MS_HEALTHY)
-    _latency_p99.set(_LATENCY_P99_MS_BROKEN if broken else _LATENCY_P99_MS_HEALTHY)
-    _memory_usage.set(_MEMORY_USAGE_MB_BROKEN if broken else _MEMORY_USAGE_MB_HEALTHY)
-    _saturation.set(_SATURATION_BROKEN if broken else _SATURATION_HEALTHY)
-    _queue_depth.set(_QUEUE_DEPTH_BROKEN if broken else _QUEUE_DEPTH_HEALTHY)
-    _request_rate.set(_REQUEST_RATE_HEALTHY)
-    _db_pool_in_use.set(_DB_POOL_IN_USE_HEALTHY)
-    _db_pool_max.set(_DB_POOL_MAX_HEALTHY)
-    _disk_usage.set(_DISK_USAGE_PERCENT_HEALTHY)
+
+    # Live deployments wander each value around its constant so the console's
+    # charts show telemetry rather than a ruled line; tests leave it off and
+    # keep asserting the constants exactly. See common/telemetry.py.
+    def publish(gauge, metric: str, value: float) -> None:
+        gauge.set(jitter(metric, "demo-app", value) if jitter_enabled() else value)
+
+    publish(_cpu, "cpu_usage", _CPU_BROKEN if broken else _CPU_HEALTHY)
+    publish(
+        _latency_p50,
+        "latency_p50_ms",
+        _LATENCY_P50_MS_BROKEN if broken else _LATENCY_P50_MS_HEALTHY,
+    )
+    publish(
+        _latency_p99,
+        "latency_p99_ms",
+        _LATENCY_P99_MS_BROKEN if broken else _LATENCY_P99_MS_HEALTHY,
+    )
+    publish(
+        _memory_usage,
+        "memory_usage_mb",
+        _MEMORY_USAGE_MB_BROKEN if broken else _MEMORY_USAGE_MB_HEALTHY,
+    )
+    publish(_saturation, "saturation", _SATURATION_BROKEN if broken else _SATURATION_HEALTHY)
+    publish(_queue_depth, "queue_depth", _QUEUE_DEPTH_BROKEN if broken else _QUEUE_DEPTH_HEALTHY)
+    publish(_request_rate, "request_rate", _REQUEST_RATE_HEALTHY)
+    publish(_db_pool_in_use, "db_pool_in_use", _DB_POOL_IN_USE_HEALTHY)
+    _db_pool_max.set(_DB_POOL_MAX_HEALTHY)  # a configured pool size, not a measurement
+    publish(_disk_usage, "disk_usage_percent", _DISK_USAGE_PERCENT_HEALTHY)
 
 
 @app.get("/metrics")

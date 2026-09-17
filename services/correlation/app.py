@@ -104,6 +104,7 @@ async def lifespan(app: FastAPI):
         make_correlator(settings),
         window_seconds=settings.correlation_window_seconds,
         group_by=settings.correlation_group_by,
+        min_events=settings.correlation_min_events,
     )
     app.state.engine = engine
     # Reload-on-boot: restore the durable baseline + reliability BEFORE the
@@ -217,16 +218,58 @@ def retrain() -> dict:
 
 @app.get("/baseline")
 def baseline() -> dict:
+    """What the detector currently believes "normal" looks like.
+
+    The two correlators snapshot different shapes. RiverCorrelator carries a
+    running mean/variance/count per metric; RobustCorrelator carries the raw
+    per-(metric, hour-bucket) window and derives median/MAD from it on demand.
+
+    This endpoint only ever understood the first shape, so under `robust` -- the
+    live posture's correlator -- every row came back mean=None and
+    std=sqrt(0)=0.0, and the console's "live baselines" table rendered a
+    column of dashes beside a column of zeros. Read whichever shape the running
+    correlator actually produces, and say which statistic it is.
+    """
     settings = get_settings()
     engine = getattr(app.state, "engine", None)
     rows = engine.snapshot() if engine is not None else []
-    baselines = [
-        {
-            "metric_name": r.get("metric_name"),
-            "mean": r.get("mean"),
-            "std": (r.get("variance") or 0.0) ** 0.5,
-            "count": r.get("count"),
-        }
-        for r in rows
-    ]
-    return {"correlator_kind": settings.correlator_kind, "baselines": baselines}
+    correlator = getattr(engine, "_correlator", None)
+
+    # Decide from the correlator, not from the rows: right after a reset there
+    # are no rows, and reporting "mean/stddev" for an empty robust table is the
+    # same mislabelling in miniature. `_windows` is what the window-based
+    # correlators (robust, and trained layered over it) have and river does not.
+    if hasattr(correlator, "_windows"):
+        # Robust: pool the per-bucket sample counts, and take the statistics
+        # from the correlator's own median/MAD summary.
+        counts: dict[str, int] = {}
+        for r in rows:
+            name = r.get("metric_name")
+            counts[name] = counts.get(name, 0) + int(r.get("n") or 0)
+        summary = correlator.baseline_snapshot() if hasattr(correlator, "baseline_snapshot") else {}
+        baselines = [
+            {
+                "metric_name": name,
+                "mean": stat.get("mean"),
+                "std": stat.get("std"),
+                "count": counts.get(name),
+            }
+            for name, stat in summary.items()
+        ]
+        statistic = "median/MAD"
+    else:
+        baselines = [
+            {
+                "metric_name": r.get("metric_name"),
+                "mean": r.get("mean"),
+                "std": (r.get("variance") or 0.0) ** 0.5,
+                "count": r.get("count"),
+            }
+            for r in rows
+        ]
+        statistic = "mean/stddev"
+    return {
+        "correlator_kind": settings.correlator_kind,
+        "statistic": statistic,
+        "baselines": baselines,
+    }
