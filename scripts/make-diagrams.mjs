@@ -176,6 +176,24 @@ function arrow(t, x1, y1, x2, y2, o = {}) {
   return parts.join("\n  ");
 }
 
+/* A decision diamond. Registered as its bounding box so the geometry gate
+ * still applies, even though the drawn shape is inscribed in it. */
+function diamond(t, cx, cy, w, h, label, sub) {
+  track(cx - w / 2, cy - h / 2, w, h, `decide:${label}`);
+  const pts = [
+    `${cx},${cy - h / 2}`,
+    `${cx + w / 2},${cy}`,
+    `${cx},${cy + h / 2}`,
+    `${cx - w / 2},${cy}`,
+  ].join(" ");
+  const out = [
+    `<polygon points="${pts}" fill="${t.card}" stroke="${t.ink3}" stroke-width="1.2"/>`,
+    text(cx, cy + 1, label, { size: 13, bold: true, fill: t.ink, anchor: "middle" }),
+  ];
+  if (sub) out.push(text(cx, cy + 18, sub, { size: 10.5, mono: true, fill: t.ink3, anchor: "middle" }));
+  return out.join("\n  ");
+}
+
 function band(t, x, y, w, h, label) {
   return (
     `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="14" fill="none" ` +
@@ -719,6 +737,124 @@ function autonomy(t) {
   );
 }
 
+/* ========================================================================= *
+ * 6. The whole project, as one flowchart
+ * ========================================================================= */
+function projectFlow(t) {
+  const p = [];
+  const W = 1920;
+  const spineY = 196;
+  const bw = 300;
+  const bh = 116;
+  const step = 372;
+  const xs = [80, 452, 824, 1196, 1568];
+
+  const spine = [
+    { title: "Alert storm", sub: "8 metrics fire", sub2: "on one fault", accent: t.crit },
+    { title: "Correlate", sub: "median/MAD baseline", sub2: "one Situation" },
+    { title: "Diagnose", sub: "rank the cause", sub2: "pick a runbook" },
+    { title: "Gate", sub: "RBAC, reversible", sub2: "human if not earned", accent: t.warn },
+    { title: "Execute and verify", sub: "1 of 7 typed verbs", sub2: "re-check the metric", accent: t.signal },
+  ];
+  spine.forEach((sp, i) => {
+    p.push(node(t, xs[i], spineY, bw, bh, { ...sp, titleSize: 19 }));
+    if (i < spine.length - 1) {
+      p.push(
+        arrow(t, xs[i] + bw + 6, spineY + bh / 2, xs[i + 1] - 6, spineY + bh / 2, {
+          headId: "h-ink3",
+        }),
+      );
+    }
+  });
+
+  // Each branch: a diamond under the step, then where that answer lands.
+  const dy = 394;
+  const oy = 512;
+  const branches = [
+    { i: 1, q: "self-heals?", qs: "from outcomes", ans: "yes", tone: "ink3",
+      title: "Suppressed", sub: "no page raised", accent: null },
+    { i: 2, q: "runbook fits?", qs: "confidence floor", ans: "no", tone: "attention",
+      title: "Escalated", sub: "a human is told, nothing is guessed", accent: t.attention },
+    { i: 3, q: "approved?", qs: "or timed out", ans: "no", tone: "warn",
+      title: "No action", sub: "refusal recorded in the audit trail", accent: t.warn },
+  ];
+  branches.forEach((b) => {
+    const cx = xs[b.i] + bw / 2;
+    p.push(arrow(t, cx, spineY + bh + 6, cx, dy - 40, { headId: "h-ink3" }));
+    p.push(diamond(t, cx, dy, 210, 74, b.q, b.qs));
+    p.push(
+      arrow(t, cx, dy + 40, cx, oy - 6, {
+        headId: b.tone === "ink3" ? "h-ink3" : `h-${b.tone}`,
+        color: b.tone === "ink3" ? t.ink3 : t[b.tone],
+        label: b.ans,
+        ly: 4,
+      }),
+    );
+    p.push(
+      node(t, xs[b.i] - 10, oy, bw + 20, 92, {
+        title: b.title,
+        titleSize: 17,
+        sub: b.sub,
+        accent: b.accent,
+      }),
+    );
+  });
+
+  // The last step has two answers, so it gets two outcome boxes.
+  const lx = xs[4] + bw / 2;
+  p.push(arrow(t, lx, spineY + bh + 6, lx, dy - 40, { headId: "h-ink3" }));
+  p.push(diamond(t, lx, dy, 210, 74, "recovered?", "vs its baseline"));
+  p.push(
+    arrow(t, lx, dy + 40, lx, oy - 6, { headId: "h-ok", color: t.ok, label: "yes", ly: 4 }),
+  );
+  p.push(
+    node(t, xs[4] - 10, oy, bw + 20, 92, {
+      title: "Closed",
+      titleSize: 17,
+      sub: "verified healthy, playbook credited",
+      accent: t.ok,
+    }),
+  );
+  const gut = xs[4] - 46; // the clear gutter between "No action" and "Closed"
+  p.push(
+    `<path d="M${lx - 105},${dy} L${gut},${dy} L${gut},672 L${xs[4] - 16},672" ` +
+      `stroke="${t.crit}" stroke-width="1.4" fill="none" marker-end="url(#h-crit)"/>`,
+  );
+  p.push(text(lx - 118, dy - 10, "no", { size: 11, mono: true, fill: t.crit, anchor: "end" }));
+  p.push(
+    node(t, xs[4] - 10, 626, bw + 20, 92, {
+      title: "Rolled back",
+      titleSize: 17,
+      sub: "undone automatically, then escalated",
+      accent: t.crit,
+    }),
+  );
+
+  p.push(
+    text(80, 762, "Every box is code that runs. Nothing on this page is a plan.", {
+      size: 15,
+      fill: t.ink2,
+    }),
+  );
+  p.push(
+    text(
+      80,
+      788,
+      "Measured on a live cluster: 75% of alerts never become a page, and the fastest alert-to-verified-fix was 28.8 seconds.",
+      { size: 15, fill: t.ink3 },
+    ),
+  );
+
+  return svg(
+    t,
+    W,
+    830,
+    "How IntelliOps handles one incident",
+    "Five steps, four decisions, and every exit the system can take.",
+    p.join("\n  "),
+  );
+}
+
 /* ------------------------------------------------------------------------- */
 const DIAGRAMS = {
   "01-architecture": architecture,
@@ -726,6 +862,7 @@ const DIAGRAMS = {
   "03-recovery-ladder": recovery,
   "04-data-sources": dataSources,
   "05-earned-autonomy": autonomy,
+  "06-project-flowchart": projectFlow,
 };
 
 mkdirSync(OUT, { recursive: true });
