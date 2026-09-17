@@ -8,7 +8,7 @@ import {
   Warning,
   WarningCircle,
 } from "@phosphor-icons/react";
-import { Bezel, Eyebrow } from "../components/primitives";
+import { Bezel, PageHead } from "../components/primitives";
 import { loadBaseline, loadLlmConfig, loadSystem, setLlmConfig, testLlmConfig } from "../data/source";
 import { system as mockSystem, baseline as mockBaseline } from "../data/mock";
 import { useLiveData } from "../hooks/useLiveData";
@@ -87,7 +87,7 @@ function llmBadge(llm: SystemInfo["llm"]) {
     };
   }
   return {
-    tone: "text-ink-2 bg-black/[0.05] border-black/[0.10]",
+    tone: "text-ink-2 bg-white/[0.06] border-line-strong",
     icon: <Circuitry size={12} weight="light" />,
     label: "Template (no endpoint set)",
   };
@@ -95,7 +95,7 @@ function llmBadge(llm: SystemInfo["llm"]) {
 
 function StateRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center gap-3 rounded-lg bg-black/[0.03] px-3 py-2.5">
+    <div className="flex items-center gap-3 rounded-lg bg-white/[0.04] px-3 py-2.5">
       <span className="w-32 text-2xs font-medium uppercase tracking-[0.1em] text-ink-3">{label}</span>
       <span className="font-mono text-2xs text-ink">{value}</span>
     </div>
@@ -104,7 +104,11 @@ function StateRow({ label, value }: { label: string; value: string }) {
 
 export function System() {
   const { data: sys } = useLiveData(loadSystem, mockSystem);
-  const { data: baseline } = useLiveData(loadBaseline, mockBaseline);
+  // `error` matters on this page specifically. useLiveData keeps the seed value
+  // when a fetch fails, and the seed here is the mock fixture -- so a page whose
+  // whole claim is "nothing here is staged" would quietly render staged numbers
+  // under a heading that says "Live". Say the fetch failed instead.
+  const { data: baseline, error: baselineError } = useLiveData(loadBaseline, mockBaseline);
   const { data: llm } = useLiveData(loadLlmConfig, mockSystem.llm);
 
   const [providerId, setProviderId] = useState<ProviderId>("groq");
@@ -164,16 +168,16 @@ export function System() {
   return (
     <div className="space-y-6">
       <Section>
-        <Eyebrow>
-          <Circuitry size={12} weight="light" /> Under the hood
-        </Eyebrow>
-        <h1 className="mt-4 text-4xl font-semibold tracking-tightest sm:text-5xl">
-          What&apos;s actually <span className="text-signal">running.</span>
-        </h1>
-        <p className="mt-3 max-w-[58ch] text-base leading-relaxed text-ink-2">
-          No staged demo state — this reads the live correlator, its learned baselines, and the
-          configured backends directly from the running services.
-        </p>
+        <PageHead
+          title="System"
+          hint="Read directly from the running services: which correlator is in use, the baselines it has learned, and the configured backends. Nothing here is staged."
+          right={
+            <span className="flex items-center gap-2 font-mono text-2xs text-ink-3">
+              <Circuitry size={13} weight="light" />
+              live configuration
+            </span>
+          }
+        />
       </Section>
 
       {/* (1) system-state grid */}
@@ -201,29 +205,39 @@ export function System() {
             <div className="flex items-center gap-2">
               <Gauge size={16} weight="light" className="text-ink-2" />
               <span className="text-2xs font-medium uppercase tracking-[0.14em] text-ink-3">
-                Live z-score baselines · {baseline.correlator_kind} · GET /baseline
+                Learned baselines · {baseline.correlator_kind} · {baseline.statistic ?? "mean/stddev"} · GET /baseline
               </span>
             </div>
             <span className="font-mono text-2xs text-ink-3">{baseline.baselines.length} metrics</span>
           </div>
 
-          {baseline.baselines.length > 0 ? (
+          {baselineError ? (
+            <div className="rounded-lg border border-dashed border-sev-crit/40 p-8 text-center">
+              <div className="text-sm text-sev-crit">Could not read /baseline.</div>
+              <div className="mt-1 font-mono text-2xs text-ink-3">{baselineError}</div>
+            </div>
+          ) : baseline.baselines.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full border-collapse font-mono text-2xs">
                 <thead>
                   <tr className="text-left text-ink-3">
                     <th className="pb-2 pr-4 font-medium uppercase tracking-[0.1em]">Metric</th>
-                    <th className="pb-2 pr-4 font-medium uppercase tracking-[0.1em]">Mean</th>
-                    <th className="pb-2 pr-4 font-medium uppercase tracking-[0.1em]">Std dev</th>
+                    <th className="pb-2 pr-4 font-medium uppercase tracking-[0.1em]">
+                      {baseline.statistic === "median/MAD" ? "Median" : "Mean"}
+                    </th>
+                    <th className="pb-2 pr-4 font-medium uppercase tracking-[0.1em]">
+                      {baseline.statistic === "median/MAD" ? "MAD · sigma" : "Std dev"}
+                    </th>
                     <th className="pb-2 font-medium uppercase tracking-[0.1em]">Samples</th>
                   </tr>
                 </thead>
                 <tbody>
                   {baseline.baselines.map((b, i) => (
-                    <tr key={i} className="border-t border-black/[0.06]">
+                    <tr key={i} className="border-t border-line">
                       <td className="py-2 pr-4 text-ink">{b.metric_name}</td>
-                      {/* robust correlator uses median/MAD per hour-bucket, so mean/count
-                          are null (only std populated) — render — rather than crash. */}
+                      {/* Still guarded: a correlator with no baseline_snapshot, or a
+                          metric the running one has not seen, legitimately has no
+                          figure. Render — rather than crash. */}
                       <td className="py-2 pr-4 text-ink-2 tnum">{b.mean != null ? b.mean.toFixed(3) : "—"}</td>
                       <td className="py-2 pr-4 text-ink-2 tnum">{b.std != null ? b.std.toFixed(3) : "—"}</td>
                       <td className="py-2 text-ink-3 tnum">{b.count != null ? b.count.toLocaleString() : "—"}</td>
@@ -233,7 +247,7 @@ export function System() {
               </table>
             </div>
           ) : (
-            <div className="rounded-2xl border border-black/[0.06] p-8 text-center text-ink-3">
+            <div className="rounded-lg border border-line p-8 text-center text-ink-3">
               No baselines learned yet — the correlator populates this as metrics stream in.
             </div>
           )}
@@ -263,7 +277,7 @@ export function System() {
             <select
               value={providerId}
               onChange={(e) => onProviderChange(e.target.value as ProviderId)}
-              className="w-full appearance-none rounded-xl border border-black/[0.08] bg-white px-3 py-2 text-sm text-ink focus:border-signal/40 focus:outline-none focus:ring-2 focus:ring-signal/15"
+              className="w-full appearance-none rounded-xl border border-line-strong bg-ground-raised px-3 py-2 text-sm text-ink focus:border-signal/40 focus:outline-none focus:ring-2 focus:ring-signal/15"
             >
               {LLM_PROVIDERS.map((p) => (
                 <option key={p.id} value={p.id}>
@@ -283,7 +297,7 @@ export function System() {
                 value={endpoint}
                 onChange={(e) => setEndpoint(e.target.value)}
                 placeholder="https://api.groq.com/openai/v1"
-                className="w-full rounded-xl border border-black/[0.08] bg-white px-3 py-2 font-mono text-2xs text-ink placeholder:text-ink-4 focus:border-signal/40 focus:outline-none focus:ring-2 focus:ring-signal/15"
+                className="w-full rounded-xl border border-line-strong bg-ground-raised px-3 py-2 font-mono text-2xs text-ink placeholder:text-ink-4 focus:border-signal/40 focus:outline-none focus:ring-2 focus:ring-signal/15"
               />
             </label>
 
@@ -298,7 +312,7 @@ export function System() {
                   onChange={(e) => setApiKey(e.target.value)}
                   placeholder={providerId === "groq" ? "gsk_…" : "sk-…"}
                   autoComplete="off"
-                  className="w-full rounded-xl border border-black/[0.08] bg-white px-3 py-2 font-mono text-2xs text-ink placeholder:text-ink-4 focus:border-signal/40 focus:outline-none focus:ring-2 focus:ring-signal/15"
+                  className="w-full rounded-xl border border-line-strong bg-ground-raised px-3 py-2 font-mono text-2xs text-ink placeholder:text-ink-4 focus:border-signal/40 focus:outline-none focus:ring-2 focus:ring-signal/15"
                 />
               </label>
             ) : (
@@ -306,7 +320,7 @@ export function System() {
                 <span className="mb-1.5 flex items-center gap-1 text-2xs font-medium uppercase tracking-[0.14em] text-ink-3">
                   <Key size={11} weight="light" /> API key
                 </span>
-                <div className="rounded-xl border border-dashed border-black/[0.10] bg-black/[0.02] px-3 py-2 font-mono text-2xs text-ink-3">
+                <div className="rounded-xl border border-dashed border-line-strong bg-white/[0.03] px-3 py-2 font-mono text-2xs text-ink-3">
                   not required (local)
                 </div>
               </div>
@@ -321,7 +335,7 @@ export function System() {
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
                 placeholder="llama-3.3-70b-versatile"
-                className="w-full rounded-xl border border-black/[0.08] bg-white px-3 py-2 font-mono text-2xs text-ink placeholder:text-ink-4 focus:border-signal/40 focus:outline-none focus:ring-2 focus:ring-signal/15"
+                className="w-full rounded-xl border border-line-strong bg-ground-raised px-3 py-2 font-mono text-2xs text-ink placeholder:text-ink-4 focus:border-signal/40 focus:outline-none focus:ring-2 focus:ring-signal/15"
               />
             </label>
           </div>
@@ -337,7 +351,7 @@ export function System() {
               type="button"
               onClick={handleTest}
               disabled={testing || !endpoint}
-              className="rounded-full border border-black/[0.10] bg-black/[0.04] px-5 py-2 text-sm font-medium text-ink transition-colors duration-300 hover:bg-black/[0.06] disabled:opacity-40"
+              className="rounded-full border border-line-strong bg-white/[0.05] px-5 py-2 text-sm font-medium text-ink transition-colors duration-300 hover:bg-white/[0.07] disabled:opacity-40"
             >
               {testing ? "Testing…" : "Test connection"}
             </button>

@@ -198,7 +198,15 @@ class ReadModel:
         sit = self._sits.get(o.situation_id, {})
         mttr_ms = None
         if sit and o.result == RemediationResult.SUCCESS:
-            mttr_ms = _epoch_ms(o.ts) - sit["first_seen"]
+            elapsed = _epoch_ms(o.ts) - sit["first_seen"]
+            # A Situation's id IS its signature, so a recurrence of the same
+            # incident overwrites the earlier record's `first_seen`. Replaying
+            # the stream on a read-model rebuild then pairs an OLD outcome with
+            # a NEW first_seen and the subtraction goes negative -- the console's
+            # front page read "MEAN TIME TO RESOLVE -9.54 min". A negative
+            # elapsed time is not a slow fix, it is the absence of a matching
+            # detection, so report no measurement rather than a nonsense one.
+            mttr_ms = elapsed if elapsed >= 0 else None
         self._outcomes.insert(
             0,
             {

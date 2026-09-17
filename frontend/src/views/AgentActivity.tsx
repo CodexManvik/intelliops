@@ -11,7 +11,7 @@ import {
   Wrench,
   XCircle,
 } from "@phosphor-icons/react";
-import { Bezel, Eyebrow, timeAgo, motion as m } from "../components/primitives";
+import { Bezel, PageHead, motion as m, timeAgo } from "../components/primitives";
 import { loadAgentRun, loadAgentRuns, openAgentRunStream } from "../data/source";
 import { pushToast } from "../hooks/useToast";
 import type { RunSummary, TraceStep } from "../data/types";
@@ -32,7 +32,7 @@ const statusLabel: Record<string, string> = {
 };
 
 function RunStatusChip({ status }: { status: string }) {
-  const skin = statusSkin[status] ?? "text-ink-3 bg-black/[0.05]";
+  const skin = statusSkin[status] ?? "text-ink-3 bg-white/[0.06]";
   const label = statusLabel[status] ?? status;
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 font-mono text-2xs ${skin}`}>
@@ -53,7 +53,7 @@ function isTerminal(status: string): boolean {
 
 function JsonBlock({ value }: { value: unknown }) {
   return (
-    <pre className="mt-2 max-h-72 overflow-auto rounded-lg bg-black/[0.04] p-3 font-mono text-2xs leading-relaxed text-ink-2">
+    <pre className="mt-2 max-h-72 overflow-auto rounded-lg bg-white/[0.05] p-3 font-mono text-2xs leading-relaxed text-ink-2">
       {JSON.stringify(value, null, 2)}
     </pre>
   );
@@ -103,7 +103,7 @@ function TraceRow({ step }: { step: TraceStep }) {
           {succeeded ? "Draft succeeded" : `Agent ${status.replace("_", " ")}`}
         </span>
         {succeeded && proposalId && (
-          <span className="rounded-md bg-black/[0.05] px-2 py-0.5 font-mono text-2xs text-ink-3">
+          <span className="rounded-md bg-white/[0.06] px-2 py-0.5 font-mono text-2xs text-ink-3">
             proposal {proposalId} · review in Governance
           </span>
         )}
@@ -115,13 +115,13 @@ function TraceRow({ step }: { step: TraceStep }) {
   }
 
   return (
-    <div className={`rounded-xl border border-black/[0.06] bg-black/[0.02] transition-colors ${expandable ? "hover:bg-black/[0.035]" : ""}`}>
+    <div className={`rounded-xl border border-line bg-white/[0.03] transition-colors ${expandable ? "hover:bg-white/[0.035]" : ""}`}>
       <button
         onClick={expandable ? toggle : undefined}
         disabled={!expandable}
         className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm ${expandable ? "cursor-pointer" : "cursor-default"}`}
       >
-        <span className={`flex h-6 w-6 flex-none items-center justify-center rounded-lg bg-black/[0.05] ${tone}`}>{icon}</span>
+        <span className={`flex h-6 w-6 flex-none items-center justify-center rounded-lg bg-white/[0.06] ${tone}`}>{icon}</span>
         <span className="min-w-0 flex-1 truncate">{summary}</span>
         {expandable && (
           <CaretRight size={12} weight="bold" className={`flex-none text-ink-3 transition-transform duration-300 ${open ? "rotate-90" : ""}`} />
@@ -137,7 +137,7 @@ function TraceRow({ step }: { step: TraceStep }) {
             transition={{ duration: 0.28, ease: [0.32, 0.72, 0, 1] }}
             className="overflow-hidden"
           >
-            <div className="border-t border-black/[0.06] px-3 pb-3 pt-2.5">
+            <div className="border-t border-line px-3 pb-3 pt-2.5">
               {step.kind === "tool_call" && (
                 <>
                   {step.arguments && Object.keys(step.arguments).length > 0 && (
@@ -316,16 +316,16 @@ export function AgentActivity({
   return (
     <div className="space-y-5">
       <div>
-        <Eyebrow>
-          <ListChecks size={12} weight="light" /> Agent Activity · AI runbook author
-        </Eyebrow>
-        <h1 className="mt-4 text-4xl font-semibold tracking-tightest sm:text-5xl">
-          Watch the agent <span className="text-signal">think.</span>
-        </h1>
-        <p className="mt-3 max-w-[58ch] text-base leading-relaxed text-ink-2">
-          Every draft run — the reasoning, each tool call and its result, and the final draft — recorded
-          step by step. Live while the agent works, replayable after.
-        </p>
+        <PageHead
+          title="Agent activity"
+          hint="Every runbook-drafting run, step by step: the model's reasoning, each tool call and what it returned, and the draft it produced. Live while it works, replayable after."
+          right={
+            <span className="flex items-center gap-2 font-mono text-2xs text-ink-3">
+              <ListChecks size={13} weight="light" />
+              AI runbook author
+            </span>
+          }
+        />
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
@@ -341,10 +341,10 @@ export function AgentActivity({
               return (
                 <button key={r.run_id} onClick={() => setSelectedId(r.run_id)} className="block w-full text-left">
                   <div
-                    className={`rounded-3xl p-1.5 transition-all duration-500 ease-fluid ${
+                    className={`rounded-xl p-1.5 transition-all duration-500 ease-fluid ${
                       active
                         ? "border border-signal/40 bg-signal/[0.06] shadow-glow"
-                        : "border border-black/[0.06] bg-black/[0.02] hover:bg-black/[0.04]"
+                        : "border border-line bg-white/[0.03] hover:bg-white/[0.05]"
                     }`}
                   >
                     <div className="rounded-[calc(1.5rem-6px)] bg-ground-sunken p-3.5">
@@ -364,7 +364,7 @@ export function AgentActivity({
               );
             })}
             {runs.length === 0 && (
-              <div className="rounded-2xl border border-black/[0.06] p-6 text-center text-2xs text-ink-3">
+              <div className="rounded-lg border border-line p-6 text-center text-2xs text-ink-3">
                 No runs yet. Trigger "Draft a runbook with AI" from an incident to start one.
               </div>
             )}
@@ -397,7 +397,7 @@ export function AgentActivity({
                       </div>
                     </div>
                     {selectedRun.status === "succeeded" && selectedRun.proposal_id && (
-                      <span className="flex items-center gap-1.5 rounded-full border border-black/[0.08] bg-black/[0.03] px-3 py-1.5 font-mono text-2xs text-ink-2">
+                      <span className="flex items-center gap-1.5 rounded-full border border-line-strong bg-white/[0.04] px-3 py-1.5 font-mono text-2xs text-ink-2">
                         <ArrowSquareOut size={13} weight="light" /> {selectedRun.proposal_id}
                       </span>
                     )}
@@ -408,12 +408,12 @@ export function AgentActivity({
                       <TraceRow key={s.seq} step={s} />
                     ))}
                     {loadingSteps && steps.length === 0 && (
-                      <div className="flex items-center gap-2 rounded-xl border border-black/[0.06] bg-black/[0.02] px-3 py-4 font-mono text-2xs text-ink-3">
+                      <div className="flex items-center gap-2 rounded-xl border border-line bg-white/[0.03] px-3 py-4 font-mono text-2xs text-ink-3">
                         <CircleNotch size={13} weight="bold" className="animate-spin" /> waiting for the agent…
                       </div>
                     )}
                     {!loadingSteps && steps.length === 0 && (
-                      <div className="rounded-xl border border-black/[0.06] p-6 text-center font-mono text-2xs text-ink-3">
+                      <div className="rounded-xl border border-line p-6 text-center font-mono text-2xs text-ink-3">
                         No trace recorded for this run.
                       </div>
                     )}
@@ -422,7 +422,7 @@ export function AgentActivity({
               </m.div>
             </AnimatePresence>
           ) : (
-            <div className="flex items-center justify-center rounded-4xl border border-black/[0.06] p-12 text-ink-3">
+            <div className="flex items-center justify-center rounded-xl border border-line p-12 text-ink-3">
               Select a run to see its trace.
             </div>
           )}

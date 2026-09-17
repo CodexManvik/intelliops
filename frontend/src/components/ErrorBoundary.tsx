@@ -47,7 +47,7 @@ export class ErrorBoundary extends Component<Props, State> {
     if (!error) return this.props.children;
 
     return (
-      <div className="rounded-2xl border border-sev-crit/30 bg-sev-crit/5 p-6">
+      <div className="rounded-lg border border-sev-crit/30 bg-sev-crit/5 p-6">
         <p className="text-sm font-semibold text-sev-crit">This panel failed to render.</p>
         <p className="mt-2 text-sm text-ink-dim">
           The rest of the console still works — switch to another view and back, or reload.

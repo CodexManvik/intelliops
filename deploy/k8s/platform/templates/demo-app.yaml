@@ -26,6 +26,12 @@ spec:
         - name: demo-app
           image: {{ $img | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # demo-app was the one workload with no envFrom, so shared settings
+          # (e.g. INTELLIOPS_TELEMETRY_JITTER) never reached it and it was the
+          # only service still emitting a ruled line into the console charts.
+          envFrom:
+            - configMapRef:
+                name: intelliops-env
           env:
             - name: SERVICE_MODULE
               value: {{ .Values.demoApp.module | quote }}

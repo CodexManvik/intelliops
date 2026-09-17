@@ -28,13 +28,21 @@ from services.correlation.adapters.base_correlator import BaseCorrelator
 from services.correlation.detection_policy import DetectionPolicy
 
 _MAD_C = 1.4826  # MAD -> sigma consistency constant for normal data
-# Relative tolerance for calling a zero-MAD window 'unchanged' - float noise
-# and a re-published identical value must not read as an anomaly.
-_FLAT_TOLERANCE = 1e-9
 # Floor for a step off a perfectly flat baseline. Comfortably above the
 # default z_threshold (3.0) so such a step is always caught; the actual score
 # rises with the relative size of the jump.
 _FLAT_STEP_SCORE = 6.0
+# How far a value must move off a flat baseline before it counts as a step.
+#
+# A zero-MAD window gives us no scale to judge by, so the previous code called
+# ANY movement beyond float noise an anomaly. That is right for the cases this
+# path exists for -- service_up going 1 -> 0, tls_handshake_failures going
+# 0.4 -> 46.4 -- and wrong for a metric that was pinned at a constant by a
+# simulator and then started reporting real, small variation: 18.0 -> 17.34 was
+# scored 6.0 and opened an incident. With no spread to normalise by, the only
+# scale available is the baseline's own magnitude, so require the move to be
+# at least half of it. Every genuine case above clears that comfortably.
+_FLAT_MIN_RELATIVE = 0.5
 
 
 class RobustCorrelator(BaseCorrelator):
@@ -69,8 +77,10 @@ class RobustCorrelator(BaseCorrelator):
             deviation = abs(event.value - med)
             if mad > 0.0:
                 score = deviation / (_MAD_C * mad)
-            elif deviation <= _FLAT_TOLERANCE * max(abs(med), 1.0):
-                # Perfectly flat baseline and the value has not moved: normal.
+            elif deviation <= _FLAT_MIN_RELATIVE * max(abs(med), 1.0):
+                # Perfectly flat baseline and the value has not meaningfully
+                # moved: normal. Covers both a re-published identical value
+                # (deviation ~ _FLAT_TOLERANCE) and ordinary small variation.
                 score = 0.0
             else:
                 # MAD == 0 means every sample in the window is identical, so ANY

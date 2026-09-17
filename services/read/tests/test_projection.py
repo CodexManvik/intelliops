@@ -273,3 +273,62 @@ def test_apply_outcome_without_preflight_projects_none():
     )
     s = next(x for x in rm.situations() if x["id"] == "sit-1")
     assert s["outcome"]["preflight"] is None
+
+
+def test_outcome_older_than_its_situation_reports_no_mttr():
+    """Regression: the console's front page showed "MEAN TIME TO RESOLVE -9.54 min".
+
+    A Situation's id IS its signature, so every recurrence of the same incident
+    reuses the id and overwrites the stored `first_seen`. Replaying the durable
+    stream on a read-model rebuild then pairs an older outcome with a newer
+    detection and `outcome.ts - first_seen` goes negative. A negative elapsed
+    time is the absence of a matching detection, not a fast fix.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from common.contracts import (
+        RemediationOutcome,
+        RemediationResult,
+        Situation,
+        SituationStatus,
+        TelemetryEvent,
+        TelemetryKind,
+    )
+    from services.read.projection import ReadModel
+
+    later = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+    ev = TelemetryEvent(
+        source="prom",
+        kind=TelemetryKind.METRIC,
+        name="service_up",
+        value=0.0,
+        labels={"service": "web"},
+        ts=later,
+        fingerprint="fp",
+    )
+    model = ReadModel()
+    # The situation the model currently holds is the RECURRENCE, at 12:00.
+    model.apply_detected(
+        Situation(
+            id="sit-1",
+            status=SituationStatus.DETECTED,
+            member_events=[ev],
+            severity="high",
+            first_seen=later,
+            last_seen=later,
+            signature="1",
+        )
+    )
+    # The outcome being replayed belongs to the EARLIER occurrence, at 11:50.
+    model.apply_outcome(
+        RemediationOutcome(
+            situation_id="sit-1",
+            playbook_id="restart-pod",
+            result=RemediationResult.SUCCESS,
+            health_after="healthy",
+            ts=later - timedelta(minutes=10),
+        )
+    )
+    out = model.outcomes()[0]
+    assert out["mttr_ms"] is None, "a negative elapsed time must not be reported as an MTTR"
+    assert model.metrics()["mttrMinutes"] >= 0.0

@@ -42,6 +42,17 @@ env:
   # every USE+RED family the arc detects, so faults on any of them flow into a
   # Situation (not just cpu). One instant query returns all series across services.
   TELEMETRY_MODE: "prometheus"
+  TELEMETRY_JITTER: "1"
+  # A single sample over the z-threshold is a sample, not an incident. Ingestion
+  # polls every 5s across 5 services, so a real fault fills a 30s window with
+  # dozens of anomalous events while an ordinary excursion contributes one.
+  CORRELATION_MIN_EVENTS: "3"
+  # Do not score until the window is full. Ingestion polls every 5s across 5
+  # services and the window is keyed by metric name, so 128 samples is ~2
+  # minutes of arming time after a cold start. Scoring from 30 samples meant
+  # judging a metric against 30 seconds of its own history, which is how a
+  # healthy queue_depth of 2.46 came out at z = 3.04.
+  CORRELATION_ROBUST_WARMUP: "128"
   # Durable delivery + a console that survives a restart + per-service incidents.
   BUS_DELIVERY: "at_least_once"
   BUS_DLQ_MODE: "on"

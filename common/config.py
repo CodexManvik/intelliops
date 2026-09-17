@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     correlation_warmup_samples: int = 50
     correlation_z_threshold: float = 3.0
     correlation_window_seconds: float = 30.0
+    # Minimum anomalous events in a window before it becomes an incident. 1 is
+    # the historical behaviour (one sample over the threshold = one incident);
+    # the live overlay raises it so a lone excursion in real telemetry is not
+    # mistaken for a fault. See CorrelationEngine._min_events.
+    correlation_min_events: int = 1
     correlator_kind: str = "river"  # "river" | "robust" | "trained"
     # How anomalies are bucketed before windowing. "window" (default) puts every
     # event in one bucket, so concurrent faults on different services merge into

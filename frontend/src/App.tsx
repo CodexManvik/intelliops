@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { MotionConfig } from "framer-motion";
 import { Shell, type View } from "./components/Shell";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -9,8 +9,30 @@ import { AgentActivity } from "./views/AgentActivity";
 import { System } from "./views/System";
 import "./styles/view.css";
 
+/* The five views were in-memory state only, so the browser back button did
+   nothing, a view could not be linked to, and a reload always dropped you on
+   Overview. A hash route costs ten lines and makes "open Governance" something
+   you can send someone. */
+const VIEWS: View[] = ["overview", "incidents", "governance", "agent-activity", "settings"];
+
+function viewFromHash(): View {
+  const h = window.location.hash.replace(/^#\/?/, "");
+  return (VIEWS as string[]).includes(h) ? (h as View) : "overview";
+}
+
 export default function App() {
-  const [view, setView] = useState<View>("overview");
+  const [view, setViewState] = useState<View>(viewFromHash);
+  useEffect(() => {
+    const onHash = () => setViewState(viewFromHash());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+  const setView = (v: View) => {
+    // Write the hash first: the hashchange listener above then confirms the
+    // state, so browser back/forward and in-app navigation agree.
+    window.location.hash = `#/${v}`;
+    setViewState(v);
+  };
   // Deep-link a specific agent run into the Agent Activity tab — set by
   // Incidents' "Draft a runbook with AI" button, consumed by AgentActivity.
   const [focusRun, setFocusRun] = useState<string | null>(null);

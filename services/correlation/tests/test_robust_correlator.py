@@ -52,6 +52,34 @@ def test_step_off_a_flat_baseline_is_detected():
     assert math.isfinite(score), "must never be inf/nan"
 
 
+def test_small_real_variation_off_a_flat_baseline_does_not_flag():
+    """Regression: a constant series that starts reporting real variation is a
+    measurement getting better, not an incident.
+
+    The simulated workloads pinned every healthy metric to a constant, so their
+    learned windows had MAD == 0. When they began emitting bounded idle jitter
+    the flat-baseline rule scored an 18.0 -> 17.34 tick at 6.0 and opened four
+    "database connection-pool exhaustion" incidents at once, none of which had
+    happened. A zero-MAD window has no spread to normalise by, so the move has
+    to be large relative to the baseline itself before it counts.
+    """
+    c = RobustCorrelator(z_threshold=3.0, warmup_samples=10)
+    _feed_flat(c, value=18.0, n=40)
+    assert c.detect(_event(value=17.34, ts=datetime(2026, 8, 13, 0, 1, 3, tzinfo=UTC))) == 0.0
+    assert c.detect(_event(value=20.31, ts=datetime(2026, 8, 13, 0, 1, 4, tzinfo=UTC))) == 0.0
+
+
+def test_crash_off_a_flat_baseline_still_flags():
+    """The floor above must not blunt the case the flat-baseline rule exists
+    for: service_up is exactly 1.0 until the process dies."""
+    c = RobustCorrelator(z_threshold=3.0, warmup_samples=10)
+    _feed_flat(c, name="service_up", value=1.0, n=40)
+    score = c.detect(
+        _event(name="service_up", value=0.0, ts=datetime(2026, 8, 13, 0, 1, 5, tzinfo=UTC))
+    )
+    assert score > 3.0, "a service going down must still be an anomaly"
+
+
 def test_tiny_float_noise_on_a_flat_baseline_does_not_flag():
     """A re-published identical value must not read as an anomaly."""
     c = RobustCorrelator(z_threshold=3.0, warmup_samples=10)

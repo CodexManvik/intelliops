@@ -156,6 +156,12 @@ export interface SystemInfo {
   store_backend: string;
   remediator_mode: string;
   auth_mode: string;
+  // Reported by read-service. The console used to assert "fixes rehearsed on a
+  // throwaway clone first" as a fixed line of copy, which is a claim about a
+  // setting that is off in the live posture. Read it instead of stating it.
+  sandbox_mode?: string;
+  health_check_mode?: string;
+  detection_policy?: string;
   llm: {
     provider: "template" | "openai-compatible";
     endpoint_configured: boolean;
@@ -167,6 +173,10 @@ export interface SystemInfo {
 
 export interface BaselineInfo {
   correlator_kind: string;
+  // Which statistic the running correlator actually computes. `river` keeps a
+  // running mean/stddev; `robust` a median and a MAD-derived sigma. Labelling
+  // both "mean" was wrong on the page that promises nothing is staged.
+  statistic?: "median/MAD" | "mean/stddev";
   // mean/count are null for the robust correlator (median/MAD per hour-bucket,
   // no running mean); std may be 0 before enough samples. Guard before formatting.
   baselines: { metric_name: string; mean: number | null; std: number | null; count: number | null }[];

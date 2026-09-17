@@ -17,8 +17,12 @@ from services.correlation.detection_policy import DetectionPolicy, classify
 
 # A window with zero spread still tells us something exact: the metric never
 # moved. Returning "no baseline" there made a perfectly flat metric unverifiable
-# forever. Mirrors _FLAT_TOLERANCE / _FLAT_STEP_SCORE in RobustCorrelator.
-_FLAT_TOLERANCE = 1e-9
+# forever. Mirrors _FLAT_MIN_RELATIVE / _FLAT_STEP_SCORE in RobustCorrelator.
+#
+# The two constants must stay in step with that module: verification asks the
+# same question the detector asked, so if the detector would not have called a
+# value anomalous, verification must not call it unrecovered either.
+_FLAT_MIN_RELATIVE = 0.5
 # Comfortably above any sane z_threshold, so a departure from a flat baseline
 # always reads as "not recovered".
 _FLAT_STEP_SCORE = 6.0
@@ -38,7 +42,7 @@ def _baseline_score(situation: Situation, name: str, value: float) -> tuple[floa
         # available: this metric was perfectly constant. `service_up` is exactly
         # this case (always 1.0), and treating it as unusable meant every
         # service_up remediation rolled back despite having actually worked.
-        if abs(value - mean) <= _FLAT_TOLERANCE * max(abs(mean), 1.0):
+        if abs(value - mean) <= _FLAT_MIN_RELATIVE * max(abs(mean), 1.0):
             return 0.0, True
         return _FLAT_STEP_SCORE, True
     return (value - mean) / std, True

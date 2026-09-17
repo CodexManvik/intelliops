@@ -31,3 +31,8 @@ models/
 .claude/
 .superpowers/
 deploy/.kubeconfig
+
+# /brag run output: a rendered launch film plus its composition, screenshots
+# and bundled audio. Large binaries, regenerated per run, never a build input.
+brag-output/
+brag-output-*/
