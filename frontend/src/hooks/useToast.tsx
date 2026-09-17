@@ -67,7 +67,7 @@ export function ToastHost() {
                 : { type: "spring", stiffness: 420, damping: 34, mass: 0.7 }
             }
             layout={!reduce}
-            className={`pointer-events-auto flex items-start gap-2.5 rounded-2xl border px-4 py-3 text-sm shadow-lift backdrop-blur-xl ${
+            className={`pointer-events-auto flex items-start gap-2.5 rounded-lg border px-4 py-3 text-sm shadow-lift backdrop-blur-xl ${
               t.kind === "error"
                 ? "border-sev-crit/30 bg-sev-crit/10 text-sev-crit"
                 : "border-sev-ok/30 bg-sev-ok/10 text-sev-ok"

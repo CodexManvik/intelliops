@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Circuitry, ListChecks, Pulse, SquaresFour, ShieldCheck, Waveform } from "@phosphor-icons/react";
+import { Circuitry, ListChecks, SquaresFour, ShieldCheck, Waveform } from "@phosphor-icons/react";
 import { fluid } from "./primitives";
 import { ToastHost } from "../hooks/useToast";
 import { onConnectionHealth } from "../hooks/useLiveData";
@@ -33,14 +33,19 @@ export function Shell({
 
   return (
     <div className="relative min-h-[100dvh]">
+      {/* Top bar. Was a floating translucent pill left over from the light
+          theme: it rendered as a white lozenge sitting ON TOP of the first row
+          of content. A full-width bar with a single hairline under it is both
+          the correct dark-UI idiom and out of the content's way. */}
+      <div className="sticky top-0 z-40">
       <AnimatePresence>
         {failing > 0 && (
           <motion.div
-            initial={{ opacity: 0, y: -12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -12 }}
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
             role="alert"
-            className="fixed inset-x-0 top-0 z-50 flex items-center justify-center gap-2 bg-sev-crit/12 px-4 py-2 text-sm text-sev-crit backdrop-blur-xl"
+            className="flex items-center justify-center gap-2 overflow-hidden border-b border-sev-crit/25 bg-sev-crit/[0.10] px-4 py-2 text-sm text-sev-crit backdrop-blur-xl"
           >
             <WarningCircle size={15} weight="fill" />
             <span>
@@ -50,54 +55,57 @@ export function Shell({
           </motion.div>
         )}
       </AnimatePresence>
-      {/* ambient field */}
-      <div className="mesh pointer-events-none fixed inset-0 z-0" aria-hidden />
-
-      {/* Fluid-island nav — floating glass pill, detached from the top */}
-      <div className="sticky top-0 z-40 flex justify-center px-4 pt-5">
-        <nav className="flex w-full max-w-5xl items-center gap-3 rounded-full border border-black/[0.08] bg-white/70 px-3 py-2 backdrop-blur-2xl">
-          <div className="flex items-center gap-2 pl-1.5 pr-1">
-            <span className="relative flex h-2.5 w-2.5">
+      <header className="border-b border-line bg-ground/80 backdrop-blur-xl">
+        <div className="mx-auto flex h-14 w-full max-w-6xl items-center gap-6 px-4 sm:px-6">
+          <div className="flex items-center gap-2.5">
+            <span className="relative flex h-2 w-2">
               <span className="absolute inline-flex h-full w-full animate-beat rounded-full bg-signal" />
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-signal shadow-[0_0_8px_rgba(0,113,227,0.5)]" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-signal" />
             </span>
-            <span className="text-sm font-semibold tracking-tight">IntelliOps</span>
-            <span className="hidden text-2xs font-medium uppercase tracking-[0.18em] text-ink-3 sm:inline">Control Plane</span>
+            <span className="text-[15px] font-semibold tracking-tight text-ink">IntelliOps</span>
+            <span className="hidden border-l border-line-strong pl-2.5 text-2xs font-medium uppercase tracking-[0.16em] text-ink-3 sm:inline">
+              Control plane
+            </span>
           </div>
 
-          {/* desktop tabs */}
-          <div className="ml-auto hidden items-center gap-1 md:flex">
+          {/* desktop tabs — underline indicator, flush with the header rule */}
+          <div className="ml-4 hidden h-full items-stretch md:flex">
             {tabs.map((t) => (
               <button
                 key={t.id}
                 onClick={() => onView(t.id)}
-                className="relative rounded-full px-4 py-2 text-sm text-ink-2 transition-colors duration-300 hover:text-ink"
+                aria-current={view === t.id ? "page" : undefined}
+                className={`relative flex items-center gap-2 px-3.5 text-[13px] transition-colors duration-200 ${
+                  view === t.id ? "text-ink" : "text-ink-3 hover:text-ink-2"
+                }`}
               >
+                {t.icon}
+                {t.label}
                 {view === t.id && (
                   <motion.span
-                    layoutId="tabpill"
-                    className="absolute inset-0 rounded-full bg-black/[0.06] ring-1 ring-black/[0.06]"
-                    transition={{ type: "spring", stiffness: 380, damping: 32 }}
+                    layoutId="tabunderline"
+                    className="absolute inset-x-2 -bottom-px h-px bg-ink"
+                    transition={{ type: "spring", stiffness: 420, damping: 36 }}
                   />
                 )}
-                <span className={`relative flex items-center gap-2 ${view === t.id ? "text-ink" : ""}`}>
-                  {t.icon}
-                  {t.label}
-                </span>
               </button>
             ))}
           </div>
 
-          {/* live status pill */}
-          <div className="ml-auto hidden items-center gap-2 rounded-full border border-black/[0.08] bg-black/[0.03] px-3 py-1.5 md:flex">
-            <Pulse size={15} weight="light" className="text-signal" />
-            <span className="font-mono text-2xs text-ink-2">6/6 healthy</span>
+          {/* Connection state, derived — not a hardcoded health count. */}
+          <div className="ml-auto hidden items-center gap-2 md:flex">
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${failing > 0 ? "bg-sev-crit" : "bg-sev-ok"}`}
+            />
+            <span className="font-mono text-2xs text-ink-3">
+              {failing > 0 ? `${failing} source${failing > 1 ? "s" : ""} down` : "streaming"}
+            </span>
           </div>
 
           {/* mobile hamburger → fluid X */}
           <button
             onClick={() => setOpen((o) => !o)}
-            className="ml-auto flex h-9 w-9 items-center justify-center rounded-full bg-black/[0.05] md:hidden"
+            className="ml-auto flex h-9 w-9 items-center justify-center rounded-md border border-line-strong md:hidden"
             aria-label="Menu"
           >
             <div className="relative h-3.5 w-4">
@@ -118,14 +126,15 @@ export function Shell({
               />
             </div>
           </button>
-        </nav>
+        </div>
+      </header>
       </div>
 
       {/* mobile overlay menu — staggered mask reveal */}
       <AnimatePresence>
         {open && (
           <motion.div
-            className="fixed inset-0 z-30 flex flex-col items-center justify-center gap-2 bg-white/85 backdrop-blur-3xl md:hidden"
+            className="fixed inset-0 z-30 flex flex-col items-center justify-center gap-2 bg-ground/95 backdrop-blur-2xl md:hidden"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -153,7 +162,7 @@ export function Shell({
       </AnimatePresence>
 
       {/* view content */}
-      <main className="relative z-10 mx-auto w-full max-w-6xl px-4 pb-24 pt-8 sm:px-6">{children}</main>
+      <main id="main" className="relative z-10 mx-auto w-full max-w-6xl px-4 pb-24 pt-8 sm:px-6">{children}</main>
       <ToastHost />
     </div>
   );

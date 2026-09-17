@@ -20,7 +20,13 @@
 
 @layer base {
   :root {
-    color-scheme: light;
+    color-scheme: dark;
+    /* One z-scale, so nothing has to reach for 9999 later. */
+    --z-base: 0;
+    --z-raised: 10;
+    --z-nav: 40;
+    --z-overlay: 60;
+    --z-toast: 80;
   }
 
   html,
@@ -31,67 +37,88 @@
 
   body {
     margin: 0;
-    background: #ffffff;
-    color: #1d1d1f;
+    /* Flat, and deliberately so. The first pass laid two coloured radials over
+       the ground to keep it from reading as an unlit rectangle; on a near-black
+       page that just reads as murk. A crisp dark UI gets its depth from 1px
+       rules and a real surface step (#0A0A0A page, #111111 card), not from
+       ambient glow. */
+    background-color: #0a0a0a;
+    color: #ededed;
     font-family: "Geist", ui-sans-serif, system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
     overflow-x: hidden;
   }
 
-  /* Large display headings: negative tracking as they grow (Apple type rule) */
+  /* Headings. The views used to open on 48px display type, where -0.035em was
+     right; they now open on a 20px page title, where it is too tight. Views
+     that want tighter tracking set it per element. `text-wrap: balance` stays
+     -- it is what stops a heading leaving one word alone on its last line. */
   h1,
   h2 {
-    letter-spacing: -0.035em;
+    letter-spacing: -0.02em;
     text-wrap: balance;
   }
 
+  /* Paragraphs: avoid an orphan on the last line without balancing the whole
+     block, which is wrong for anything longer than a heading. */
+  p {
+    text-wrap: pretty;
+  }
+
   ::selection {
-    background: rgba(0, 113, 227, 0.2);
-    color: #1d1d1f;
+    background: rgba(82, 168, 255, 0.3);
+    color: #ffffff;
+  }
+
+  /* Every number in an ops surface is compared against the one above it, so
+     digits must occupy identical width. Without this, a column of figures
+     visibly shifts as values change. */
+  .tnum,
+  table,
+  [data-numeric] {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+
+  /* Keyboard focus was previously inherited from the browser default, which is
+     invisible on a dark ground. */
+  :where(a, button, [role="button"], [tabindex]):focus-visible {
+    outline: 2px solid #52a8ff;
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
   }
 
   /* thin, unobtrusive scrollbars in the ops surfaces */
   * {
     scrollbar-width: thin;
-    scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+    scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
   }
   *::-webkit-scrollbar {
     width: 8px;
     height: 8px;
   }
   *::-webkit-scrollbar-thumb {
-    background: rgba(0, 0, 0, 0.18);
+    /* was a black thumb, i.e. invisible against the dark track */
+    background: #2e2e2e;
     border-radius: 8px;
   }
   *::-webkit-scrollbar-thumb:hover {
-    background: rgba(0, 0, 0, 0.28);
-  }
-
-  :focus-visible {
-    outline: 2px solid #0071e3;
-    outline-offset: 2px;
-    border-radius: 8px;
+    background: #454545;
   }
 }
 
 @layer utilities {
-  .mesh {
-    background-image: radial-gradient(900px 560px at 82% -6%, rgba(0, 113, 227, 0.04), transparent 60%);
-  }
-
-  /* the Double-Bezel concentric-radius helper */
-  .bezel {
-    border-radius: 1.5rem;
-    padding: 6px;
-    background: rgba(0, 0, 0, 0.02);
-    border: 1px solid rgba(0, 0, 0, 0.08);
-  }
-  .bezel-core {
-    border-radius: calc(1.5rem - 6px);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), inset 0 0 0 1px rgba(0, 0, 0, 0.05);
-  }
-
   .tnum {
     font-variant-numeric: tabular-nums;
   }
@@ -105,4 +132,21 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
   }
+}
+
+/* Skip link: keyboard users should not have to tab the whole nav every time. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: var(--z-toast);
+}
+.skip-link:focus {
+  left: 1rem;
+  top: 1rem;
+  padding: 0.6rem 1rem;
+  border-radius: 0.6rem;
+  background: #111111;
+  color: #ededed;
+  border: 1px solid #2e2e2e;
 }

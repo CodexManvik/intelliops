@@ -112,7 +112,7 @@ function Kpi({
   suffix = "",
   sub,
   spark,
-  color = "#0071E3",
+  color = "#52A8FF",
   decimals = 0,
 }: {
   label: string;
@@ -169,15 +169,24 @@ const outcomeSkin: Record<string, { tone: string; icon: JSX.Element; label: stri
   escalated: { tone: "text-sev-attention bg-sev-attention/10 border-sev-attention/25", icon: <HandPalm size={12} weight="fill" />, label: "escalated" },
 };
 
-/** Honest AI-explainer posture, derived only from server-reported system.llm. */
+/** Honest AI-explainer posture, derived only from server-reported system.llm.
+ *
+ * Four states, not three. `last_probe` is null until someone hits Test in
+ * Settings, so a correctly wired Groq endpoint used to fall through to
+ * "Template (no model wired)" — which is the one thing it is definitely not,
+ * and it understated the system to anyone reading the page. Configured but
+ * unverified is its own answer. */
 function aiExplainerState(llm: SystemInfo["llm"]) {
   if (llm.provider === "openai-compatible" && llm.last_probe?.ok) {
-    return { tone: "text-sev-ok bg-sev-ok/10 border-sev-ok/25", icon: <CheckCircle size={12} weight="fill" />, label: `LLM live · ${llm.model}` };
+    return { kind: "live" as const, tone: "text-sev-ok bg-sev-ok/10 border-sev-ok/25", icon: <CheckCircle size={12} weight="fill" />, label: `LLM live · ${llm.model}` };
   }
   if (llm.endpoint_configured && llm.last_probe?.ok === false) {
-    return { tone: "text-sev-warn bg-sev-warn/10 border-sev-warn/25", icon: <Circuitry size={12} weight="light" />, label: "LLM error → template" };
+    return { kind: "error" as const, tone: "text-sev-warn bg-sev-warn/10 border-sev-warn/25", icon: <Circuitry size={12} weight="light" />, label: "LLM error → template" };
   }
-  return { tone: "text-ink-2 bg-black/[0.05] border-black/[0.10]", icon: <Circuitry size={12} weight="light" />, label: "Template (no model wired)" };
+  if (llm.endpoint_configured) {
+    return { kind: "unverified" as const, tone: "text-signal bg-signal/10 border-signal/25", icon: <Circuitry size={12} weight="light" />, label: `LLM configured · ${llm.model}` };
+  }
+  return { kind: "template" as const, tone: "text-ink-2 bg-white/[0.06] border-line-strong", icon: <Circuitry size={12} weight="light" />, label: "Template (no model wired)" };
 }
 
 export function Overview({ onView }: { onView: (v: View) => void }) {
@@ -222,45 +231,74 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
 
   return (
     <div className="space-y-6">
-      {/* ── Hero band ─────────────────────────────────────────────────── */}
+      {/* ── Identity + live posture ───────────────────────────────────
+          Replaces the former marketing hero. An operating console opens on
+          state, not on a headline: what this is, and what it is doing now. */}
       <Section>
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <Eyebrow>
-              <span className="h-1.5 w-1.5 animate-beat rounded-full bg-sev-ok" /> Operating picture · live
-            </Eyebrow>
-            <h1 className="mt-4 text-4xl font-semibold tracking-tightest sm:text-5xl lg:text-6xl">
-              Autonomous operations,
-              <br />
-              <span className="text-signal">under control.</span>
-            </h1>
-            <p className="mt-4 max-w-[52ch] text-base leading-relaxed text-ink-2">
-              One command plane over the whole incident lifecycle — detect, diagnose, remediate,
-              and verify. Every automated fix is reversible, RBAC-gated, and rehearsed in a sandbox
-              before it touches production.
-            </p>
+        <div className="flex flex-col gap-4 rounded-xl border border-line-strong bg-ground-raised p-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-4">
+            <span className="relative flex h-2.5 w-2.5 shrink-0">
+              <span className="absolute inline-flex h-full w-full animate-beat rounded-full bg-sev-ok/70" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-sev-ok" />
+            </span>
+            <div>
+              <h1 className="text-xl font-semibold tracking-tight text-ink">Incident control plane</h1>
+              <p className="mt-0.5 text-sm text-ink-3">
+                Detects, diagnoses and remediates production incidents. Every fix is
+                reversible and recorded.
+              </p>
+            </div>
           </div>
-
-          {/* live posture cluster — real system fields */}
-          <Bezel className="w-full shrink-0 lg:w-[300px]" coreClassName="p-5">
-            <div className="flex items-center justify-between">
-              <span className="flex items-center gap-2">
-                <span className="relative flex h-2.5 w-2.5">
-                  <span className="absolute inline-flex h-full w-full animate-beat rounded-full bg-sev-ok" />
-                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-sev-ok" />
-                </span>
-                <span className="text-sm font-semibold tracking-tight">All systems nominal</span>
-              </span>
-              <span className="font-mono text-2xs text-ink-3">6/6</span>
-            </div>
-            <div className="mt-4 space-y-2">
-              <PostureRow k="Correlator" v={sys.correlator_kind} />
-              <PostureRow k="Remediation" v={sys.remediator_mode} />
-              <PostureRow k="Bus" v={sys.bus_backend} />
-              <PostureRow k="Open incidents" v={String(open.length)} accent={open.length > 0} />
-            </div>
-          </Bezel>
+          <dl className="flex flex-wrap items-center gap-x-6 gap-y-2" data-numeric>
+            <PostureRow k="Correlator" v={sys.correlator_kind} />
+            <PostureRow k="Remediation" v={sys.remediator_mode} />
+            <PostureRow k="Bus" v={sys.bus_backend} />
+            <PostureRow k="Open" v={String(open.length)} accent={open.length > 0} />
+          </dl>
         </div>
+      </Section>
+
+      {/* ── The loop, with live counts ────────────────────────────────
+          The explanation IS the data. Each stage carries how many things have
+          passed through it, so the architecture and the current state are the
+          same object and no prose is needed to describe the pipeline. */}
+      <Section delay={40}>
+        <Bezel coreClassName="px-5 py-5">
+          <div className="flex items-center justify-between">
+            <Eyebrow>Pipeline · live</Eyebrow>
+            <span className="hidden font-mono text-2xs text-ink-3 sm:block">
+              alert storm &rarr; one incident &rarr; verified fix
+            </span>
+          </div>
+          <ol className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+            {[
+              { n: "Detect", v: metrics.alertsIngested, sub: "alerts in" },
+              { n: "Correlate", v: sits.length, sub: "incidents" },
+              { n: "Diagnose", v: sits.filter((x) => (x.hypotheses?.length ?? 0) > 0).length, sub: "with a cause" },
+              { n: "Approve", v: metrics.approvalsPending, sub: "awaiting you", accent: metrics.approvalsPending > 0 },
+              { n: "Execute", v: tally.success + tally.rolled_back + tally.failure, sub: "attempted" },
+              { n: "Verify", v: tally.success, sub: "healthy", ok: true },
+            ].map((st, i) => (
+              <li
+                key={st.n}
+                className="rounded-lg border border-line bg-white/[0.02] px-3 py-3 transition-colors duration-200 hover:border-line-strong hover:bg-white/[0.04]"
+              >
+                <span className="font-mono text-2xs uppercase tracking-[0.16em] text-ink-4">
+                  {String(i + 1).padStart(2, "0")}
+                </span>
+                <p className="mt-1 text-sm font-semibold tracking-tight text-ink">{st.n}</p>
+                <p
+                  className={`mt-2 text-2xl font-semibold tabular-nums tracking-tightest ${
+                    st.accent ? "text-sev-warn" : st.ok ? "text-sev-ok" : "text-ink"
+                  }`}
+                >
+                  {st.v}
+                </p>
+                <p className="mt-0.5 font-mono text-2xs text-ink-3">{st.sub}</p>
+              </li>
+            ))}
+          </ol>
+        </Bezel>
       </Section>
 
       {/* ── Hero KPI row ──────────────────────────────────────────────── */}
@@ -278,23 +316,43 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
             suffix="min"
             decimals={1}
             sub="across successful remediations"
-            color="#5E5CE6"
+            color="#8F8FF5"
           />
           <Kpi
             label="Auto-remediated"
             value={metrics.autoRemediatedPct}
             suffix="%"
             sub="ran without a human"
-            color="#34C759"
+            color="#62C073"
           />
           <Kpi
             label="Success rate"
             value={Math.round(metrics.successRate * 100)}
             suffix="%"
             sub={metrics.needsAttention > 0 ? `${metrics.needsAttention} escalated · needs a human` : "verified healthy after fix"}
-            color="#34C759"
+            color="#62C073"
           />
         </div>
+      </Section>
+
+      {/* ── Metrics wall ──────────────────────────────────────────────
+          Four series always on screen. The shape of a cluster is usually the
+          diagnosis, and you cannot see a shape in one chart at a time. */}
+      <Section delay={70}>
+        <Bezel coreClassName="p-5">
+          <div className="flex items-center justify-between">
+            <Eyebrow>Signals · 15m</Eyebrow>
+            <span className="hidden font-mono text-2xs text-ink-3 sm:block">
+              scraped from every service by Prometheus
+            </span>
+          </div>
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <MetricTile metricKey="cpu_usage" label="cpu" unit="%" />
+            <MetricTile metricKey="memory_usage_mb" label="memory" unit="MB" />
+            <MetricTile metricKey="latency_p99_ms" label="p99 latency" unit="ms" />
+            <MetricTile metricKey="meridian_error_rate" label="error rate" unit="%" scale={100} />
+          </div>
+        </Bezel>
       </Section>
 
       {/* ── Real metric history, straight from Prometheus via read-service ─ */}
@@ -311,7 +369,7 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
                     className={`rounded-full px-2.5 py-1 font-mono text-2xs transition-colors duration-200 ${
                       metric === m.key
                         ? "bg-signal/12 text-signal"
-                        : "text-ink-3 hover:bg-black/[0.04] hover:text-ink-2"
+                        : "text-ink-3 hover:bg-white/[0.05] hover:text-ink-2"
                     }`}
                   >
                     {m.label}
@@ -358,7 +416,7 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
                         onClick={() => onView("incidents")}
                         className="block w-full text-left"
                       >
-                        <div className="group rounded-2xl border border-black/[0.06] bg-black/[0.02] p-4 transition-all duration-500 ease-fluid hover:border-signal/30 hover:bg-signal/[0.04]">
+                        <div className="group rounded-lg border border-line bg-white/[0.03] p-4 transition-all duration-500 ease-fluid hover:border-signal/30 hover:bg-signal/[0.04]">
                           <div className="flex items-start justify-between gap-3">
                             <div className="flex items-center gap-2">
                               <SevChip sev={s.severity} />
@@ -374,7 +432,7 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
                             <span>{s.memberCount} alerts</span>
                             <span>·</span>
                             {s.suggested_runbook_id ? (
-                              <span className="rounded-md bg-black/[0.05] px-1.5 py-0.5 text-ink-2">
+                              <span className="rounded-md bg-white/[0.06] px-1.5 py-0.5 text-ink-2">
                                 → {s.suggested_runbook_id}
                               </span>
                             ) : (
@@ -383,7 +441,7 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
                             {top && (
                               <span className="ml-auto flex items-center gap-1.5">
                                 <span className="hidden sm:inline">confidence</span>
-                                <span className="h-1 w-16 overflow-hidden rounded-full bg-black/[0.08]">
+                                <span className="h-1 w-16 overflow-hidden rounded-full bg-white/[0.08]">
                                   <span
                                     className="block h-full rounded-full bg-signal"
                                     style={{ width: `${top.confidence * 100}%` }}
@@ -399,7 +457,7 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
                   })}
                 </div>
               ) : (
-                <div className="rounded-2xl border border-dashed border-black/[0.10] bg-black/[0.02] p-10 text-center">
+                <div className="rounded-lg border border-dashed border-line-strong bg-white/[0.03] p-10 text-center">
                   <CheckCircle size={26} weight="light" className="mx-auto text-sev-ok" />
                   <p className="mt-2 text-sm text-ink-2">No open incidents.</p>
                   <p className="font-mono text-2xs text-ink-3">The fleet is quiet — nothing to approve.</p>
@@ -423,7 +481,7 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
               <Head icon={<ShieldCheck size={16} weight="light" />}>Autonomy &amp; safety</Head>
 
               {/* auto vs hitl split bar */}
-              <div className="rounded-2xl bg-black/[0.02] p-4">
+              <div className="rounded-lg bg-white/[0.03] p-4">
                 <div className="flex items-center justify-between text-2xs">
                   <span className="flex items-center gap-1.5 font-medium text-signal">
                     <Lightning size={13} weight="fill" /> Auto {autoCount}
@@ -432,7 +490,7 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
                     HITL {hitlCount} <ShieldCheck size={13} weight="light" />
                   </span>
                 </div>
-                <div className="mt-2 flex h-2 overflow-hidden rounded-full bg-black/[0.06]">
+                <div className="mt-2 flex h-2 overflow-hidden rounded-full bg-white/[0.07]">
                   <span
                     className="h-full bg-signal transition-all duration-700 ease-fluid"
                     style={{ width: `${pct(autoCount, autoCount + hitlCount)}%` }}
@@ -455,12 +513,28 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
                 <Stat label="Suppress ≥" value={0.8} decimals={2} mono />
               </div>
 
-              <div className="mt-3 flex items-center gap-2 rounded-xl border border-black/[0.06] bg-black/[0.02] px-3 py-2.5">
-                <span className="flex h-6 w-6 flex-none items-center justify-center rounded-lg bg-sev-ok/12 text-sev-ok">
+              {/* Was a fixed line claiming every fix is rehearsed in a sandbox
+                  clone first. Sandbox mode is OFF in the live posture, so the
+                  console was asserting a safeguard it was not running. State
+                  whichever one is actually in force. */}
+              <div className="mt-3 flex items-center gap-2 rounded-lg border border-line bg-ground px-3 py-2.5">
+                <span className="flex h-6 w-6 flex-none items-center justify-center rounded-md bg-sev-ok/12 text-sev-ok">
                   <CheckCircle size={13} weight="fill" />
                 </span>
                 <span className="font-mono text-2xs text-ink-2">
-                  Sandbox pre-flight <span className="text-ink-3">· fixes rehearsed on a throwaway clone first</span>
+                  {sys.sandbox_mode === "on" ? (
+                    <>
+                      Sandbox pre-flight{" "}
+                      <span className="text-ink-3">· rehearsed on a throwaway clone first</span>
+                    </>
+                  ) : (
+                    <>
+                      Verify then roll back{" "}
+                      <span className="text-ink-3">
+                        · the metric that fired is re-checked, and a fix that does not hold is undone
+                      </span>
+                    </>
+                  )}
                 </span>
               </div>
             </Bezel>
@@ -508,11 +582,13 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
                   icon={<Circuitry size={15} weight="light" />}
                   title="Root-cause explanations"
                   body={
-                    explainer.label.startsWith("LLM live")
+                    explainer.kind === "live"
                       ? "A language model narrates why each incident was diagnosed as it was."
-                      : "Plain-language explanations are template-generated until a model endpoint is wired in Settings."
+                      : explainer.kind === "unverified"
+                        ? "An endpoint is wired and will be used for explanations. Run Test in Settings to confirm it answers."
+                        : "Plain-language explanations are template-generated until a model endpoint is wired in Settings."
                   }
-                  status={explainer.label.startsWith("LLM live") ? "live" : "template"}
+                  status={explainer.kind === "live" ? "live" : explainer.kind === "unverified" ? "review" : "template"}
                   onClick={() => onView("settings")}
                 />
               </div>
@@ -548,7 +624,7 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
                     return (
                       <div
                         key={i}
-                        className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-black/[0.02]"
+                        className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-white/[0.03]"
                       >
                         <span className={`inline-flex flex-none items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-2xs ${skin.tone}`}>
                           {skin.icon}
@@ -562,7 +638,7 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
                   })}
                 </div>
               ) : (
-                <div className="rounded-2xl border border-dashed border-black/[0.10] p-8 text-center font-mono text-2xs text-ink-3">
+                <div className="rounded-lg border border-dashed border-line-strong p-8 text-center font-mono text-2xs text-ink-3">
                   No remediations recorded yet.
                 </div>
               )}
@@ -594,10 +670,10 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
           </p>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {METRIC_FAMILIES.map((m) => (
-              <div key={m.name} className="rounded-2xl border border-black/[0.06] bg-black/[0.02] p-3.5">
+              <div key={m.name} className="rounded-lg border border-line bg-white/[0.03] p-3.5">
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-mono text-2xs font-medium text-ink">{m.name}</span>
-                  <span className="rounded bg-black/[0.05] px-1.5 py-0.5 font-mono text-[0.625rem] uppercase tracking-wider text-ink-3">{m.kind}</span>
+                  <span className="rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-[0.625rem] uppercase tracking-wider text-ink-3">{m.kind}</span>
                 </div>
                 <div className="mt-1.5 flex items-center gap-1.5 font-mono text-2xs text-ink-3">
                   <span className="text-ink-3">detect</span>
@@ -622,7 +698,7 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
           </Head>
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
             {FLEET.map((svc) => (
-              <div key={svc.name} className="rounded-2xl border border-black/[0.06] bg-black/[0.02] p-3.5">
+              <div key={svc.name} className="rounded-lg border border-line bg-white/[0.03] p-3.5">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium tracking-tight text-ink">{svc.name}</span>
                   <span className="relative flex h-2 w-2">
@@ -641,13 +717,85 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
   );
 }
 
+/* ---------------------------------------------------------------------------
+   One always-on metric. The wall of these is the point: a single selectable
+   chart makes you go looking, whereas four running side by side let you see a
+   correlation (flat CPU beside climbing memory says "leak") without choosing
+   anything first. Each tile owns its own poll.
+--------------------------------------------------------------------------- */
+function MetricTile({
+  metricKey,
+  label,
+  unit,
+  scale = 1,
+}: {
+  metricKey: string;
+  label: string;
+  unit: string;
+  /** Multiplier applied to the headline figure only, for metrics stored as a
+   *  fraction but read as a percentage (meridian_error_rate). */
+  scale?: number;
+}) {
+  const loader = useCallback(() => loadMetricHistory(metricKey, 15), [metricKey]);
+  const { data } = useLiveData(loader, { ...EMPTY_HISTORY, metric: metricKey });
+
+  // Highest current reading across services: on a wall of four, the question is
+  // always "is anything hot", not "what is the average".
+  const peak = useMemo(() => {
+    let v: number | null = null;
+    let who = "";
+    for (const srs of data.series ?? []) {
+      const pts = srs.points ?? [];
+      if (!pts.length) continue;
+      // points are [epochSeconds, value] tuples
+      const last = pts[pts.length - 1][1];
+      if (v === null || last > v) {
+        v = last;
+        who = srs.service;
+      }
+    }
+    return { value: v, service: who };
+  }, [data]);
+
+  const shown = peak.value === null ? null : peak.value * scale;
+
+  return (
+    <div className="rounded-lg border border-line bg-ground p-3.5 transition-colors duration-200 hover:border-line-strong">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="font-mono text-2xs uppercase tracking-[0.14em] text-ink-4">{label}</span>
+        <span className="font-mono text-sm tabular-nums text-ink">
+          {shown === null ? "—" : `${compactNum(shown)}${unit}`}
+        </span>
+      </div>
+      <div className="mt-2">
+        <LiveChart history={data} unit={unit} height={92} maxSeries={5} compact />
+      </div>
+      <div className="mt-1.5 truncate font-mono text-2xs text-ink-4">
+        {peak.service ? `peak · ${peak.service}` : "waiting for samples"}
+      </div>
+    </div>
+  );
+}
+
+/** Headline figure for a tile: enough significant digits to see a change, never
+ *  so many that the four tiles stop lining up. An error rate of 0.0034 used to
+ *  render as "0.00". */
+function compactNum(v: number): string {
+  const a = Math.abs(v);
+  if (a >= 100) return v.toFixed(0);
+  if (a >= 10) return v.toFixed(1);
+  return v.toFixed(2);
+}
+
 /* ── small local building blocks ──────────────────────────────────────── */
 
+/* One governing setting from /system. Rendered as a dt/dd pair because the
+   identity band is a definition list: these are labelled values, not rows. */
 function PostureRow({ k, v, accent = false }: { k: string; v: string; accent?: boolean }) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="text-2xs font-medium uppercase tracking-[0.1em] text-ink-3">{k}</span>
-      <span className={`font-mono text-2xs ${accent ? "text-sev-warn" : "text-ink"}`}>{v}</span>
+    <div className="flex items-baseline gap-2">
+      <dt className="font-mono text-2xs uppercase tracking-[0.14em] text-ink-4">{k}</dt>
+      <dd className={`font-mono text-xs ${accent ? "text-sev-warn" : "text-ink-2"}`}>{v}</dd>
     </div>
   );
 }
@@ -657,7 +805,7 @@ function Stat({
 }: { label: string; value: number; decimals?: number; accent?: boolean; mono?: boolean }) {
   const shown = decimals > 0 ? value.toFixed(decimals) : value.toString();
   return (
-    <div className="rounded-xl border border-black/[0.06] bg-black/[0.02] px-3 py-2.5">
+    <div className="rounded-xl border border-line bg-white/[0.03] px-3 py-2.5">
       <div className={`${mono ? "font-mono text-xl" : "text-2xl"} font-semibold tracking-tight tnum ${accent ? "text-sev-warn" : "text-ink"}`}>
         {shown}
       </div>
@@ -678,16 +826,16 @@ function AiRow({
   const badge: Record<string, string> = {
     deterministic: "text-signal bg-signal/10 border-signal/20",
     review: "text-sev-warn bg-sev-warn/10 border-sev-warn/25",
-    idle: "text-ink-3 bg-black/[0.04] border-black/[0.08]",
+    idle: "text-ink-3 bg-white/[0.05] border-line-strong",
     live: "text-sev-ok bg-sev-ok/10 border-sev-ok/25",
-    template: "text-ink-2 bg-black/[0.05] border-black/[0.10]",
+    template: "text-ink-2 bg-white/[0.06] border-line-strong",
   };
   const Wrap: React.ElementType = onClick ? "button" : "div";
   return (
     <Wrap
       onClick={onClick}
-      className={`flex w-full items-start gap-3 rounded-2xl border border-black/[0.06] bg-black/[0.02] p-3.5 text-left ${
-        onClick ? "transition-colors duration-300 hover:bg-black/[0.04]" : ""
+      className={`flex w-full items-start gap-3 rounded-lg border border-line bg-white/[0.03] p-3.5 text-left ${
+        onClick ? "transition-colors duration-300 hover:bg-white/[0.05]" : ""
       }`}
     >
       <span className="mt-0.5 flex h-8 w-8 flex-none items-center justify-center rounded-xl bg-signal/[0.08] text-signal">
