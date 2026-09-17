@@ -87,7 +87,7 @@ function llmBadge(llm: SystemInfo["llm"]) {
     };
   }
   return {
-    tone: "text-ink-2 bg-white/[0.06] border-line-strong",
+    tone: "text-ink-2 bg-surface-2 border-line-strong",
     icon: <Circuitry size={12} weight="light" />,
     label: "Template (no endpoint set)",
   };
@@ -95,7 +95,7 @@ function llmBadge(llm: SystemInfo["llm"]) {
 
 function StateRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center gap-3 rounded-lg bg-white/[0.04] px-3 py-2.5">
+    <div className="flex items-center gap-3 rounded-lg bg-surface-2 px-3 py-2.5">
       <span className="w-32 text-2xs font-medium uppercase tracking-[0.1em] text-ink-3">{label}</span>
       <span className="font-mono text-2xs text-ink">{value}</span>
     </div>
@@ -320,7 +320,7 @@ export function System() {
                 <span className="mb-1.5 flex items-center gap-1 text-2xs font-medium uppercase tracking-[0.14em] text-ink-3">
                   <Key size={11} weight="light" /> API key
                 </span>
-                <div className="rounded-xl border border-dashed border-line-strong bg-white/[0.03] px-3 py-2 font-mono text-2xs text-ink-3">
+                <div className="rounded-xl border border-dashed border-line-strong bg-surface px-3 py-2 font-mono text-2xs text-ink-3">
                   not required (local)
                 </div>
               </div>
@@ -351,7 +351,7 @@ export function System() {
               type="button"
               onClick={handleTest}
               disabled={testing || !endpoint}
-              className="rounded-full border border-line-strong bg-white/[0.05] px-5 py-2 text-sm font-medium text-ink transition-colors duration-300 hover:bg-white/[0.07] disabled:opacity-40"
+              className="rounded-full border border-line-strong bg-surface-2 px-5 py-2 text-sm font-medium text-ink transition-colors duration-300 hover:bg-surface-3 disabled:opacity-40"
             >
               {testing ? "Testing…" : "Test connection"}
             </button>

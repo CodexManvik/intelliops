@@ -32,7 +32,7 @@ const statusLabel: Record<string, string> = {
 };
 
 function RunStatusChip({ status }: { status: string }) {
-  const skin = statusSkin[status] ?? "text-ink-3 bg-white/[0.06]";
+  const skin = statusSkin[status] ?? "text-ink-3 bg-surface-2";
   const label = statusLabel[status] ?? status;
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 font-mono text-2xs ${skin}`}>
@@ -53,7 +53,7 @@ function isTerminal(status: string): boolean {
 
 function JsonBlock({ value }: { value: unknown }) {
   return (
-    <pre className="mt-2 max-h-72 overflow-auto rounded-lg bg-white/[0.05] p-3 font-mono text-2xs leading-relaxed text-ink-2">
+    <pre className="mt-2 max-h-72 overflow-auto rounded-lg bg-surface-2 p-3 font-mono text-2xs leading-relaxed text-ink-2">
       {JSON.stringify(value, null, 2)}
     </pre>
   );
@@ -103,7 +103,7 @@ function TraceRow({ step }: { step: TraceStep }) {
           {succeeded ? "Draft succeeded" : `Agent ${status.replace("_", " ")}`}
         </span>
         {succeeded && proposalId && (
-          <span className="rounded-md bg-white/[0.06] px-2 py-0.5 font-mono text-2xs text-ink-3">
+          <span className="rounded-md bg-surface-2 px-2 py-0.5 font-mono text-2xs text-ink-3">
             proposal {proposalId} · review in Governance
           </span>
         )}
@@ -115,13 +115,13 @@ function TraceRow({ step }: { step: TraceStep }) {
   }
 
   return (
-    <div className={`rounded-xl border border-line bg-white/[0.03] transition-colors ${expandable ? "hover:bg-white/[0.035]" : ""}`}>
+    <div className={`rounded-xl border border-line bg-surface transition-colors ${expandable ? "hover:bg-surface" : ""}`}>
       <button
         onClick={expandable ? toggle : undefined}
         disabled={!expandable}
         className={`flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm ${expandable ? "cursor-pointer" : "cursor-default"}`}
       >
-        <span className={`flex h-6 w-6 flex-none items-center justify-center rounded-lg bg-white/[0.06] ${tone}`}>{icon}</span>
+        <span className={`flex h-6 w-6 flex-none items-center justify-center rounded-lg bg-surface-2 ${tone}`}>{icon}</span>
         <span className="min-w-0 flex-1 truncate">{summary}</span>
         {expandable && (
           <CaretRight size={12} weight="bold" className={`flex-none text-ink-3 transition-transform duration-300 ${open ? "rotate-90" : ""}`} />
@@ -344,7 +344,7 @@ export function AgentActivity({
                     className={`rounded-xl p-1.5 transition-all duration-500 ease-fluid ${
                       active
                         ? "border border-signal/40 bg-signal/[0.06] shadow-glow"
-                        : "border border-line bg-white/[0.03] hover:bg-white/[0.05]"
+                        : "border border-line bg-surface hover:bg-surface-2"
                     }`}
                   >
                     <div className="rounded-[calc(1.5rem-6px)] bg-ground-sunken p-3.5">
@@ -397,7 +397,7 @@ export function AgentActivity({
                       </div>
                     </div>
                     {selectedRun.status === "succeeded" && selectedRun.proposal_id && (
-                      <span className="flex items-center gap-1.5 rounded-full border border-line-strong bg-white/[0.04] px-3 py-1.5 font-mono text-2xs text-ink-2">
+                      <span className="flex items-center gap-1.5 rounded-full border border-line-strong bg-surface-2 px-3 py-1.5 font-mono text-2xs text-ink-2">
                         <ArrowSquareOut size={13} weight="light" /> {selectedRun.proposal_id}
                       </span>
                     )}
@@ -408,7 +408,7 @@ export function AgentActivity({
                       <TraceRow key={s.seq} step={s} />
                     ))}
                     {loadingSteps && steps.length === 0 && (
-                      <div className="flex items-center gap-2 rounded-xl border border-line bg-white/[0.03] px-3 py-4 font-mono text-2xs text-ink-3">
+                      <div className="flex items-center gap-2 rounded-xl border border-line bg-surface px-3 py-4 font-mono text-2xs text-ink-3">
                         <CircleNotch size={13} weight="bold" className="animate-spin" /> waiting for the agent…
                       </div>
                     )}

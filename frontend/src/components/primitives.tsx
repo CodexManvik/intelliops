@@ -126,7 +126,7 @@ const sevSkin: Record<Severity, string> = {
   critical: "bg-sev-crit/12 text-sev-crit border-sev-crit/25",
   high: "bg-sev-warn/12 text-sev-warn border-sev-warn/25",
   medium: "bg-sev-info/12 text-sev-info border-sev-info/25",
-  low: "bg-white/[0.06] text-ink-2 border-line-strong",
+  low: "bg-surface-2 text-ink-2 border-line-strong",
 };
 export function SevChip({ sev }: { sev: Severity }) {
   return (
@@ -147,7 +147,7 @@ const statusLabel: Record<SituationStatus, string> = {
   suppressed: "Suppressed",
 };
 const statusSkin: Record<SituationStatus, string> = {
-  detected: "text-ink-2 bg-white/[0.06]",
+  detected: "text-ink-2 bg-surface-2",
   diagnosed: "text-sev-info bg-sev-info/10",
   acting: "text-sev-warn bg-sev-warn/10",
   resolved: "text-sev-ok bg-sev-ok/10",
@@ -170,7 +170,7 @@ export function StatusChip({ status }: { status: SituationStatus }) {
 --------------------------------------------------------------------------- */
 export function Sparkline({
   data,
-  color = "#52A8FF",
+  color = "rgb(var(--chart-1))",
   height = 44,
   width = 160,
 }: {
@@ -193,20 +193,33 @@ export function Sparkline({
   const line = pts.map((p, i) => `${i ? "L" : "M"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
   const area = `${line} L${width},${height} L0,${height} Z`;
   const last = pts[pts.length - 1];
-  const id = `g${Math.round(width)}${color.replace("#", "")}`;
+  const id = `g${Math.round(width)}${color.replace(/[^a-zA-Z0-9]/g, "")}`;
   return (
     <svg width={width} height={height} className="overflow-visible" aria-hidden>
       <defs>
         <linearGradient id={id} x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.28" />
-          <stop offset="100%" stopColor={color} stopOpacity="0" />
+          <stop offset="0%" stopOpacity="0.28" style={{ stopColor: color }} />
+          <stop offset="100%" stopOpacity="0" style={{ stopColor: color }} />
         </linearGradient>
       </defs>
-      <line x1="0" y1={height / 2} x2={width} y2={height / 2} stroke="white" strokeOpacity="0.07" />
+      <line
+        x1="0"
+        y1={height / 2}
+        x2={width}
+        y2={height / 2}
+        style={{ stroke: "rgb(var(--line))" }}
+      />
       <path d={area} fill={`url(#${id})`} />
-      <path d={line} fill="none" stroke={color} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx={last[0]} cy={last[1]} r="3" fill={color} />
-      <circle cx={last[0]} cy={last[1]} r="6" fill={color} fillOpacity="0.25" />
+      <path
+        d={line}
+        fill="none"
+        style={{ stroke: color }}
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx={last[0]} cy={last[1]} r="3" style={{ fill: color }} />
+      <circle cx={last[0]} cy={last[1]} r="6" fillOpacity="0.25" style={{ fill: color }} />
     </svg>
   );
 }

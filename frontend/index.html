@@ -5,6 +5,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>IntelliOps CoE — Control Plane</title>
     <meta name="description" content="Internal operator console for IntelliOps CoE — live incidents, governance, and the loop that learns." />
+    <meta name="theme-color" content="#0A0A0A" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#FAFAFA" media="(prefers-color-scheme: light)" />
+    <script>
+      /* Resolve the theme BEFORE first paint. Without this the page renders in
+         the CSS default for one frame and then snaps, which is the single most
+         noticeable bug a theme toggle can ship with. Mirrors the rule in
+         src/hooks/useTheme.ts: same key, same resolution. */
+      (function () {
+        try {
+          var p = localStorage.getItem("intelliops.theme");
+          if (p !== "light" && p !== "dark") {
+            p = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+          }
+          document.documentElement.setAttribute("data-theme", p);
+        } catch (e) {
+          document.documentElement.setAttribute("data-theme", "dark");
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

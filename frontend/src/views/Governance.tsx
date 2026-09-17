@@ -180,7 +180,7 @@ export function Governance() {
                         <span>{timeAgo(p.ts)}</span>
                       </div>
                     </div>
-                    <span className="rounded-md bg-white/[0.06] px-2 py-0.5 font-mono text-2xs text-ink-2">
+                    <span className="rounded-md bg-surface-2 px-2 py-0.5 font-mono text-2xs text-ink-2">
                       {p.playbook.hitl_mode} · {p.playbook.reversible ? "reversible" : "not reversible"}
                     </span>
                   </div>
@@ -188,7 +188,7 @@ export function Governance() {
                   {p.playbook.steps.length > 0 && (
                     <div className="mt-2.5 flex flex-wrap items-center gap-1.5 font-mono text-2xs text-ink-2">
                       {p.playbook.steps.map((s, i) => (
-                        <span key={i} className="rounded-md bg-white/[0.06] px-2 py-0.5">
+                        <span key={i} className="rounded-md bg-surface-2 px-2 py-0.5">
                           {s.action}
                         </span>
                       ))}
@@ -196,7 +196,7 @@ export function Governance() {
                   )}
 
                   {p.rationale && (
-                    <div className="mt-2.5 rounded-lg bg-white/[0.04] p-2.5 text-2xs leading-relaxed text-ink-2">
+                    <div className="mt-2.5 rounded-lg bg-surface-2 p-2.5 text-2xs leading-relaxed text-ink-2">
                       <span className="font-mono text-ink-3">rationale: </span>
                       {p.rationale}
                     </div>
@@ -213,7 +213,7 @@ export function Governance() {
                     <button
                       onClick={() => decide(p, "rejected")}
                       disabled={decidingId === p.id}
-                      className="flex items-center gap-1.5 rounded-full border border-line-strong bg-white/[0.05] px-4 py-2 text-sm text-ink-2 transition-all duration-300 ease-fluid hover:bg-white/[0.07] active:scale-[0.97] disabled:opacity-50"
+                      className="flex items-center gap-1.5 rounded-full border border-line-strong bg-surface-2 px-4 py-2 text-sm text-ink-2 transition-all duration-300 ease-fluid hover:bg-surface-3 active:scale-[0.97] disabled:opacity-50"
                     >
                       <X size={14} weight="bold" /> Reject
                     </button>
@@ -245,7 +245,7 @@ export function Governance() {
             </div>
             <div className="space-y-1">
               {auditSorted.slice(0, shown).map((a, i) => (
-                <div key={i} className="grid grid-cols-[auto_1fr_auto] items-center gap-3 rounded-lg px-2 py-2 font-mono text-2xs transition-colors hover:bg-white/[0.04]">
+                <div key={i} className="grid grid-cols-[auto_1fr_auto] items-center gap-3 rounded-lg px-2 py-2 font-mono text-2xs transition-colors hover:bg-surface-2">
                   <span className="text-ink-3">{timeAgo(a.ts)}</span>
                   <span className="truncate">
                     <span className="text-ink-2">{a.actor}</span>
@@ -257,7 +257,7 @@ export function Governance() {
               ))}
             </div>
             {shown < auditSorted.length && (
-              <button onClick={() => setShown((n) => n + PAGE)} className="mt-3 w-full rounded-xl border border-line-strong bg-white/[0.04] py-2 font-mono text-2xs text-ink-2 transition-colors hover:bg-white/[0.06]">
+              <button onClick={() => setShown((n) => n + PAGE)} className="mt-3 w-full rounded-xl border border-line-strong bg-surface-2 py-2 font-mono text-2xs text-ink-2 transition-colors hover:bg-surface-2">
                 Load {Math.min(PAGE, auditSorted.length - shown)} more
               </button>
             )}
@@ -285,7 +285,7 @@ export function Governance() {
                   { role: "approver", grant: "approve · reject", who: "oncall-alice" },
                   { role: "coe-admin", grant: "graduate playbook:*", who: "feedback-service" },
                 ].map((r, i) => (
-                  <div key={i} className="flex items-center gap-2 rounded-lg bg-white/[0.04] px-3 py-2">
+                  <div key={i} className="flex items-center gap-2 rounded-lg bg-surface-2 px-3 py-2">
                     <span className="w-20 text-signal-dim">{r.role}</span>
                     <span className="flex-1 text-ink-2">{r.grant}</span>
                     <span className="text-ink-3">{r.who}</span>
@@ -302,10 +302,10 @@ export function Governance() {
               </div>
               <div className="space-y-2">
                 {playbooks.map((p) => (
-                  <div key={p.id} className="flex items-center gap-2 rounded-lg bg-white/[0.04] px-3 py-2.5">
+                  <div key={p.id} className="flex items-center gap-2 rounded-lg bg-surface-2 px-3 py-2.5">
                     <span className={`h-1.5 w-1.5 rounded-full ${p.reversible ? "bg-sev-ok" : "bg-sev-crit"}`} />
                     <span className="flex-1 text-sm text-ink">{p.name}</span>
-                    <span className={`rounded-md px-2 py-0.5 font-mono text-2xs ${isGraduated(p) ? "bg-signal/10 text-signal-dim" : "bg-white/[0.06] text-ink-2"}`}>{p.hitl_mode}</span>
+                    <span className={`rounded-md px-2 py-0.5 font-mono text-2xs ${isGraduated(p) ? "bg-signal/10 text-signal-dim" : "bg-surface-2 text-ink-2"}`}>{p.hitl_mode}</span>
                   </div>
                 ))}
               </div>
