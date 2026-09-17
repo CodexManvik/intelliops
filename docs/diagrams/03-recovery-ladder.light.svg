@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 762" width="1400" height="762" role="img" aria-label="When the first fix does not work">
+  <defs>
+    <marker id="h-ink3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#5C5C5C"/></marker>
+    <marker id="h-signal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#0060C4"/></marker>
+    <marker id="h-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#146843"/></marker>
+    <marker id="h-crit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#B81E24"/></marker>
+    <marker id="h-warn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#8A5000"/></marker>
+    <marker id="h-attention" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#7C3AAD"/></marker>
+  </defs>
+  <rect width="1400" height="762" fill="#FFFFFF"/>
+  <text x="48" y="56" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="700" fill="#171717" text-anchor="start">When the first fix does not work</text>
+  <text x="48" y="82" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#5C5C5C" text-anchor="start">The story does not stop at remediation attempted.</text>
+  <rect x="48" y="140" width="660" height="72" rx="10" fill="#FAFAFA" stroke="#146843" stroke-width="1.4"/>
+  <text x="70" y="168" font-family="'Courier New', Courier, monospace" font-size="11" font-weight="700" fill="#146843" text-anchor="start" letter-spacing="1.2">RUNG 1</text>
+  <text x="70" y="192" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#171717" text-anchor="start">Restart the Deployment, then re-check the metric that fired</text>
+  <text x="732" y="184" font-family="'Courier New', Courier, monospace" font-size="12" fill="#5C5C5C" text-anchor="start">built · measured</text>
+  <path d="M120,214 L120,236" stroke="#B81E24" stroke-width="1.4" fill="none" marker-end="url(#h-crit)"/>
+  <text x="138" y="232" font-family="'Courier New', Courier, monospace" font-size="11" fill="#B81E24" text-anchor="start">still unhealthy</text>
+  <rect x="48" y="238" width="736" height="72" rx="10" fill="#FAFAFA" stroke="#146843" stroke-width="1.4"/>
+  <text x="70" y="266" font-family="'Courier New', Courier, monospace" font-size="11" font-weight="700" fill="#146843" text-anchor="start" letter-spacing="1.2">RUNG 2</text>
+  <text x="70" y="290" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#171717" text-anchor="start">Did not recover inside the deadline, so run the rollback path</text>
+  <text x="808" y="282" font-family="'Courier New', Courier, monospace" font-size="12" fill="#5C5C5C" text-anchor="start">built · 2 real rollbacks</text>
+  <path d="M120,312 L120,334" stroke="#B81E24" stroke-width="1.4" fill="none" marker-end="url(#h-crit)"/>
+  <text x="138" y="330" font-family="'Courier New', Courier, monospace" font-size="11" fill="#B81E24" text-anchor="start">still unhealthy</text>
+  <rect x="48" y="336" width="812" height="72" rx="10" fill="#FAFAFA" stroke="#146843" stroke-width="1.4"/>
+  <text x="70" y="364" font-family="'Courier New', Courier, monospace" font-size="11" font-weight="700" fill="#146843" text-anchor="start" letter-spacing="1.2">RUNG 3</text>
+  <text x="70" y="388" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#171717" text-anchor="start">Roll back to the last known-good revision, or scale healthy replicas</text>
+  <text x="884" y="380" font-family="'Courier New', Courier, monospace" font-size="12" fill="#5C5C5C" text-anchor="start">built · rollback_to_revision, scale</text>
+  <path d="M120,410 L120,432" stroke="#B81E24" stroke-width="1.4" fill="none" marker-end="url(#h-crit)"/>
+  <text x="138" y="428" font-family="'Courier New', Courier, monospace" font-size="11" fill="#B81E24" text-anchor="start">still unhealthy</text>
+  <rect x="48" y="434" width="888" height="72" rx="10" fill="#FAFAFA" stroke="#7C3AAD" stroke-width="1.4"/>
+  <text x="70" y="462" font-family="'Courier New', Courier, monospace" font-size="11" font-weight="700" fill="#7C3AAD" text-anchor="start" letter-spacing="1.2">RUNG 4</text>
+  <text x="70" y="486" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#171717" text-anchor="start">Escalate to a human with the full evidence trail</text>
+  <text x="960" y="478" font-family="'Courier New', Courier, monospace" font-size="12" fill="#5C5C5C" text-anchor="start">built · needs_attention</text>
+  <path d="M120,508 L120,530" stroke="#B81E24" stroke-width="1.4" fill="none" marker-end="url(#h-crit)"/>
+  <text x="138" y="526" font-family="'Courier New', Courier, monospace" font-size="11" fill="#B81E24" text-anchor="start">still unhealthy</text>
+  <rect x="48" y="532" width="964" height="72" rx="10" fill="#FAFAFA" stroke="#8A5000" stroke-width="1.4"/>
+  <text x="70" y="560" font-family="'Courier New', Courier, monospace" font-size="11" font-weight="700" fill="#8A5000" text-anchor="start" letter-spacing="1.2">RUNG 5</text>
+  <text x="70" y="584" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#171717" text-anchor="start">Shift traffic away from the failing region</text>
+  <text x="1036" y="576" font-family="'Courier New', Courier, monospace" font-size="12" fill="#5C5C5C" text-anchor="start">NOT built · Phase 2</text>
+  <rect x="48" y="644" width="1304" height="86" rx="10" fill="#F2F2F2" stroke="#EAEAEA"/>
+  <text x="70" y="674" font-family="'Courier New', Courier, monospace" font-size="11" font-weight="700" fill="#5C5C5C" text-anchor="start" letter-spacing="1.4">THE HONEST LIMIT</text>
+  <text x="70" y="700" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#171717" text-anchor="start">Everything through rung 4 runs today against a real cluster. Cross-region traffic shifting is not built.</text>
+  <text x="70" y="720" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#5C5C5C" text-anchor="start">Every rung is a step type in the same closed vocabulary, so climbing the ladder never widens the blast radius.</text>
+</svg>

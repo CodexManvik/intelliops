@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2200 860" width="2200" height="860" role="img" aria-label="IntelliOps architecture">
+  <defs>
+    <marker id="h-ink3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#9C9C9C"/></marker>
+    <marker id="h-signal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#52A8FF"/></marker>
+    <marker id="h-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#62C073"/></marker>
+    <marker id="h-crit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#FF6369"/></marker>
+    <marker id="h-warn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#FFB224"/></marker>
+    <marker id="h-attention" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#BF7AF0"/></marker>
+  </defs>
+  <rect width="2200" height="860" fill="#0A0A0A"/>
+  <text x="48" y="56" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="700" fill="#EDEDED" text-anchor="start">IntelliOps architecture</text>
+  <text x="48" y="82" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#9C9C9C" text-anchor="start">Seven services on an event bus. One call blocks, and it is the one a human answers.</text>
+  <rect x="48" y="110" width="2104" height="120" rx="14" fill="none" stroke="#242424" stroke-width="1" stroke-dasharray="3 4"/>
+  <text x="64" y="130" font-family="'Courier New', Courier, monospace" font-size="10" font-weight="700" fill="#9C9C9C" text-anchor="start" letter-spacing="1.4">MONITORED WORKLOADS</text>
+  <rect x="76" y="158" width="154.8" height="38" rx="8" fill="#111111" stroke="#242424"/>
+  <text x="91" y="182" font-family="'Courier New', Courier, monospace" font-size="13" fill="#B4B4B4" text-anchor="start">meridian-gateway</text>
+  <rect x="244.8" y="158" width="178.2" height="38" rx="8" fill="#111111" stroke="#242424"/>
+  <text x="259.8" y="182" font-family="'Courier New', Courier, monospace" font-size="13" fill="#B4B4B4" text-anchor="start">meridian-validation</text>
+  <rect x="437" y="158" width="186" height="38" rx="8" fill="#111111" stroke="#242424"/>
+  <text x="452" y="182" font-family="'Courier New', Courier, monospace" font-size="13" fill="#B4B4B4" text-anchor="start">meridian-aggregation</text>
+  <rect x="637" y="158" width="170.4" height="38" rx="8" fill="#111111" stroke="#242424"/>
+  <text x="652" y="182" font-family="'Courier New', Courier, monospace" font-size="13" fill="#B4B4B4" text-anchor="start">meridian-reporting</text>
+  <rect x="821.4" y="158" width="92.4" height="38" rx="8" fill="#111111" stroke="#242424"/>
+  <text x="836.4" y="182" font-family="'Courier New', Courier, monospace" font-size="13" fill="#B4B4B4" text-anchor="start">demo-app</text>
+  <rect x="967.8" y="150" width="220" height="56" rx="10" fill="#111111" stroke="#2E2E2E" stroke-width="1"/>
+  <text x="983.8" y="176" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" fill="#EDEDED" text-anchor="start">Prometheus</text>
+  <text x="983.8" y="196" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#9C9C9C" text-anchor="start">scrapes every 15s</text>
+  <rect x="1864" y="150" width="260" height="56" rx="10" fill="#111111" stroke="#52A8FF" stroke-width="1.6"/>
+  <text x="1880" y="176" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700" fill="#EDEDED" text-anchor="start">Kubernetes API</text>
+  <text x="1880" y="196" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#9C9C9C" text-anchor="start">the only thing it can touch</text>
+  <rect x="48" y="264" width="2104" height="300" rx="14" fill="none" stroke="#242424" stroke-width="1" stroke-dasharray="3 4"/>
+  <text x="64" y="284" font-family="'Courier New', Courier, monospace" font-size="10" font-weight="700" fill="#9C9C9C" text-anchor="start" letter-spacing="1.4">CONTROL PLANE · ONE CONSUMER GROUP PER STAGE</text>
+  <rect x="76" y="312" width="268" height="104" rx="10" fill="#111111" stroke="#2E2E2E" stroke-width="1"/>
+  <text x="92" y="338" font-family="'Courier New', Courier, monospace" font-size="10" font-weight="700" fill="#9C9C9C" text-anchor="start" letter-spacing="1.2">01</text>
+  <text x="92" y="363" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" fill="#EDEDED" text-anchor="start">ingestion</text>
+  <text x="92" y="383" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#9C9C9C" text-anchor="start">polls Prometheus</text>
+  <text x="92" y="400" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#9C9C9C" text-anchor="start">every 5s</text>
+  <rect x="504" y="312" width="268" height="104" rx="10" fill="#111111" stroke="#2E2E2E" stroke-width="1"/>
+  <text x="520" y="338" font-family="'Courier New', Courier, monospace" font-size="10" font-weight="700" fill="#9C9C9C" text-anchor="start" letter-spacing="1.2">02</text>
+  <text x="520" y="363" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" fill="#EDEDED" text-anchor="start">correlation</text>
+  <text x="520" y="383" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#9C9C9C" text-anchor="start">median/MAD baseline</text>
+  <text x="520" y="400" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#9C9C9C" text-anchor="start">storm to one Situation</text>
+  <rect x="932" y="312" width="268" height="104" rx="10" fill="#111111" stroke="#2E2E2E" stroke-width="1"/>
+  <text x="948" y="338" font-family="'Courier New', Courier, monospace" font-size="10" font-weight="700" fill="#9C9C9C" text-anchor="start" letter-spacing="1.2">03</text>
+  <text x="948" y="363" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" fill="#EDEDED" text-anchor="start">rca</text>
+  <text x="948" y="383" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#9C9C9C" text-anchor="start">ranks a hypothesis</text>
+  <text x="948" y="400" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#9C9C9C" text-anchor="start">picks the runbook</text>
+  <rect x="1360" y="312" width="268" height="104" rx="10" fill="#111111" stroke="#2E2E2E" stroke-width="1"/>
+  <text x="1376" y="338" font-family="'Courier New', Courier, monospace" font-size="10" font-weight="700" fill="#9C9C9C" text-anchor="start" letter-spacing="1.2">04</text>
+  <text x="1376" y="363" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" fill="#EDEDED" text-anchor="start">action</text>
+  <text x="1376" y="383" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#9C9C9C" text-anchor="start">resolves the target</text>
+  <text x="1376" y="400" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#9C9C9C" text-anchor="start">executes and verifies</text>
+  <path d="M350,364 L498,364" stroke="#9C9C9C" stroke-width="1.4" fill="none" marker-end="url(#h-ink3)"/>
+  <rect x="374.1" y="342" width="99.8" height="17" rx="4" fill="#0A0A0A"/>
+  <text x="424" y="354" font-family="'Courier New', Courier, monospace" font-size="11" fill="#9C9C9C" text-anchor="middle">telemetry.raw</text>
+  <path d="M778,364 L926,364" stroke="#9C9C9C" stroke-width="1.4" fill="none" marker-end="url(#h-ink3)"/>
+  <rect x="782.3" y="342" width="139.39999999999998" height="17" rx="4" fill="#0A0A0A"/>
+  <text x="852" y="354" font-family="'Courier New', Courier, monospace" font-size="11" fill="#9C9C9C" text-anchor="middle">situations.detected</text>
+  <path d="M1206,364 L1354,364" stroke="#9C9C9C" stroke-width="1.4" fill="none" marker-end="url(#h-ink3)"/>
+  <rect x="1207" y="342" width="146" height="17" rx="4" fill="#0A0A0A"/>
+  <text x="1280" y="354" font-family="'Courier New', Courier, monospace" font-size="11" fill="#9C9C9C" text-anchor="middle">situations.diagnosed</text>
+  <path d="M1077.8,212 L1077.8,302" stroke="#9C9C9C" stroke-width="1.4" fill="none" marker-end="url(#h-ink3)"/>
+  <rect x="1360" y="462" width="268" height="74" rx="10" fill="#161616" stroke="#FFB224" stroke-width="1.6"/>
+  <text x="1376" y="488" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700" fill="#EDEDED" text-anchor="start">governance</text>
+  <text x="1376" y="508" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#9C9C9C" text-anchor="start">RBAC · reversible · human</text>
+  <path d="M1494,458 L1494,422" stroke="#FFB224" stroke-width="2" fill="none" marker-end="url(#h-warn)"/>
+  <text x="1346" y="502" font-family="'Courier New', Courier, monospace" font-size="12" font-weight="700" fill="#FFB224" text-anchor="end">blocks</text>
+  <path d="M1494,306 L1494,250 L1994,250 L1994,212" stroke="#52A8FF" stroke-width="1.8" fill="none" marker-end="url(#h-signal)"/>
+  <text x="1510" y="242" font-family="'Courier New', Courier, monospace" font-size="12" fill="#52A8FF" text-anchor="start">7 typed verbs, Deployment-scoped</text>
+  <rect x="1808" y="300" width="316" height="96" rx="10" fill="#111111" stroke="#2E2E2E" stroke-width="1"/>
+  <text x="1824" y="326" font-family="'Courier New', Courier, monospace" font-size="10" font-weight="700" fill="#9C9C9C" text-anchor="start" letter-spacing="1.2">CQRS</text>
+  <text x="1824" y="351" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" fill="#EDEDED" text-anchor="start">read model</text>
+  <text x="1824" y="371" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#9C9C9C" text-anchor="start">projects every stream, rebuilds on restart</text>
+  <rect x="1808" y="418" width="316" height="74" rx="10" fill="#111111" stroke="#62C073" stroke-width="1.6"/>
+  <text x="1824" y="444" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="700" fill="#EDEDED" text-anchor="start">feedback</text>
+  <text x="1824" y="464" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#9C9C9C" text-anchor="start">earns or revokes autonomy</text>
+  <path d="M1634,348 L1802,348" stroke="#9C9C9C" stroke-width="1.4" fill="none" marker-end="url(#h-ink3)"/>
+  <rect x="1645" y="326" width="146" height="17" rx="4" fill="#0A0A0A"/>
+  <text x="1718" y="338" font-family="'Courier New', Courier, monospace" font-size="11" fill="#9C9C9C" text-anchor="middle">remediation.outcomes</text>
+  <path d="M1718,348 L1718,455 L1802,455" stroke="#62C073" stroke-width="1.4" fill="none" marker-end="url(#h-ok)"/>
+  <rect x="48" y="598" width="2104" height="216" rx="14" fill="none" stroke="#242424" stroke-width="1" stroke-dasharray="3 4"/>
+  <text x="64" y="618" font-family="'Courier New', Courier, monospace" font-size="10" font-weight="700" fill="#9C9C9C" text-anchor="start" letter-spacing="1.4">DURABLE STATE</text>
+  <rect x="76" y="644" width="800" height="144" rx="10" fill="#111111" stroke="#52A8FF" stroke-width="1.6"/>
+  <text x="92" y="670" font-family="'Courier New', Courier, monospace" font-size="10" font-weight="700" fill="#52A8FF" text-anchor="start" letter-spacing="1.2">REDIS STREAMS</text>
+  <text x="92" y="695" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" fill="#EDEDED" text-anchor="start">The bus</text>
+  <text x="92" y="715" font-family="'Courier New', Courier, monospace" font-size="12" fill="#9C9C9C" text-anchor="start">telemetry.raw · situations.detected · situations.suppressed</text>
+  <text x="92" y="732" font-family="'Courier New', Courier, monospace" font-size="12" fill="#9C9C9C" text-anchor="start">situations.diagnosed · remediation.outcomes</text>
+  <rect x="912" y="644" width="1212" height="144" rx="10" fill="#111111" stroke="#62C073" stroke-width="1.6"/>
+  <text x="928" y="670" font-family="'Courier New', Courier, monospace" font-size="10" font-weight="700" fill="#62C073" text-anchor="start" letter-spacing="1.2">POSTGRES</text>
+  <text x="928" y="695" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" fill="#EDEDED" text-anchor="start">The record</text>
+  <text x="928" y="715" font-family="'Courier New', Courier, monospace" font-size="12" fill="#9C9C9C" text-anchor="start">audit_records · training_records · playbooks · approvals</text>
+  <text x="928" y="732" font-family="'Courier New', Courier, monospace" font-size="12" fill="#9C9C9C" text-anchor="start">proposed_playbooks · agent_runs · correlation_baseline</text>
+</svg>

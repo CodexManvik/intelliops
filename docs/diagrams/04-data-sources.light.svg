@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 500" width="1500" height="500" role="img" aria-label="Three data sources, and where each one lives">
+  <defs>
+    <marker id="h-ink3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#5C5C5C"/></marker>
+    <marker id="h-signal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#0060C4"/></marker>
+    <marker id="h-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#146843"/></marker>
+    <marker id="h-crit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#B81E24"/></marker>
+    <marker id="h-warn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#8A5000"/></marker>
+    <marker id="h-attention" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#7C3AAD"/></marker>
+  </defs>
+  <rect width="1500" height="500" fill="#FFFFFF"/>
+  <text x="48" y="56" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="700" fill="#171717" text-anchor="start">Three data sources, and where each one lives</text>
+  <text x="48" y="82" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#5C5C5C" text-anchor="start">Not one blob called history. Three stores, each answering a different question.</text>
+  <rect x="48" y="140" width="449.3333333333333" height="270" rx="12" fill="#FAFAFA" stroke="#0060C4" stroke-width="1.4"/>
+  <text x="70" y="172" font-family="'Courier New', Courier, monospace" font-size="11" font-weight="700" fill="#0060C4" text-anchor="start" letter-spacing="1.3">WHAT HAPPENED</text>
+  <text x="70" y="206" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="700" fill="#171717" text-anchor="start">Application telemetry</text>
+  <text x="70" y="244" font-family="Arial, Helvetica, sans-serif" font-size="13.5" fill="#4A4A4A" text-anchor="start">Prometheus scrapes every service every 15s</text>
+  <text x="70" y="268" font-family="Arial, Helvetica, sans-serif" font-size="13.5" fill="#4A4A4A" text-anchor="start">ingestion polls it every 5s and publishes</text>
+  <text x="70" y="292" font-family="Arial, Helvetica, sans-serif" font-size="13.5" fill="#4A4A4A" text-anchor="start">one typed event per series</text>
+  <rect x="70" y="336" width="405.3333333333333" height="42" rx="8" fill="#F2F2F2" stroke="#EAEAEA"/>
+  <text x="86" y="362" font-family="'Courier New', Courier, monospace" font-size="13" fill="#0060C4" text-anchor="start">redis: telemetry.raw</text>
+  <rect x="525.3333333333333" y="140" width="449.3333333333333" height="270" rx="12" fill="#FAFAFA" stroke="#8A5000" stroke-width="1.4"/>
+  <text x="547.3333333333333" y="172" font-family="'Courier New', Courier, monospace" font-size="11" font-weight="700" fill="#8A5000" text-anchor="start" letter-spacing="1.3">WHAT WAS DECIDED</text>
+  <text x="547.3333333333333" y="206" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="700" fill="#171717" text-anchor="start">Audit records</text>
+  <text x="547.3333333333333" y="244" font-family="Arial, Helvetica, sans-serif" font-size="13.5" fill="#4A4A4A" text-anchor="start">Every gate evaluation, approval, rejection,</text>
+  <text x="547.3333333333333" y="268" font-family="Arial, Helvetica, sans-serif" font-size="13.5" fill="#4A4A4A" text-anchor="start">execution and outcome. Threaded by</text>
+  <text x="547.3333333333333" y="292" font-family="Arial, Helvetica, sans-serif" font-size="13.5" fill="#4A4A4A" text-anchor="start">correlation_id. Append-only.</text>
+  <rect x="547.3333333333333" y="336" width="405.3333333333333" height="42" rx="8" fill="#F2F2F2" stroke="#EAEAEA"/>
+  <text x="563.3333333333333" y="362" font-family="'Courier New', Courier, monospace" font-size="13" fill="#8A5000" text-anchor="start">postgres: audit_records</text>
+  <rect x="1002.6666666666666" y="140" width="449.3333333333333" height="270" rx="12" fill="#FAFAFA" stroke="#146843" stroke-width="1.4"/>
+  <text x="1024.6666666666665" y="172" font-family="'Courier New', Courier, monospace" font-size="11" font-weight="700" fill="#146843" text-anchor="start" letter-spacing="1.3">WHAT WE LEARNED</text>
+  <text x="1024.6666666666665" y="206" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="700" fill="#171717" text-anchor="start">Historical incidents</text>
+  <text x="1024.6666666666665" y="244" font-family="Arial, Helvetica, sans-serif" font-size="13.5" fill="#4A4A4A" text-anchor="start">Every outcome with its signature, playbook</text>
+  <text x="1024.6666666666665" y="268" font-family="Arial, Helvetica, sans-serif" font-size="13.5" fill="#4A4A4A" text-anchor="start">and whether it worked. Drives reliability,</text>
+  <text x="1024.6666666666665" y="292" font-family="Arial, Helvetica, sans-serif" font-size="13.5" fill="#4A4A4A" text-anchor="start">graduation to autonomy, and suppression.</text>
+  <rect x="1024.6666666666665" y="336" width="405.3333333333333" height="42" rx="8" fill="#F2F2F2" stroke="#EAEAEA"/>
+  <text x="1040.6666666666665" y="362" font-family="'Courier New', Courier, monospace" font-size="13" fill="#146843" text-anchor="start">postgres: training_records</text>
+  <text x="48" y="452" font-family="'Courier New', Courier, monospace" font-size="13" fill="#5C5C5C" text-anchor="start">Also durable: playbooks, proposed_playbooks, approvals, agent_runs, agent_run_steps, correlation_baseline, model_artifacts.</text>
+</svg>

@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 640" width="1920" height="640" role="img" aria-label="Incident lifecycle">
+  <defs>
+    <marker id="h-ink3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#5C5C5C"/></marker>
+    <marker id="h-signal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#0060C4"/></marker>
+    <marker id="h-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#146843"/></marker>
+    <marker id="h-crit" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#B81E24"/></marker>
+    <marker id="h-warn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#8A5000"/></marker>
+    <marker id="h-attention" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,1 L10,5 L0,9 z" fill="#7C3AAD"/></marker>
+  </defs>
+  <rect width="1920" height="640" fill="#FFFFFF"/>
+  <text x="48" y="56" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="700" fill="#171717" text-anchor="start">Incident lifecycle</text>
+  <text x="48" y="82" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#5C5C5C" text-anchor="start">Alert storm to verified fix, with every exit the system can actually take.</text>
+  <rect x="48" y="190" width="252" height="116" rx="10" fill="#FAFAFA" stroke="#D6D6D6" stroke-width="1"/>
+  <text x="64" y="216" font-family="'Courier New', Courier, monospace" font-size="10" font-weight="700" fill="#5C5C5C" text-anchor="start" letter-spacing="1.2">SIGNAL</text>
+  <text x="64" y="242" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#171717" text-anchor="start">Alert storm</text>
+  <text x="64" y="262" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#5C5C5C" text-anchor="start">N metrics fire</text>
+  <text x="64" y="279" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#5C5C5C" text-anchor="start">on one fault</text>
+  <path d="M306,248 L354,248" stroke="#5C5C5C" stroke-width="1.4" fill="none" marker-end="url(#h-ink3)"/>
+  <rect x="360" y="190" width="252" height="116" rx="10" fill="#FAFAFA" stroke="#D6D6D6" stroke-width="1"/>
+  <text x="376" y="216" font-family="'Courier New', Courier, monospace" font-size="10" font-weight="700" fill="#5C5C5C" text-anchor="start" letter-spacing="1.2">CORRELATE</text>
+  <text x="376" y="242" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#171717" text-anchor="start">One Situation</text>
+  <text x="376" y="262" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#5C5C5C" text-anchor="start">median/MAD, z &gt; 3.0</text>
+  <text x="376" y="279" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#5C5C5C" text-anchor="start">held 3+ samples</text>
+  <path d="M618,248 L666,248" stroke="#5C5C5C" stroke-width="1.4" fill="none" marker-end="url(#h-ink3)"/>
+  <rect x="672" y="190" width="252" height="116" rx="10" fill="#FAFAFA" stroke="#D6D6D6" stroke-width="1"/>
+  <text x="688" y="216" font-family="'Courier New', Courier, monospace" font-size="10" font-weight="700" fill="#5C5C5C" text-anchor="start" letter-spacing="1.2">DIAGNOSE</text>
+  <text x="688" y="242" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#171717" text-anchor="start">Ranked cause</text>
+  <text x="688" y="262" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#5C5C5C" text-anchor="start">hypothesis + runbook</text>
+  <text x="688" y="279" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#5C5C5C" text-anchor="start">or no match</text>
+  <path d="M930,248 L978,248" stroke="#5C5C5C" stroke-width="1.4" fill="none" marker-end="url(#h-ink3)"/>
+  <rect x="984" y="190" width="252" height="116" rx="10" fill="#FAFAFA" stroke="#8A5000" stroke-width="1.6"/>
+  <text x="1000" y="216" font-family="'Courier New', Courier, monospace" font-size="10" font-weight="700" fill="#8A5000" text-anchor="start" letter-spacing="1.2">GATE</text>
+  <text x="1000" y="242" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#171717" text-anchor="start">Governance</text>
+  <text x="1000" y="262" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#5C5C5C" text-anchor="start">RBAC, reversible</text>
+  <text x="1000" y="279" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#5C5C5C" text-anchor="start">human if not earned</text>
+  <path d="M1242,248 L1290,248" stroke="#5C5C5C" stroke-width="1.4" fill="none" marker-end="url(#h-ink3)"/>
+  <rect x="1296" y="190" width="252" height="116" rx="10" fill="#FAFAFA" stroke="#0060C4" stroke-width="1.6"/>
+  <text x="1312" y="216" font-family="'Courier New', Courier, monospace" font-size="10" font-weight="700" fill="#0060C4" text-anchor="start" letter-spacing="1.2">EXECUTE</text>
+  <text x="1312" y="242" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#171717" text-anchor="start">Typed action</text>
+  <text x="1312" y="262" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#5C5C5C" text-anchor="start">one of 7 verbs</text>
+  <text x="1312" y="279" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#5C5C5C" text-anchor="start">Deployment-scoped</text>
+  <path d="M1554,248 L1602,248" stroke="#5C5C5C" stroke-width="1.4" fill="none" marker-end="url(#h-ink3)"/>
+  <rect x="1608" y="190" width="252" height="116" rx="10" fill="#FAFAFA" stroke="#146843" stroke-width="1.6"/>
+  <text x="1624" y="216" font-family="'Courier New', Courier, monospace" font-size="10" font-weight="700" fill="#146843" text-anchor="start" letter-spacing="1.2">VERIFY</text>
+  <text x="1624" y="242" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" fill="#171717" text-anchor="start">Re-check</text>
+  <text x="1624" y="262" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#5C5C5C" text-anchor="start">the metric that fired</text>
+  <text x="1624" y="279" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#5C5C5C" text-anchor="start">against its baseline</text>
+  <path d="M1734,312 L1734,380" stroke="#146843" stroke-width="1.4" fill="none" marker-end="url(#h-ok)"/>
+  <rect x="1518" y="386" width="372" height="76" rx="10" fill="#F2F2F2" stroke="#146843" stroke-width="1.6"/>
+  <text x="1534" y="412" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" fill="#171717" text-anchor="start">recovered</text>
+  <text x="1534" y="432" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#5C5C5C" text-anchor="start">close, record the outcome, credit the playbook</text>
+  <path d="M1508,424 L1358,424" stroke="#B81E24" stroke-width="1.4" fill="none" marker-end="url(#h-crit)"/>
+  <rect x="1386.4" y="402" width="93.2" height="17" rx="4" fill="#FFFFFF"/>
+  <text x="1433" y="414" font-family="'Courier New', Courier, monospace" font-size="11" fill="#B81E24" text-anchor="middle">did not hold</text>
+  <rect x="1048" y="386" width="300" height="76" rx="10" fill="#F2F2F2" stroke="#B81E24" stroke-width="1.6"/>
+  <text x="1064" y="412" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" fill="#171717" text-anchor="start">rolled back</text>
+  <text x="1064" y="432" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#5C5C5C" text-anchor="start">undone automatically, playbook demoted</text>
+  <path d="M798,312 L798,386" stroke="#7C3AAD" stroke-width="1.4" fill="none" marker-end="url(#h-attention)"/>
+  <rect x="642" y="386" width="300" height="76" rx="10" fill="#F2F2F2" stroke="#7C3AAD" stroke-width="1.6"/>
+  <text x="658" y="412" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" fill="#171717" text-anchor="start">escalated</text>
+  <text x="658" y="432" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#5C5C5C" text-anchor="start">no runbook matched, a human is told</text>
+  <path d="M486,312 L486,386" stroke="#5C5C5C" stroke-width="1.4" fill="none" marker-end="url(#h-ink3)"/>
+  <rect x="260" y="386" width="250" height="76" rx="10" fill="#FAFAFA" stroke="#D6D6D6" stroke-width="1"/>
+  <text x="276" y="412" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="700" fill="#171717" text-anchor="start">suppressed</text>
+  <text x="276" y="432" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#5C5C5C" text-anchor="start">this signature self-heals</text>
+  <text x="48" y="520" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#4A4A4A" text-anchor="start">Measured on a live cluster: 75% of alerts never become a page.</text>
+  <text x="48" y="546" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#4A4A4A" text-anchor="start">Fastest alert-to-verified-fix: 28.8 seconds.</text>
+</svg>
