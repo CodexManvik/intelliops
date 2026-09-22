@@ -1328,8 +1328,9 @@ local `sentence-transformers` `all-MiniLM-L6-v2` model, cosine similarity) ranks
 symptoms + hypothesis, and picks the best match above a threshold (default 0.45); below → the gap
 → the ADR-025 authoring flow. A `RunbookSelector` interface with a `NullRunbookSelector` default
 (`RUNBOOK_SELECTOR_MODE=off`) keeps selection byte-identical to the keyword-only behavior; the
-embedding model is opt-in via the `ml` extra, imported **lazily** so the slim-image boundary of
-[ADR-022](#adr-022--slim-per-service-docker-images) holds.
+embedding model is imported **lazily** so the slim-image boundary of
+[ADR-022](#adr-022--slim-per-service-docker-images) holds. In the compose stack
+`RUNBOOK_SELECTOR_MODE` defaults to `"embedding"` — the selector is active by default.
 
 **Why.** This is **retrieval — semantic matching among human-vetted playbooks — not an LLM
 choosing the fix.** It can only ever return the id of a *registered* playbook (it ranks

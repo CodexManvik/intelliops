@@ -1,369 +1,271 @@
 # IntelliOps CoE
 
-**Agentic AIOps for automated incident detection, diagnosis & remediation.**
+**Agentic AIOps — real detection, diagnosis, and automated remediation with a human in the loop.**
 
-IntelliOps CoE ingests the telemetry your systems already produce, uses machine learning to
-collapse alert storms into a handful of meaningful **Situations**, suggests likely root causes,
-and — under strict human-in-the-loop governance — executes safe, reversible remediation. Every
-outcome feeds back into the model, so the system gets more accurate the longer it runs.
-
-It is built to **augment** your existing observability, CI/CD, and ticketing stack, not replace
-it, and it is **open-source-first** to avoid vendor lock-in.
-
-> **Project status: the closed loop runs live, end-to-end, with real remediation and durable
-> state.**
-> All six services plus a **read-model service** and a **React operator console** run on
-> docker-compose — real Prometheus, a breakable demo target, the HITL approval gate working
-> across containers, live KPIs, and a one-command scenario reset for repeatable demos.
-> **Remediation is real** on an opt-in path: against a local **kind** cluster, approving a fix
-> restarts/scales a real pod and a real health check verifies it (`REMEDIATOR_MODE=k8s`;
-> `dry_run` stays the safe default). The compliance audit trail, the learning loop's training
-> records, the playbook registry, and live runtime state (pending approvals + the detector's
-> baseline) are **persisted to Postgres** and survive restarts (`STORE_BACKEND=postgres`).
-> Edge auth (`AUTH_MODE=token`), a CI pipeline, and structured logging + `/ready` readiness
-> probes are in place. **The console is now real-time**: the read-service pushes over SSE, a
-> live **Pipeline** tab animates every incident through the closed loop as it happens, a new
-> **Audit** tab makes the audit trail filterable, and the console was repainted to Apple's light
-> website palette (see [docs/UI.md](docs/UI.md), [ADR-018](architectural.md#adr-018--real-time-console-read-path-sse)).
-> **Detection and RCA got measurably smarter**: a `CORRELATOR_KIND=river|robust|trained` switch
-> adds a seasonal robust-z-score detector and a persisted, re-trainable scikit-learn model on top
-> of the unchanged `river` default, RCA ranking now learns from real remediation outcomes, and
-> every diagnosis carries an on-by-default (template or LLM) explanation — with a reproducible
-> benchmark proving the gains and the trade-offs (see [docs/BENCHMARKS.md](docs/BENCHMARKS.md),
-> [ADR-019](architectural.md#adr-019--pluggable-detectors-the-finetuning-loop-and-llm-assisted-rca)).
-> **A real sample system now feeds the pipeline**: **Meridian**, a four-service Deloitte-style
-> financial/audit platform with its own client-portal UI, runs alongside IntelliOps in
-> `docker compose up`, wired in through additive-only Prometheus scrape jobs, a broadened
-> ingestion query, and a shared deploy-context volume — no IntelliOps code changed. Each service
-> now emits a **USE+RED metric set with 8 typed fault scenarios** (up from the original
-> cpu/error-only pair), each scenario moving a realistic metric cluster rather than one gauge.
-> Three fault scenarios were verified live end-to-end in real Docker, each producing a genuinely
-> different, correct diagnosis (`scale-service` / `restart-pod` / `rollback-deploy`); see
-> [docs/MERIDIAN.md](docs/MERIDIAN.md) and
-> [ADR-020](architectural.md#adr-020--meridian-sample-production-system).
-> **Remediation got safer and more capable, without loosening the safety model.** A fix is now
-> **rehearsed on an isolated namespace clone before it is approved** — a failed rehearsal blocks
-> an auto-remediation and advises a human on a HITL one ([ADR-023](architectural.md#adr-023--pre-flight-sandbox-rehearsal-before-remediation)).
-> The typed action vocabulary widened 4→7 Deployment-scoped verbs behind a **destructive-shape
-> denylist**, with the action `Literal` still closed so catastrophic actions remain impossible to
-> express ([ADR-024](architectural.md#adr-024--tier-2-remediation-vocabulary--a-destructive-action-denylist)).
-> And selection got *some* real intelligence, carefully bounded: the AI can **draft a new runbook
-> for a gap that a human must approve** before it joins the registry ([ADR-025](architectural.md#adr-025--ai-authored-runbooks-propose--approve)),
-> and when the keyword rules don't fire, **embedding similarity** ranks the existing human-vetted
-> playbooks ([ADR-026](architectural.md#adr-026--semantic-runbook-selection-embedding-fallback)) —
-> retrieval among vetted options, never an LLM choosing the fix. All four are config-switched
-> **off by default** (the demo/CI path is byte-identical) and opt-in.
-> Next up: the Kafka bus binding and a whole-stack Helm deploy (in review).
-> See [WORKPLAN.md](WORKPLAN.md).
-
-## 📖 Understanding this project — start here
-
-New to this repo? Read these two documents first — they are the fastest way to understand what
-IntelliOps is and how it works:
-
-| Read this | To understand |
-|-----------|---------------|
-| **[flow.md](flow.md)** | **How a signal flows through the system** — the one-incident journey, every bus topic and data contract, a function-by-function reference for each of the seven services, and the current status (what's real vs. simulated). |
-| **[architectural.md](architectural.md)** | **Why the system is shaped this way** — the layer model and thirty ADRs (Architecture Decision Records), each with the context, the decision, the trade-offs, and the alternatives rejected. |
-
-Then, for the team: **[WORKPLAN.md](WORKPLAN.md)** divides the remaining work into four
-owned streams with acceptance criteria. The full original design spec is at
-[docs/superpowers/specs/2026-08-13-intelliops-coe-design.md](docs/superpowers/specs/2026-08-13-intelliops-coe-design.md);
-later design decisions have their own specs under `docs/superpowers/specs/`.
+> A production-credible, end-to-end AIOps platform built from scratch: seven Python microservices, a React operator console, a real Kubernetes remediation path, a self-improving ML pipeline, and a Deloitte-style financial platform as its live target. Every number on the dashboard is real; every fix is reversible; every decision is audited.
 
 ---
 
+<!-- ═══════════════════════════════════════════════════════════════════
+     DEMO VIDEO — drop your launch video embed here
+     ════════════════════════════════════════════════════════════════ -->
+
+## Demo
+
+<!-- Replace the block below with your video embed or a linked thumbnail.
+     Example (YouTube): [![Watch the demo](docs/assets/thumbnail.png)](https://youtu.be/YOUR_ID)
+     Example (mp4 in repo): <video src="docs/assets/demo.mp4" controls width="100%"></video>  -->
+
+> 📹 **Demo video coming soon** — live incident detection → diagnosis → HITL approval → real pod remediation, in under 3 minutes.
+
 ---
 
-## Why this exists
+## What it does
 
-Modern cloud-native estates emit more telemetry than any human team can triage.
+Modern cloud estates emit **500–1,200 alerts per day**. The large majority is noise. SREs burn their on-call hours triaging it instead of fixing things, which keeps MTTR stuck in the hours range and drives burnout.
 
-- Enterprises receive **500–1,200 alerts/day**, the large majority of it noise, not signal
-  (Covasant, 2026).
-- Downtime costs an average of **~$15,000/minute** — an aggregate **~$600B/year** across the
-  Global 2000 (Splunk & Cisco with Oxford Economics, 2026; verified against the primary press
-  release).
-- SRE/DevOps engineers burn their time on manual log correlation and alert triage instead of
-  resolution, which drives on-call burnout and keeps MTTR stuck in the hours-not-minutes range.
+IntelliOps attacks that from four angles simultaneously:
 
-IntelliOps attacks that directly: **less noise, faster diagnosis, safe automated fixes, and a
-loop that learns.**
+| Problem | What IntelliOps does |
+|---|---|
+| Alert storm → unreadable noise | Collapses raw alerts into a handful of meaningful **Situations** using online ML (z-score, robust seasonal, or a trained IsolationForest) |
+| "Which service, which cause?" | Enriches each Situation with deploy history, topology, and metric evidence; ranks hypotheses; explains the top one in plain language |
+| "Can we automate the fix?" | Executes safe, reversible remediation — scale, restart, rollback, config patch — after a pre-flight rehearsal on an isolated cluster clone |
+| "Did it work, and who approved it?" | Re-checks the firing metric after every fix; rolls back if unhealthy; writes every decision to an immutable audit trail |
 
-### Target outcomes (from the proposal, grounded in cited industry data)
+And the system **learns**: every outcome (success, rollback, escalation) feeds back into the correlation model, so accuracy compounds rather than freezing at deployment-day quality.
 
-| KPI | Target | Basis |
-|-----|--------|-------|
-| MTTR reduction | **40–60%** | Most consistently documented range across independent sources (incl. a Forrester-commissioned study). |
-| Alert volume reduction | **80–95%** | Correlation/clustering collapses the ~85–95% false-positive load (Covasant, 2026). |
-| Low-risk incidents auto-remediated | **30–60%** (phased) | Set conservatively for a first-year rollout. |
-| SRE on-call burden | **~30–40%** reduction | Directionally supported by AIOps case studies; treated as a target range. |
+---
 
-## How it works (at a glance)
+## What's actually running
+
+This isn't a mock dashboard. The full stack runs in a single `docker compose up`:
+
+- **Seven Python microservices** (FastAPI) talking over Redis Streams (or Kafka)
+- **Real Prometheus** scraping a real breakable target — every metric on the console is scraped, not generated
+- **A live SSE pipeline** that streams each incident through Detect → Correlate → Diagnose → Approve → Execute → Verify in real time
+- **Real Kubernetes remediation** on a local kind cluster — approving a fix restarts/scales a real pod; a real health check verifies it
+- **Postgres-backed durable state** — the audit trail, playbook registry, pending approvals, and the detector's learned baseline all survive a restart
+- **Meridian** — a four-service Deloitte-style financial/audit platform (gateway, validation, aggregation, reporting + its own portal UI) running alongside IntelliOps as a genuine production-shaped target, emitting 11 USE+RED gauges across 8 typed fault scenarios
+
+---
+
+## Architecture
 
 ```
- telemetry            ┌───────────────────────────────────────────────────────┐
- sources              │              governance-service (CoE)                 │
- (Prometheus,         │        RBAC · audit log · playbook registry           │
-  Loki, OTel)         └──────▲ sync approval gate ─────────▲ audit (async)────┘
-      │                      │                             │
-      ▼                ┌─────┴──────┐   ┌──────────┐   ┌───┴──────┐   ┌──────────┐
- ┌──────────┐          │correlation │   │   rca    │   │  action  │   │ feedback │
- │ingestion │──raw────▶│ detect +   │──▶│ enrich + │──▶│ approve, │──▶│ label +  │
- │normalize │          │ cluster →  │   │ rank +   │   │ execute, │   │ retrain  │
- │ + dedup  │          │ Situation  │   │ runbook  │   │ rollback │   │ (metrics)│
- └──────────┘          └─────▲──────┘   └──────────┘   └──────────┘   └────┬─────┘
-                             │                                             │
-                             └───────────── retrain (closed loop) ─────────┘
+ telemetry                ┌───────────────────────────────────────────────────────┐
+ sources                  │              governance-service (CoE)                 │
+ (Prometheus,             │        RBAC · audit log · playbook registry           │
+  Loki, OTel)             └──────▲ sync approval gate ─────────▲ audit (async)───┘
+      │                          │                              │
+      ▼                    ┌─────┴──────┐   ┌──────────┐   ┌──┴───────┐   ┌──────────┐
+ ┌──────────┐              │correlation │   │   rca    │   │  action  │   │ feedback │
+ │ingestion │──raw────────▶│ detect +   │──▶│ enrich + │──▶│ approve, │──▶│ label +  │
+ │normalize │              │ cluster →  │   │ rank +   │   │ execute, │   │ retrain  │
+ │ + dedup  │              │ Situation  │   │ runbook  │   │ rollback │   │ (metrics)│
+ └──────────┘              └─────▲──────┘   └──────────┘   └──────────┘   └────┬─────┘
+                                 │                                              │
+                                 └──────────────── retrain (closed loop) ───────┘
+                                          ▲
+                                   read-service (CQRS)
+                                   React console (SSE)
 ```
 
-Six services communicate over an **event bus**; the only synchronous step is the
-`action → governance` approval gate, which enforces the human-in-the-loop guarantee in the
-call graph itself. Full walkthrough in [flow.md](flow.md); the reasoning behind each choice is
-in [architectural.md](architectural.md).
+Six services communicate over an event bus. The only synchronous step is `action → governance` — the human-in-the-loop gate is enforced in the call graph itself, not by convention. Full walkthrough in [flow.md](flow.md); the reasoning behind every decision is in [architectural.md](architectural.md).
 
-### The two innovations
+### Design principles
 
-1. **The loop closes.** Most AIOps setups treat correlation and remediation as two static,
-   disconnected systems. Here, every remediation outcome (did it work? did it roll back?) becomes
-   training data for the correlation model, so accuracy compounds instead of freezing at
-   deployment-day quality.
-2. **A governed Center of Excellence, not a point tool.** RBAC, audit, rollback, and a shared
-   playbook registry are a single control plane — countering the well-documented point-solution
-   anti-pattern in AIOps adoption.
+1. **Augment, don't replace** — IntelliOps sits alongside your existing observability and ticketing stack; it never becomes the system of record
+2. **Human-in-the-loop by construction** — automated action is structurally gated on a governance decision; the gate fails closed
+3. **Reversible-only automation** — the system only automates what it can undo; it verifies health after acting and rolls back when the metric doesn't recover
+4. **The loop closes** — every remediation outcome is training data; the correlation model improves as it operates
+5. **Open-source-first** — every named tool sits behind an interface and is swappable; no vendor lock-in
+
+---
+
+## Tech stack
+
+| Concern | Default | Opt-in / swap path |
+|---|---|---|
+| Services | Python 3.11 · FastAPI · Pydantic v2 | — |
+| Event bus | Redis Streams | Kafka (`BUS_BACKEND=kafka`) |
+| Telemetry | Prometheus · Loki · OpenTelemetry | any, via `TelemetrySource` |
+| Correlation / ML | River (online z-score) | Robust seasonal z-score · scikit-learn IsolationForest (`CORRELATOR_KIND`) |
+| Runbook selection | Keyword rules | Embedding similarity — `sentence-transformers all-MiniLM-L6-v2` (`RUNBOOK_SELECTOR_MODE=embedding`, now on by default) |
+| Remediation | Dry-run (safe default) | Kubernetes API real pod ops (`REMEDIATOR_MODE=k8s`) |
+| Pre-flight | — | Sandbox rehearsal on isolated namespace clone (`SANDBOX_MODE=k8s`) |
+| Persistence | Postgres (SQLAlchemy Core + Alembic) | — |
+| Frontend | React 19 · TypeScript · Tailwind | — |
+| Auth | Off (dev default) | Bearer token (`AUTH_MODE=token`) |
+| Deploy | Docker Compose | Helm chart (`deploy/k8s/`) |
+
+---
+
+## Quickstart
+
+```bash
+# 1. Start the full stack (Redis, Postgres, 7 services, Prometheus, demo app, Meridian)
+docker compose -f deploy/docker-compose.yml up --build
+
+# 2. Start the console in live mode
+cd frontend && cp .env.example .env.local
+# edit .env.local → VITE_DATA_MODE=live
+npm install && npm run dev
+# open http://localhost:5173
+```
+
+**Drive a real incident end to end:**
+
+```bash
+# Break the demo app and watch the pipeline animate in the console
+./scripts/chaos.sh
+
+# Approve the fix in the UI (Incidents → open Situation → Approve)
+
+# Reset between runs — clears the detector baseline and read model
+./scripts/reset.sh
+```
+
+Detection takes **15–30 seconds** — that's a real Prometheus scrape cycle plus River needing a few samples to flag the anomaly, not a mock timer.
+
+> **For a step-by-step demo walkthrough** (including real kind-cluster remediation), see [docs/DEMO.md](docs/DEMO.md).
+
+### Set your operator name
+
+```bash
+# deploy/.env  (gitignored)
+VITE_OPERATOR_NAME=your-name    # shows in approvals + audit trail
+INTELLIOPS_LLM_ENDPOINT=https://api.groq.com/openai/v1   # optional: LLM explanations
+INTELLIOPS_LLM_API_KEY=gsk_...
+INTELLIOPS_LLM_MODEL=llama-3.3-70b-versatile
+```
+
+---
+
+## The Meridian sample system
+
+Every incident in a demo needs a real target. **Meridian** (`services/meridian/`) is a four-service Deloitte-style financial/audit reporting platform — gateway, validation, aggregation, reporting — with its own client portal and ops panel. It runs alongside IntelliOps in the same compose file and gives the pipeline something genuinely production-shaped to watch.
+
+Each service emits a **USE+RED metric set** (11 gauges: CPU, memory, disk, queue depth, DB-pool, request rate, error rate, p50/p99 latency) and accepts **8 typed fault scenarios**, each moving a realistic cluster of those metrics rather than a single gauge.
+
+Three scenarios were verified live end-to-end against real Docker, each producing the expected, genuinely different diagnosis:
+
+| Fault | Service | Correct diagnosis |
+|---|---|---|
+| CPU saturation | meridian-aggregation | `scale-service` |
+| Error-rate spike | meridian-validation | `restart-pod` |
+| Recent deploy + saturation | meridian-gateway | `rollback-deploy` (outranks saturation) |
+
+Meridian is wired to IntelliOps through **additive-only** changes — a Prometheus scrape job per service and a broadened ingestion selector. No IntelliOps service code changed. See [docs/MERIDIAN.md](docs/MERIDIAN.md).
+
+---
+
+## Safety & compliance
+
+- **HITL gate fails closed** — a timeout, rejection, or unreachable governance service means no action, never a default execute
+- **Destructive-action denylist** — a typed vocabulary gate prevents catastrophic actions from being expressed at all; the `Literal` action type is permanently closed
+- **Pre-flight sandbox** — fixes are rehearsed on an isolated namespace clone; a failed rehearsal blocks auto-remediation and surfaces the verdict in the UI
+- **Immutable audit trail** — every RBAC decision, approval, execution, and outcome is recorded in Postgres, threaded by `correlation_id`
+- **AI is bounded** — the AI can *draft* a runbook for a gap, but it cannot join the registry without a human approval; it can *rank* vetted playbooks by embedding similarity, but it never chooses an unvetted fix
+- **Compliance-aligned** — NIST AI RMF (Govern/Map/Measure/Manage), EU AI Act risk-tiered documentation, DORA 4-hour notification window; deployable on-prem for sovereign-cloud needs
+
+---
+
+## Test suite & CI
+
+```bash
+uv run pytest          # 433+ tests, no Docker needed for the core suite
+uv run ruff check .    # linting
+npm run build          # frontend type-check + contrast gate (112 checks)
+```
+
+CI runs on every PR: lint → test → frontend build → compose smoke test. The correlator improvement is covered by a [reproducible benchmark](docs/BENCHMARKS.md) committed to the repo.
+
+---
+
+## What's been built
+
+| Area | Status |
+|---|---|
+| Seven-service closed loop (detect → diagnose → approve → execute → verify → retrain) | ✅ |
+| Real Kubernetes remediation + rollback on a kind cluster | ✅ |
+| Postgres persistence — audit trail, playbook registry, durable approvals, baseline snapshot | ✅ |
+| Pluggable detectors — River (online z-score), robust seasonal, trained IsolationForest | ✅ |
+| Reliability-weighted + LLM-explained RCA with a committed CI benchmark | ✅ |
+| Semantic runbook selection via embedding similarity (now on by default) | ✅ |
+| AI-authored runbook drafting — propose-only, human-approval gate, type-safe actions | ✅ |
+| Pre-flight sandbox rehearsal on an isolated namespace clone | ✅ |
+| Destructive-action denylist (7 typed Deployment-scoped verbs; `Literal` closed) | ✅ |
+| Real-time React console — SSE pipeline view, audit explorer, light/dark theme | ✅ |
+| Agent Activity trace — live step-by-step view of the AI runbook author as it works | ✅ |
+| Meridian sample financial platform — 4 services, 8 fault scenarios, verified live | ✅ |
+| Edge auth (bearer token, timing-safe), structured JSON logging, readiness probes | ✅ |
+| Kafka bus binding + whole-stack Helm deploy | ✅ |
+| 433+ tests · CI pipeline · ruff-clean | ✅ |
+
+---
+
+## Documentation
+
+| Document | What it covers |
+|---|---|
+| [architectural.md](architectural.md) | Design principles, layer mapping, 30 ADRs with context and trade-offs |
+| [flow.md](flow.md) | One-incident journey, bus topics, data contracts, per-function service reference |
+| [docs/DEMO.md](docs/DEMO.md) | Guided two-act demo — live loop then real kind-cluster remediation |
+| [docs/MERIDIAN.md](docs/MERIDIAN.md) | The sample financial platform — services, fault scenarios, verified results, honest limits |
+| [docs/BENCHMARKS.md](docs/BENCHMARKS.md) | Correlator benchmark — methodology, results table, where `robust`/`trained` win and cost |
+| [docs/PERSISTENCE.md](docs/PERSISTENCE.md) | Postgres backend — schema, `STORE_BACKEND` switch, migrations, durable runtime state |
+| [docs/UI.md](docs/UI.md) | Operator console — five views, mock vs. live mode, SSE architecture, theme system |
+| [docs/OPERATIONS.md](docs/OPERATIONS.md) | Deploy guide, full env-switch table, auth model |
+| [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) | Structured JSON logging, liveness vs. readiness probes |
+| [deploy/k8s/README.md](deploy/k8s/README.md) | Real-remediation demo on a kind cluster |
+
+---
 
 ## Repository layout
 
 ```
 intelliops/
-├── README.md              ← you are here
-├── architectural.md       ← why the system is shaped this way (ADRs, compliance mapping)
-├── flow.md                ← data flow + per-function reference
-├── docs/superpowers/specs/
-│   └── 2026-08-13-intelliops-coe-design.md   ← full design spec
-├── common/                ← shared library: contracts, interfaces, bus client, config
-├── services/              ← the six services (ingestion, correlation, rca, action,
-│                            governance, feedback) — added slice by slice
-│   └── meridian/          ← Meridian: 4-service sample financial platform + portal UI
-├── playbooks/             ← YAML playbook definitions (the CoE registry seed)
-├── alembic/               ← Postgres schema migrations (versioned, run as a one-shot step)
-├── deploy/                ← docker-compose (dev), deploy/k8s (kind remediation demo)
+├── README.md                  ← you are here
+├── architectural.md           ← why: 30 ADRs, layer model, compliance mapping
+├── flow.md                    ← how: data flow, bus contracts, per-function reference
+├── common/                    ← shared library: contracts, interfaces, bus client, config, auth
+├── services/
+│   ├── ingestion/             ← normalize, dedup, ingest from Prometheus/Loki
+│   ├── correlation/           ← detect anomalies, cluster into Situations
+│   ├── rca/                   ← enrich, rank hypotheses, select + embed runbooks, explain
+│   ├── action/                ← HITL gate, sandbox, execute, verify, rollback
+│   ├── governance/            ← RBAC, audit log, playbook registry, AI runbook author
+│   ├── feedback/              ← label outcomes, retrain, graduate playbooks, compute KPIs
+│   ├── read/                  ← CQRS read model, SSE push, Prometheus proxy
+│   └── meridian/              ← 4-service sample financial platform + portal UI
+├── frontend/                  ← React 19 operator console (TypeScript, Tailwind)
+├── playbooks/                 ← YAML playbook definitions
+├── alembic/                   ← Postgres schema migrations
+├── deploy/
+│   ├── docker-compose.yml     ← full dev stack
+│   └── k8s/                   ← Helm chart + kind demo
+├── tests/                     ← 433+ tests (pytest)
+├── docs/                      ← DEMO, MERIDIAN, BENCHMARKS, PERSISTENCE, UI, OPERATIONS
 └── pyproject.toml
 ```
 
-## Tech stack
+---
 
-| Concern | Default (open-source) | Optional / commercial path |
-|---------|-----------------------|----------------------------|
-| Services | Python 3.11+ · FastAPI · Pydantic | — |
-| Event bus | Redis Streams (dev) → Kafka (prod) | — |
-| Telemetry sources | Prometheus · Loki · OpenTelemetry | any, via `TelemetrySource` |
-| ML / correlation | River (online, default) · scikit-learn `IsolationForest` (opt-in `trained` kind) | Moogsoft · BigPanda · Dynatrace (via `Correlator`) |
-| Remediation | Kubernetes API · Ansible | any, via `Remediator` |
-| Audit + training store | Postgres | — |
-| Persistence | Postgres (SQLAlchemy Core + Alembic) | any, via `STORE_BACKEND` |
-| On-call / ticketing | (REST approval endpoint) | PagerDuty / Slack (post-Phase-3) |
-| Local dev | Docker Compose | Kubernetes (kind demo; whole-stack Helm in review) |
+## Why this exists
 
-Every named tool sits behind an interface, so it is swappable — see
-[ADR-005](architectural.md#adr-005--pluggable-adapters-behind-interfaces).
+SRE/DevOps engineers spend most of their on-call hours on manual log correlation and alert triage — not on resolution. Downtime costs enterprises roughly **$15,000/minute** (Splunk & Cisco with Oxford Economics, 2026), yet most AIOps setups treat correlation and remediation as disconnected, static systems that can't improve over time.
 
-## Quickstart
+IntelliOps is built around two ideas:
 
-> **For a full guided demo, see [DEMO.md](docs/DEMO.md)** — a two-act walkthrough of the live loop
-> and real kind-cluster remediation.
+1. **The loop closes.** Remediation outcomes feed back into the correlation model so accuracy compounds instead of freezing at deployment-day quality.
+2. **A governed Center of Excellence, not a point tool.** RBAC, audit, rollback, and a shared playbook registry are a single control plane — countering the well-documented point-solution anti-pattern in AIOps adoption.
 
-> Slice 0 is built: the command below brings up Redis and six health-checked service stubs.
-> Slice 1 adds `POST /ingest` on ingestion (8001) and a correlation consumer that emits `Situation`s onto the bus.
-> Slice 2 adds rca-service (diagnoses Situations → `situations.diagnosed`) and governance-service (audit log, playbook registry, RBAC at 8005).
-> Slice 3 adds action-service (8004): HITL-gated, reversible remediation of `situations.diagnosed` → `remediation.outcomes`, with RBAC-enforced approvals.
-> Slice 4 adds feedback-service (8006): labels `remediation.outcomes` into a training store that closes the loop (proven self-healing signatures get suppressed), computes metrics at `GET /metrics`, and graduates playbooks hitl→auto on evidence.
+Target outcomes (from the proposal, grounded in cited industry data):
 
-```bash
-# 1. Bring up the dev stack (Redis bus + the six service stubs)
-docker compose -f deploy/docker-compose.yml up
-
-# 2. Check every service is alive (/health) and ready (/ready — checks bus + DB)
-curl localhost:8001/health   # ingestion — liveness
-curl localhost:8001/ready    # ingestion — readiness (200 when deps reachable, else 503)
-# ... correlation 8002, rca 8003, action 8004, governance 8005, feedback 8006
-```
-
-## Run it live (real data, local, free)
-
-Beyond the mock-data quickstart above, the full stack can run against **real** telemetry —
-Prometheus actually scraping a demo app, a real anomaly detector, and remediation (dry-run here;
-real pod remediation via the kind demo below) — entirely on your machine, at no cost.
-
-1. **Start the stack** (adds `demo-app`, `prometheus`, and `read` to the six core services):
-
-   ```bash
-   docker compose -f deploy/docker-compose.yml up --build
-   ```
-
-2. **Start the frontend in live mode:**
-
-   ```bash
-   cd frontend
-   cp .env.example .env.local
-   # edit .env.local: set VITE_DATA_MODE=live
-   npm run dev
-   ```
-
-   Open [http://localhost:5173](http://localhost:5173).
-
-3. **Drive an incident end to end:**
-
-   ```bash
-   ./scripts/chaos.sh
-   ```
-
-   This breaks the demo app (`POST /break` on the demo app, [http://localhost:8080](http://localhost:8080)),
-   generates error traffic, and waits for the stack to detect and diagnose it. Detection takes
-   **~15–30 seconds** — that's expected: it's a real Prometheus scrape (every 5s) + ingestion
-   poll (every 5s) + River needing a few samples to flag an anomaly, not instant. The script then
-   prints the open Situation from the read service ([http://localhost:8007/situations](http://localhost:8007/situations))
-   and tells you when to switch to the console.
-
-4. **Approve the fix in the UI.** Open the console, find the open Situation, and click **Approve**.
-   Once you're done, recover the demo app with `curl -X POST http://localhost:8080/fix`.
-
-**Resetting between runs:** `./scripts/reset.sh` (or `./scripts/chaos.sh reset`) gives a clean
-slate without `docker compose down` — recovers the demo app, clears the detector's learned
-baseline, and empties the read model.
-
-> **Remediation modes:** By default remediation runs in **dry-run** mode (ADR-007): the action
-> service logs the steps and a simulated health check reports healthy — no real infrastructure is
-> touched, which is what the quickstart above uses. To see **real** remediation, run the kind-cluster
-> demo (`REMEDIATOR_MODE=k8s`) — approving a fix restarts/scales a real pod and a real health check
-> verifies recovery. See [deploy/k8s/README.md](deploy/k8s/README.md).
-
-> **Simulation controls note:** The `/reset`, `/reset-baseline`, `/break`, and `/fix` endpoints
-> are simulation controls, not production endpoints. When this stack is pointed at a real system,
-> they must be gated or removed.
-
-## Proving it's real
-
-The console isn't just a status light — every incident it shows drills down into the evidence
-behind it. Open a Situation and you get the metric name and value that tripped it, the
-correlator's z-score plotted against its learned baseline, the ranked hypotheses with the
-evidence each one cites, a (labeled: LLM or offline-template) explanation, a stage timeline, and
-the real remediation outcome with the steps that were actually executed — dry-run runs are
-labeled as such, never presented as live infrastructure changes. Nothing on that screen is a
-placeholder number; if a field has no real value yet, it isn't shown.
-
-Open the new **System view** and you get the same honesty applied to the platform itself: live
-correlator baselines per metric, which backends are wired up (store, bus, telemetry source), the
-current remediation mode (dry-run vs. real), and a status badge for the LLM explanation provider.
-That badge tells you the truth plainly: **the default is the offline template**, not a live
-model — RCA ships with no LLM configured out of the box, which is the honest default for a system
-that hasn't been given an API key. Turning a real provider on is opt-in, either via the
-`INTELLIOPS_LLM_EXPLANATION_*` environment variables on the `rca` service (see
-`deploy/docker-compose.yml`) or live from the console's System view itself, which calls RCA's
-`POST /config/llm` (and a `/config/llm/test` probe) to swap the running provider with no restart.
-The key you enter is never echoed back by the API.
-
-## Roadmap
-
-Delivered in vertical slices mapped to the proposal's phased rollout. Each slice is a working
-increment and is approved before it is built.
-
-The five vertical slices (the closed loop) are done; a second wave of **production-credibility**
-work builds on top of them.
-
-| Slice | Phase | Outcome | Status |
-|-------|-------|---------|--------|
-| 0 | — | Skeleton: contracts, bus, `docker compose up`, health endpoints | ✅ done |
-| 1 | Phase 1 | Noise reduction: telemetry in → one `Situation` out | ✅ done |
-| 2 | Phase 2 | RCA suggestions + governance audit/RBAC | ✅ done |
-| 3 | Phase 3 | HITL-gated reversible remediation, end to end | ✅ done |
-| 4 | Phase 4 | Closed feedback loop + metrics + first `auto` playbook | ✅ done |
-
-**Production-credibility work (since the slices):**
-
-| Area | Outcome | Status |
-|------|---------|--------|
-| Real remediation | `KubernetesRemediator` + real health checks on a kind cluster (`REMEDIATOR_MODE=k8s`) | ✅ done |
-| Persistence | Audit / training / playbook stores + durable approvals & baseline on Postgres (`STORE_BACKEND=postgres`), Alembic migrations | ✅ done |
-| Security & CI | Edge auth (`AUTH_MODE=token`, internal calls authenticate) + a CI pipeline on every PR | ✅ done |
-| Observability | Structured JSON logging + a `/ready` readiness probe per service | ✅ done |
-| Platform | Kafka bus binding, whole-stack Helm deploy, load/chaos testing | 🚧 in review |
-| Intelligence | Pluggable detectors (`robust`/`trained`), persisted retrain loop, reliability-weighted + LLM-explained RCA, CI-enforced benchmark | ✅ done |
-| Frontend | Real-time console over SSE, a live incident-pipeline view, an audit explorer, Apple-light repaint | ✅ done |
-| Sample production system | **Meridian** — a 4-service financial platform + portal UI, emitting a USE+RED metric set across 8 typed fault scenarios, wired to the pipeline, verified live | ✅ done |
-| Pre-flight sandbox | Fixes are **rehearsed on an isolated namespace clone** before approval — block auto / advise human on the verdict (`SANDBOX_MODE=k8s`); [ADR-023](architectural.md#adr-023--pre-flight-sandbox-rehearsal-before-remediation) | ✅ done |
-| Wider, still-safe actions | Vocabulary widened 4→**7 typed** Deployment-scoped actions + a **destructive-shape denylist** gate; the action `Literal` stays closed (catastrophic actions permanently out); [ADR-024](architectural.md#adr-024--tier-2-remediation-vocabulary--a-destructive-action-denylist) | ✅ done |
-| AI-authored runbooks | The AI **drafts** a typed runbook for a gap; a human approves before it joins the registry (`RUNBOOK_AUTHOR_MODE`); the type system rejects unsafe drafts; [ADR-025](architectural.md#adr-025--ai-authored-runbooks-propose--approve) | ✅ done |
-| Semantic runbook selection | Keyword rules first, then **embedding similarity** (`sentence-transformers`) ranks vetted playbooks when no rule fires (`RUNBOOK_SELECTOR_MODE=embedding`); retrieval, not an LLM deciding; [ADR-026](architectural.md#adr-026--semantic-runbook-selection-embedding-fallback) | ✅ done |
-
-## Meridian — a real sample system for IntelliOps to operate
-
-Every incident described above used to come from `demo-app`, a one-endpoint toy target. **Meridian**
-(`services/meridian/`) is a small but real **Deloitte-style financial/audit reporting platform** —
-four backend services (gateway, validation, aggregation, reporting) plus its own client-portal +
-ops-panel UI — that runs alongside IntelliOps in the same `docker compose up` and gives it something
-genuinely production-shaped to watch.
-
-Each service emits a **USE+RED metric set** (11 gauges — CPU, memory, disk, saturation, queue
-depth, DB-pool utilization, request rate, error rate, p50/p99 latency) and accepts **8 typed fault
-scenarios** (`saturation`, `latency`, `error`, `memory_leak`, `traffic_surge`,
-`dependency_outage`, `db_exhaustion`, `crash`), each moving a realistic *cluster* of those metrics
-rather than a single gauge — see [docs/MERIDIAN.md](docs/MERIDIAN.md) for the full metric table and
-per-scenario profiles.
-
-Meridian is wired into the pipeline through **additive-only** changes: a Prometheus scrape job per
-service, the ingestion query broadened to an 11-name regex selector in the compose environment only
-(the `common/config.py` default stays `cpu_usage`), and a shared volume that finally lets the
-`rollback-deploy` playbook see real deploy markers. No IntelliOps service code changed. Three fault
-scenarios were run **sequentially** against real Docker and each produced the expected, genuinely
-different diagnosis:
-
-| Fault | Service | Diagnosis |
-|---|---|---|
-| CPU saturation | meridian-aggregation | `scale-service` |
-| Error-rate spike (cpu held at baseline) | meridian-validation | `restart-pod` |
-| Deploy marker + saturation | meridian-gateway | `rollback-deploy` (outranks saturation) |
-
-Faults must be injected **one at a time** — the correlator groups anomalies by time window, not by
-service, so concurrent faults on two services would merge into one incident; the Meridian
-Operations panel enforces this with a sequential-injection guard. Full write-up, the demo script,
-and honest limits (synthetic data, toggle-based faults, dry-run remediation) in
-[docs/MERIDIAN.md](docs/MERIDIAN.md); the design rationale is
-[ADR-020](architectural.md#adr-020--meridian-sample-production-system).
-
-## Security, compliance & safety
-
-- **Human-in-the-loop by construction** — automated action is structurally gated on a
-  governance decision; the gate fails **closed**.
-- **Reversible-only automation** — every playbook carries its own rollback steps, and health is
-  verified after every action.
-- **Full audit trail** — every decision is recorded immutably, threaded by `correlation_id`.
-- **Compliance-aligned** — NIST AI RMF (Govern/Map/Measure/Manage), EU AI Act risk-tiered
-  documentation, and DORA's 4-hour major-incident **notification** window. Deployable
-  in-region/on-prem for sovereign-cloud needs. Details in
-  [architectural.md §5](architectural.md#5-compliance-mapping).
-
-## Documentation map
-
-- **[architectural.md](architectural.md)** — design principles, the 5→6 layer mapping,
-  thirty ADRs, cross-cutting concerns, compliance mapping.
-- **[docs/DEMO.md](docs/DEMO.md)** — the guided two-act demo walkthrough: the live dry-run loop,
-  then real remediation on a kind cluster.
-- **[flow.md](flow.md)** — the one-incident journey, bus topics, data contracts, and a
-  per-function reference for all seven services.
-- **[docs/PERSISTENCE.md](docs/PERSISTENCE.md)** — the Postgres backend: the schema, the
-  `STORE_BACKEND` switch, migrations, and the durable runtime state (approvals + baseline).
-- **[docs/BENCHMARKS.md](docs/BENCHMARKS.md)** — the correlator benchmark: methodology, the
-  real results table, and an honest reading of where `robust`/`trained` win, lose, and cost more
-  than the `river` baseline.
-- **[docs/OBSERVABILITY.md](docs/OBSERVABILITY.md)** — structured JSON logging and the
-  `/health` (liveness) vs `/ready` (readiness) probes.
-- **[docs/OPERATIONS.md](docs/OPERATIONS.md)** — deploy, the env-switch table, and the auth model.
-- **[docs/UI.md](docs/UI.md)** — the operator console: the five views, mock vs. live mode, the SSE
-  real-time architecture, and the Apple-light repaint.
-- **[docs/MERIDIAN.md](docs/MERIDIAN.md)** — Meridian, the sample financial/audit platform: its
-  services and UI, the additive IntelliOps wiring, the verified scenarios, the demo script, and
-  honest limits.
-- **[deploy/k8s/README.md](deploy/k8s/README.md)** — the real-remediation demo on a kind cluster.
-- **[docs/superpowers/specs/2026-08-13-intelliops-coe-design.md](docs/superpowers/specs/2026-08-13-intelliops-coe-design.md)**
-  — the original design spec; later decisions have their own specs under `docs/superpowers/specs/`.
+| KPI | Target |
+|---|---|
+| MTTR reduction | 40–60% |
+| Alert volume reduction | 80–95% |
+| Low-risk incidents auto-remediated | 30–60% (phased) |
+| SRE on-call burden | ~30–40% reduction |
