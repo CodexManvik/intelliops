@@ -1,0 +1,38 @@
+# Grafana datasources, provisioned at startup. The hostnames are the same in
+# docker-compose and in the Helm release (service DNS: prometheus, loki,
+# postgres), so one file serves both. The Postgres password comes from the
+# container environment, never from this file.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false
+    jsonData:
+      maxLines: 5000
+
+  # The durable stores: audit trail, approvals, training records, agent runs.
+  # Read-only use is the intent; point it at a read-only role in anything real.
+  - name: IntelliOps Postgres
+    uid: intelliops-postgres
+    type: grafana-postgresql-datasource
+    url: postgres:5432
+    user: ${INTELLIOPS_PG_USER}
+    editable: false
+    jsonData:
+      database: ${INTELLIOPS_PG_DB}
+      sslmode: disable
+      postgresVersion: 1600
+    secureJsonData:
+      password: ${INTELLIOPS_PG_PASSWORD}

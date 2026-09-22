@@ -1,0 +1,70 @@
+// Grafana Alloy for the Helm release: tail the release's pods through the
+// Kubernetes API (loki.source.kubernetes - no hostPath mounts, no DaemonSet)
+// and ship the lines to Loki.
+//
+// Scoped to the release namespace (NAMESPACE is injected from the pod's own
+// metadata). Labels: `service` is the pod's app.kubernetes.io/name (ingestion,
+// correlation, ..., meridian-gateway), plus `pod` and `container`. `level` is
+// lifted out of JSON log lines when present.
+
+discovery.kubernetes "pods" {
+  role = "pod"
+  namespaces {
+    names = [sys.env("NAMESPACE")]
+  }
+}
+
+discovery.relabel "pods" {
+  targets = discovery.kubernetes.pods.targets
+
+  rule {
+    source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+    target_label  = "service"
+  }
+  // Workloads not labelled by this chart (e.g. the demo app) fall back to
+  // their `app` label so they are still findable by service.
+  rule {
+    source_labels = ["service", "__meta_kubernetes_pod_label_app"]
+    separator     = ";"
+    regex         = ";(.+)"
+    target_label  = "service"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_namespace"]
+    target_label  = "namespace"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_pod_name"]
+    target_label  = "pod"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_pod_container_name"]
+    target_label  = "container"
+  }
+}
+
+loki.source.kubernetes "pods" {
+  targets    = discovery.relabel.pods.output
+  forward_to = [loki.process.levels.receiver]
+}
+
+loki.process "levels" {
+  // Probe and scrape access lines (/health, /ready, /metrics every few seconds
+  // from every container) were most of the volume and none of the signal.
+  stage.drop {
+    expression = "\"GET /(health|ready|metrics)[^\"]*HTTP/1[.]1\" 200"
+  }
+  stage.json {
+    expressions = { level = "level" }
+  }
+  stage.labels {
+    values = { level = "" }
+  }
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

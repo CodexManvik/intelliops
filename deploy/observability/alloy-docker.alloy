@@ -1,0 +1,58 @@
+// Grafana Alloy for docker-compose: tail every container of this compose
+// project through the Docker socket and ship the lines to Loki.
+//
+// Labels: `service` is the compose service name (ingestion, correlation, ...,
+// meridian-gateway), `container` the container name. The IntelliOps services
+// log JSON in compose (INTELLIOPS_LOG_FORMAT=json), so `level` is lifted out of
+// each line into a label; plain-text lines (redis, postgres, uvicorn access
+// logs) pass through untouched.
+
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+  filter {
+    name   = "label"
+    values = ["com.docker.compose.project=intelliops"]
+  }
+}
+
+discovery.relabel "containers" {
+  targets = []
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+}
+
+loki.source.docker "containers" {
+  host          = "unix:///var/run/docker.sock"
+  targets       = discovery.docker.containers.targets
+  relabel_rules = discovery.relabel.containers.rules
+  forward_to    = [loki.process.levels.receiver]
+}
+
+loki.process "levels" {
+  // Probe and scrape access lines (/health, /ready, /metrics every few seconds
+  // from every container) were most of the volume and none of the signal.
+  stage.drop {
+    expression = "\"GET /(health|ready|metrics)[^\"]*HTTP/1[.]1\" 200"
+  }
+  stage.json {
+    expressions = { level = "level" }
+  }
+  stage.labels {
+    values = { level = "" }
+  }
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

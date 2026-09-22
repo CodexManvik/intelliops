@@ -190,6 +190,7 @@ When it finishes:
 | Read service | http://localhost:30007 |
 | Meridian gateway (inject faults here) | http://localhost:30808 |
 | Prometheus | http://localhost:30090 |
+| Grafana (logs + metrics + audit) | http://localhost:30300 |
 
 Confirm it is genuinely up — the banner is not proof on its own:
 

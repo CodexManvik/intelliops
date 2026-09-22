@@ -12,3 +12,4 @@ nodes:
       - { containerPort: 30007, hostPort: 30007, protocol: TCP }   # read-service (direct)
       - { containerPort: 30090, hostPort: 30090, protocol: TCP }   # prometheus (if a NodePort is added)
       - { containerPort: 30808, hostPort: 30808, protocol: TCP }   # meridian-gateway (direct)
+      - { containerPort: 30300, hostPort: 30300, protocol: TCP }   # grafana (logs + metrics UI)

@@ -118,6 +118,26 @@ jobs:
               sleep 3
             done
           done
+          # Logs + metrics UI: Loki ready, Grafana up with all three datasources
+          # healthy, and Alloy actually shipping container logs into Loki.
+          for url in http://localhost:3100/ready http://localhost:3000/api/health; do
+            for attempt in $(seq 1 30); do
+              curl -sf "$url" >/dev/null && { echo " ✓ $url"; break; }
+              [ "$attempt" -eq 30 ] && { echo " ✗ $url never 200"; exit 1; }
+              sleep 3
+            done
+          done
+          for uid in prometheus loki intelliops-postgres; do
+            curl -sf -u admin:admin "http://localhost:3000/api/datasources/uid/$uid/health" | grep -q '"status":"OK"' \
+              && echo " ✓ grafana datasource $uid" \
+              || { echo " ✗ grafana datasource $uid unhealthy"; exit 1; }
+          done
+          for attempt in $(seq 1 30); do
+            curl -sf "http://localhost:3100/loki/api/v1/label/service/values" | grep -q '"governance"' \
+              && { echo " ✓ loki is receiving service logs"; break; }
+            [ "$attempt" -eq 30 ] && { echo " ✗ no service logs reached loki"; exit 1; }
+            sleep 3
+          done
       - if: failure()
         run: docker compose -f deploy/docker-compose.yml logs
       - if: always()
