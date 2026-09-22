@@ -168,6 +168,20 @@ def _audit(gate, situation: Situation, playbook: Playbook, decision: str) -> Non
     )
 
 
+def _expire_best_effort(gate, approval_id: str) -> None:
+    """We stopped waiting; say so, or the request sits "pending" forever and the
+    console keeps offering an Approve that can no longer do anything. Best effort:
+    the outcome below is already fail-closed, and a gate without expire() (older
+    fakes) simply leaves the request as it was."""
+    expire = getattr(gate, "expire", None)
+    if expire is None:
+        return
+    try:
+        expire(approval_id, _ACTOR)
+    except Exception:  # noqa: BLE001, S110 - never let bookkeeping change the outcome
+        pass
+
+
 def execute_remediation(
     situation: Situation,
     playbook: Playbook,
@@ -241,6 +255,8 @@ def execute_remediation(
         decided = gate.await_decision(request.id, timeout_seconds)
         if decided.status != "approved":
             reason = "aborted:rejected" if decided.status == "rejected" else "aborted:timeout"
+            if decided.status == "pending":
+                _expire_best_effort(gate, request.id)
             _audit(gate, situation, playbook, "abort")
             return _outcome(
                 situation, playbook, RemediationResult.FAILURE, reason, preflight=preflight
@@ -272,7 +288,32 @@ def execute_remediation(
             preflight=preflight,
         )
 
-    remediator.rollback(plan)
+    # Unhealthy. Only report ROLLED_BACK when something was actually undone: a
+    # playbook with no rollback steps (restart-pod ships with none) used to be
+    # reported as rolled back when nothing ran, and a rollback that FAILED was
+    # reported the same way as one that worked.
+    if not plan.rollback_steps:
+        _audit(gate, situation, playbook, "unhealthy-no-rollback")
+        return _outcome(
+            situation,
+            playbook,
+            RemediationResult.FAILURE,
+            "unhealthy:no-rollback",
+            steps=steps,
+            mode=mode,
+            preflight=preflight,
+        )
+    if not remediator.rollback(plan):
+        _audit(gate, situation, playbook, "rollback-failed")
+        return _outcome(
+            situation,
+            playbook,
+            RemediationResult.FAILURE,
+            "unhealthy:rollback-failed",
+            steps=steps,
+            mode=mode,
+            preflight=preflight,
+        )
     _audit(gate, situation, playbook, "rolled-back")
     return _outcome(
         situation,

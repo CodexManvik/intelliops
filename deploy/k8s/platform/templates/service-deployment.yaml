@@ -28,6 +28,13 @@ metadata:
     {{- include "intelliops.selectorLabels" (dict "root" $ "name" .name) | nindent 4 }}
 spec:
   replicas: 1
+  # Recreate, not the default RollingUpdate. Every consumer uses one stable
+  # consumer name per group (ADR-033), and a rolling update briefly runs the old
+  # and new pod side by side - two consumers sharing one name and one pending
+  # list, both able to act on the same entry. replicas: 1 only holds if the
+  # rollout never surges.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       {{- include "intelliops.selectorLabels" (dict "root" $ "name" .name) | nindent 6 }}

@@ -61,33 +61,6 @@ export const testLlmConfig = LIVE
 
 export const loadProposals = LIVE ? api.loadProposals : async () => _mockProposals;
 
-export const proposePlaybook = LIVE
-  ? api.proposePlaybook
-  : async (situation: Situation, _requestedBy: string): Promise<ProposedPlaybook> => {
-      // mock mode: fabricate a proposal the same shape the server would return
-      // (server-assigned id, forced hitl) — honest about being a stub draft.
-      const proposal: ProposedPlaybook = {
-        id: `prop-mock-${Date.now().toString(36)}`,
-        playbook: {
-          id: `ai-${situation.signature}-mock`,
-          name: `Drafted fix · ${situation.service}`,
-          match_rule: situation.id,
-          steps: [{ action: "restart", note: "mock draft — no LLM configured" }],
-          hitl_mode: "hitl",
-          reversible: true,
-          rollback_steps: [],
-        },
-        status: "proposed",
-        proposed_by: "runbook-author",
-        rationale: "mock mode: no LLM configured — this is a stub draft, not a real AI proposal.",
-        source_situation_id: situation.id,
-        decided_by: null,
-        ts: Date.now(),
-      };
-      _mockProposals.push(proposal);
-      return proposal;
-    };
-
 export const approveProposal = LIVE
   ? api.approveProposal
   : async (id: string, decidedBy: string): Promise<ProposedPlaybook> => {

@@ -219,3 +219,24 @@ def test_rollback_to_revision_ignores_foreign_deployment_rs():
     step = RemediationStep(action="rollback_to_revision", revision=3)
     # Should fail-safe (revision not found) rather than patching the wrong template
     assert r.execute(_plan(step)) is False
+
+
+class _StatefulApps(FakeAppsV1):
+    """Remembers the replica count it was scaled to."""
+
+    def patch_namespaced_deployment_scale(self, name, namespace, body):
+        super().patch_namespaced_deployment_scale(name, namespace, body)
+        self._replicas = body["spec"]["replicas"]
+
+
+def test_rollback_restores_the_original_count_even_after_a_clamp():
+    # 9 + 2 clamps to 10; undoing with the inverse delta gave 8.
+    apps = _StatefulApps(replicas=9)
+    r = KubernetesRemediator("ns", apps_v1=apps, exc_type=FakeApiException)
+    plan = RemediationPlan(
+        target=RemediationTarget(namespace="ns", deployment="demo-app"),
+        steps=[RemediationStep(action="scale", replicas=2)],
+        rollback_steps=[RemediationStep(action="scale", replicas=-2)],
+    )
+    assert r.execute(plan) and apps._replicas == 10
+    assert r.rollback(plan) and apps._replicas == 9

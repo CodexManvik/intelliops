@@ -12,6 +12,10 @@ ENV VITE_READ_URL=/api/read
 ENV VITE_GOV_URL=/api/gov
 ENV VITE_CORR_URL=/api/corr
 ENV VITE_RCA_URL=/api/rca
+# The human identity the console acts as. It must name an approver in
+# policies/rbac_policy.yaml or every decision is rejected with 403.
+ARG VITE_OPERATOR_NAME=demo-operator
+ENV VITE_OPERATOR_NAME=${VITE_OPERATOR_NAME}
 RUN npm run build
 
 FROM nginx:1.27-alpine

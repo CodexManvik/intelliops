@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -12,6 +13,7 @@ from pydantic import BaseModel
 from common.config import get_settings
 from common.idempotency import make_guard
 from common.stores import make_stores
+from common.supervise import start_supervised
 from services.base import create_app, db_ready
 from services.rca.adapters.context_provider import FileContextProvider
 from services.rca.adapters.explanation_provider import (
@@ -43,29 +45,59 @@ def _make_runbook_selector(settings):
     return NullRunbookSelector()
 
 
-def _build_reliability_provider(training_store):
-    """Best-effort: per-signature worked/total from training records, same
-    math as RiverCorrelator/BaseCorrelator.retrain. Returns None if the read
-    fails, so RCA ranking degrades gracefully to rule-only behavior."""
-    try:
-        records = training_store.read_all()
-    except Exception:
-        logger.exception("failed to read training store; ranking without reliability boost")
-        return None
+class ReliabilityProvider:
+    """(signature, runbook_id) -> worked/total, re-read from the training store.
 
-    worked: dict[str, int] = {}
-    total: dict[str, int] = {}
-    for record in records:
-        sig = record.signature
-        total[sig] = total.get(sig, 0) + 1
-        if record.worked:
-            worked[sig] = worked.get(sig, 0) + 1
-    reliability = {sig: worked.get(sig, 0) / n for sig, n in total.items()}
+    Two things were wrong with the boot-time closure this replaces:
 
-    def _reliability_provider(signature: str) -> float:
-        return reliability.get(signature, 0.0)
+    - It was built once in the lifespan, so every outcome recorded after RCA
+      started was invisible to ranking until the pod restarted.
+    - It was keyed on signature alone, and rank_hypotheses added that one number
+      to every runbook-bearing hypothesis alike - which cannot change their order.
 
-    return _reliability_provider
+    Refreshes lazily, at most every `refresh_seconds`, on the consumer thread
+    that calls it. Best-effort: a failed read keeps the last good table (or
+    none), so ranking degrades to rule-only instead of raising.
+    """
+
+    def __init__(self, training_store, refresh_seconds: float = 60.0, clock=time.monotonic):
+        self._store = training_store
+        self._refresh = refresh_seconds
+        self._clock = clock
+        self._loaded_at: float | None = None
+        self._by_runbook: dict[tuple[str, str], float] = {}
+        self._by_signature: dict[str, float] = {}
+
+    def _maybe_reload(self) -> None:
+        now = self._clock()
+        if self._loaded_at is not None and now - self._loaded_at < self._refresh:
+            return
+        self._loaded_at = now
+        try:
+            records = self._store.read_all()
+        except Exception:
+            logger.exception("failed to read training store; keeping the last reliability table")
+            return
+        worked: dict = {}
+        total: dict = {}
+        for r in records:
+            for key in ((r.signature, r.playbook_id), r.signature):
+                total[key] = total.get(key, 0) + 1
+                if r.worked:
+                    worked[key] = worked.get(key, 0) + 1
+        ratio = {k: worked.get(k, 0) / n for k, n in total.items()}
+        self._by_runbook = {k: v for k, v in ratio.items() if isinstance(k, tuple)}
+        self._by_signature = {k: v for k, v in ratio.items() if isinstance(k, str)}
+
+    def __call__(self, signature: str, runbook_id: str | None = None) -> float:
+        self._maybe_reload()
+        if runbook_id is None:
+            return self._by_signature.get(signature, 0.0)
+        return self._by_runbook.get((signature, runbook_id), 0.0)
+
+
+def _build_reliability_provider(training_store, refresh_seconds: float = 60.0):
+    return ReliabilityProvider(training_store, refresh_seconds=refresh_seconds)
 
 
 @asynccontextmanager
@@ -79,19 +111,21 @@ async def lifespan(app: FastAPI):
     audit_sink = stores.audit_sink
     holder = ProviderHolder(make_explanation_provider(settings))
     app.state.provider_holder = holder
-    reliability_provider = _build_reliability_provider(stores.training_store)
+    reliability_provider = _build_reliability_provider(
+        stores.training_store, settings.reliability_refresh_seconds
+    )
     selector = _make_runbook_selector(settings)
-    thread = threading.Thread(
-        target=run_consumer,
-        args=(app.state.bus, provider, store, audit_sink, holder.get, stop_event),
-        kwargs={
+    thread = start_supervised(
+        "rca-consumer",
+        run_consumer,
+        stop_event,
+        (app.state.bus, provider, store, audit_sink, holder.get, stop_event),
+        {
             "reliability_provider": reliability_provider,
             "selector": selector,
             "guard": make_guard(settings, app.state.bus),
         },
-        daemon=True,
     )
-    thread.start()
     app.state.consumer_stop = stop_event
     app.state.consumer_thread = thread
     try:

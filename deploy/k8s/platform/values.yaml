@@ -59,7 +59,7 @@ env:
   DETECTION_POLICY: "off"           # on in values-live (Phase 2)
   RUNBOOK_SELECTOR_MODE: "off"      # embedding in values-live (Phase 3)
   REMEDIATOR_MODE: "dry_run"        # k8s in values-live (real remediation)
-  SANDBOX_MODE: "off"               # k8s in values-live (pre-flight rehearsal)
+  SANDBOX_MODE: "off"               # off in values-live too (ADR-029); k8s via docker-compose.k8s.yml
   HEALTH_CHECK_MODE: "always"       # k8s in values-live (Phase 4 per-metric verify)
   # Must stay comfortably above the remediated workload's termination grace
   # period; see the configmap comment. 30 (the old hardcoded value) equalled
@@ -75,6 +75,10 @@ env:
   CORRELATION_MIN_EVENTS: "1"   # values-live raises this; 1 = historical behaviour
   CORRELATION_ROBUST_WINDOW: "128"
   CORRELATION_ROBUST_WARMUP: "30"   # values-live requires a FULL window instead
+  # "series" gives each (metric, service) its own baseline instead of pooling
+  # every service into one per metric. Re-tune warm-up before flipping it: a
+  # per-series window fills ~5x slower (one sample per poll, not five).
+  CORRELATION_ROBUST_KEY_BY: "metric"
   GOVERNANCE_MODE: "in_process"     # "http" in values-live — action + governance are
   GOVERNANCE_URL: "http://governance:8000"  # separate pods, so approvals must go over HTTP
   HITL_POLL_TIMEOUT_SECONDS: "30"   # values-live raises this so a human has time to click Approve

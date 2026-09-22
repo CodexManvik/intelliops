@@ -69,6 +69,11 @@ class ReadModel:
         self._subscribers: set[asyncio.Queue] = set()
         self._subs_lock = threading.Lock()
         self._loop: asyncio.AbstractEventLoop | None = None
+        # Guards _sits/_outcomes/_suppressed_count. Four consumer threads (one per
+        # topic) write them while request threads read and prune them; two
+        # concurrent /situations calls could both try to delete the same aged-out
+        # entry, and iterating a dict another thread is resizing raises.
+        self._lock = threading.RLock()
 
     def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         """Called once from the async lifespan so consumer threads can hand off."""
@@ -110,14 +115,47 @@ class ReadModel:
                 pass
 
     def apply_detected(self, s: Situation) -> None:
+        with self._lock:
+            applied = self._apply_detected(s)
+        if applied:
+            self.publish({"type": "changed"})
+
+    def _apply_detected(self, s: Situation) -> bool:
+        """Fold a detection in. False when the event is stale and was ignored.
+
+        A Situation's id is its signature, so the same incident recurring later
+        arrives under the same id. first_seen tells the occurrences apart:
+
+        - older than what we hold: a late event from an earlier occurrence (the
+          topics are consumed on separate threads, and a rebuild replays them
+          topic by topic). Applying it would roll the card back in time.
+        - newer, and the held one is finished: a new occurrence. Start clean,
+          or the new card inherits the previous run's outcome and timeline.
+        - equal: the same occurrence seen again (e.g. via its diagnosis). Never
+          move its status backwards - a detected event that lost the race to its
+          own outcome must not reopen a resolved card.
+        """
+        first_ms = _epoch_ms(s.first_seen)
         existing = self._sits.get(s.id, {})
+        if existing:
+            held_first = existing.get("first_seen", first_ms)
+            if first_ms < held_first:
+                return False
+            if first_ms > held_first and existing.get("status") in self._EVICTABLE:
+                existing = {}
+        status = s.status.value if isinstance(s.status, SituationStatus) else str(s.status)
+        if existing.get("first_seen") == first_ms and existing.get("status") not in (
+            None,
+            "detected",
+        ):
+            status = existing["status"]
         self._sits[s.id] = {
             **existing,
             "id": s.id,
             "signature": s.signature,
             "service": self._service_of(s),
             "title": s.signature,
-            "status": s.status.value if isinstance(s.status, SituationStatus) else str(s.status),
+            "status": status,
             "severity": _SEVERITY_MAP.get(s.severity, "medium"),
             "memberCount": len(s.member_events),
             "member_events": _project_events(s),
@@ -140,14 +178,22 @@ class ReadModel:
         stages = self._sits[s.id].get("stages", {})
         stages.setdefault("detected", _epoch_ms(s.first_seen))
         self._sits[s.id]["stages"] = stages
-        self.publish({"type": "changed"})
+        return True
 
     def apply_suppressed(self, s: Situation) -> None:
-        self._suppressed_count += 1
+        with self._lock:
+            self._suppressed_count += 1
         self.publish({"type": "changed"})
 
     def apply_diagnosed(self, d: DiagnosedSituation) -> None:
-        self.apply_detected(d.situation)
+        with self._lock:
+            applied = self._apply_diagnosed(d)
+        if applied:
+            self.publish({"type": "changed"})
+
+    def _apply_diagnosed(self, d: DiagnosedSituation) -> bool:
+        if not self._apply_detected(d.situation):
+            return False
         hyps = [
             {
                 "description": h.description,
@@ -162,20 +208,29 @@ class ReadModel:
         ]
         service = self._sits[d.situation.id].get("service", "unknown")
         title = f"{hyps[0]['description']} · {service}" if hyps else d.situation.signature
-        stages = self._sits[d.situation.id].get("stages", {})
+        sit = self._sits[d.situation.id]
+        stages = sit.get("stages", {})
         stages["diagnosed"] = _epoch_ms(d.situation.last_seen)
-        self._sits[d.situation.id].update(
+        sit.update(
             {
-                "status": "diagnosed",
                 "hypotheses": hyps,
                 "suggested_runbook_id": d.suggested_runbook_id,
                 "title": title,
                 "stages": stages,
             }
         )
-        self.publish({"type": "changed"})
+        # Same no-going-backwards rule as _apply_detected: a diagnosis that
+        # arrives after its outcome must not reopen the card.
+        if sit.get("status") in (None, "detected"):
+            sit["status"] = "diagnosed"
+        return True
 
     def apply_outcome(self, o: RemediationOutcome) -> None:
+        with self._lock:
+            self._apply_outcome(o)
+        self.publish({"type": "changed"})
+
+    def _apply_outcome(self, o: RemediationOutcome) -> None:
         if o.situation_id in self._sits:
             self._sits[o.situation_id]["status"] = _RESULT_STATUS.get(o.result, "failed")
             self._sits[o.situation_id]["last_activity"] = _epoch_ms(o.ts)
@@ -229,7 +284,6 @@ class ReadModel:
             },
         )
         del self._outcomes[self._max :]
-        self.publish({"type": "changed"})
 
     _TERMINAL: ClassVar[set[str]] = {"resolved", "failed"}
 
@@ -265,29 +319,37 @@ class ReadModel:
         self._enforce_cap()
 
     def situations(self, now_ms: int | None = None) -> list[dict]:
-        if now_ms is not None:
-            self._prune(now_ms)
-        else:
-            self._enforce_cap()
-        return list(self._sits.values())
+        with self._lock:
+            if now_ms is not None:
+                self._prune(now_ms)
+            else:
+                self._enforce_cap()
+            return list(self._sits.values())
 
     def outcomes(self) -> list[dict]:
-        return list(self._outcomes)
+        with self._lock:
+            return list(self._outcomes)
 
     def situation(self, sid: str) -> dict | None:
-        s = self._sits.get(sid)
-        return dict(s) if s is not None else None
+        with self._lock:
+            s = self._sits.get(sid)
+            return dict(s) if s is not None else None
 
     def reset(self) -> None:
-        self._sits.clear()
-        self._outcomes.clear()
-        self._suppressed_count = 0
+        with self._lock:
+            self._sits.clear()
+            self._outcomes.clear()
+            self._suppressed_count = 0
 
     # needs_attention is outstanding work, so it counts as open even though it is
     # not in-flight. approvalsPending narrows to diagnosed/acting on its own.
     _OPEN: ClassVar[set[str]] = {"detected", "diagnosed", "acting", "needs_attention"}
 
     def metrics(self) -> dict:
+        with self._lock:
+            return self._metrics()
+
+    def _metrics(self) -> dict:
         # Enforce the same cap situations() does. Without this the two endpoints
         # count different sets, and the console renders them side by side: the
         # noise-reduction tile said "N alerts -> 3 open" while the incident list

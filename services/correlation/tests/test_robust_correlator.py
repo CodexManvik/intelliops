@@ -231,3 +231,70 @@ def test_baseline_snapshot_pools_across_seasonal_buckets():
 
 def test_baseline_snapshot_is_empty_before_any_observation():
     assert RobustCorrelator(window_size=50, warmup_samples=3).baseline_snapshot() == {}
+
+
+# --- per-series baselines, the top-of-hour blackout, config-preserving reset ---
+
+
+def _svc_event(svc, value, ts):
+    return TelemetryEvent(
+        source="prom",
+        kind=TelemetryKind.METRIC,
+        name="cpu_usage",
+        value=value,
+        labels={"service": svc},
+        ts=ts,
+        fingerprint=f"fp-{svc}",
+    )
+
+
+def _two_services(c):
+    ts0 = datetime(2026, 8, 13, 0, 0, 0, tzinfo=UTC)
+    for i in range(40):  # a idles near 80% cpu, b near 10%
+        c.detect(_svc_event("a", 80.0 + (i % 3), ts0 + timedelta(seconds=i)))
+        c.detect(_svc_event("b", 10.0 + (i % 3), ts0 + timedelta(seconds=i)))
+    return ts0 + timedelta(seconds=41)
+
+
+def test_metric_keying_masks_a_fault_on_a_quiet_service():
+    # The historical default, pinned so the difference below is visible.
+    c = RobustCorrelator(warmup_samples=40)
+    t = _two_services(c)
+    assert c.detect(_svc_event("b", 45.0, t)) < 3.0
+
+
+def test_series_keying_catches_it():
+    c = RobustCorrelator(warmup_samples=40, key_by="series")
+    t = _two_services(c)
+    assert c.detect(_svc_event("b", 45.0, t)) > 3.0
+    assert c.detect(_svc_event("a", 81.0, t)) < 3.0  # a's normal is still normal
+
+
+def test_series_snapshot_round_trips():
+    c = RobustCorrelator(warmup_samples=40, key_by="series")
+    t = _two_services(c)
+    rows = c.snapshot()
+    assert {r["series"] for r in rows} == {"a", "b"}
+    c2 = RobustCorrelator(warmup_samples=40, key_by="series")
+    c2.load(rows)
+    assert c2.detect(_svc_event("b", 45.0, t)) == c.detect(_svc_event("b", 45.0, t))
+
+
+def test_a_new_hour_scores_against_the_last_warm_hour():
+    c = RobustCorrelator(z_threshold=3.0, warmup_samples=30)
+    _feed_flat(c, name="cpu", value=10.0, n=40, hour=0)
+    for i in range(40):  # give the flat window a little spread
+        c.detect(_event(value=10.0 + (i % 3) * 0.1, ts=datetime(2026, 8, 13, 0, 1, i, tzinfo=UTC)))
+    one_am = datetime(2026, 8, 13, 1, 0, 0, tzinfo=UTC)
+    # the hour-1 bucket is empty; the spike used to score 0.0 here
+    assert c.detect(_event(value=500.0, ts=one_am)) > 3.0
+
+
+def test_reset_keeps_the_configuration():
+    c = RobustCorrelator(
+        z_threshold=4.0, warmup_samples=7, seasonal_buckets=6, window_size=33, key_by="series"
+    )
+    fresh = c.clone_empty()
+    assert (fresh._z_threshold, fresh._warmup_samples) == (4.0, 7)
+    assert (fresh._n_buckets, fresh._window_size, fresh._key_by) == (6, 33, "series")
+    assert fresh._windows == {}

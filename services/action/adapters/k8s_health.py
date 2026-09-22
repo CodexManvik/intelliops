@@ -97,15 +97,22 @@ class KubernetesHealthChecker:
         # error would escape the try (Python does not consult sibling excepts for
         # an error raised while matching an except type). So: one catch, no gaps.
         try:
-            st = (
-                self._api()
-                .read_namespaced_deployment_status(target.deployment, target.namespace)
-                .status
-            )
+            dep = self._api().read_namespaced_deployment_status(target.deployment, target.namespace)
+            st = dep.status
         except Exception:  # noqa: BLE001 — any client/config/connection error → not-yet-ready
+            return False
+        # Right after the patch the controller may not have seen the new spec
+        # yet, and the status still describes the OLD ReplicaSet - fully ready.
+        # Checking ready == replicas alone could pass on the pre-restart pods.
+        generation = getattr(getattr(dep, "metadata", None), "generation", None)
+        observed = getattr(st, "observed_generation", None)
+        if generation is not None and observed is not None and observed < generation:
             return False
         ready = st.ready_replicas or 0
         desired = st.replicas or 0
+        updated = getattr(st, "updated_replicas", None)
+        if updated is not None and updated < desired:
+            return False
         return desired > 0 and ready == desired
 
     def _safe_metric(self, predicate) -> bool:

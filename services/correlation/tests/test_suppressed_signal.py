@@ -21,7 +21,7 @@ def _ev(v, i, t0):
 def test_pop_suppressed_returns_suppressed_situation():
     # Force suppression: a correlator whose should_suppress is always True.
     class AlwaysSuppress(RiverCorrelator):
-        def should_suppress(self, signature, threshold):
+        def should_suppress(self, signature, threshold, min_samples=1):
             return True
 
     c = AlwaysSuppress(z_threshold=0.0, warmup_samples=0)

@@ -30,6 +30,7 @@ from common.contracts import (
 )
 from common.idempotency import make_guard
 from common.stores import make_stores
+from common.supervise import start_supervised
 from services.base import create_app, db_ready
 from services.governance.adapters.author_tools import AuthorToolbox
 from services.governance.adapters.runbook_author import (
@@ -120,17 +121,17 @@ async def lifespan(app: FastAPI):
     # see services/governance/consumer.py) and disposes the engine on shutdown,
     # matching feedback's lifespan.
     stop_event = threading.Event()
-    thread = threading.Thread(
-        target=run_consumer,
-        args=(
+    thread = start_supervised(
+        "governance-consumer",
+        run_consumer,
+        stop_event,
+        (
             app.state.bus,
             app.state.author_decision_store,
             stop_event,
             make_guard(get_settings(), app.state.bus),
         ),
-        daemon=True,
     )
-    thread.start()
     app.state.consumer_stop = stop_event
     app.state.consumer_thread = thread
     # The draft-async worker threads publish trace steps via AgentRunHub from
@@ -207,9 +208,40 @@ def query_audit(correlation_id: str | None = None) -> list[AuditRecord]:
     return app.state.audit_sink.records(correlation_id)
 
 
+def _audit(actor: str, action: str, resource: str, correlation_id: str, decision="allow") -> None:
+    app.state.audit_sink.write(
+        AuditRecord(
+            actor=actor,
+            action=action,
+            resource=resource,
+            decision=decision,
+            ts=datetime.now(UTC),
+            correlation_id=correlation_id,
+        )
+    )
+
+
 @app.post("/playbooks")
-def register_playbook(playbook: Playbook) -> dict[str, str]:
+def register_playbook(playbook: Playbook, registered_by: str) -> dict[str, str]:
+    """Write a playbook straight into the live registry.
+
+    This used to take no identity at all, which made it a back door around every
+    other control here: anyone who could reach governance could overwrite a seed
+    playbook with hitl_mode=auto and skip both the HITL gate and the
+    AI-proposal review. It is now an audited admin action, and AUTO is only
+    reachable by an actor who could have graduated the playbook anyway.
+    """
+    resource = f"playbook:{playbook.id}"
+    if not app.state.rbac.check(registered_by, "register", resource):
+        raise HTTPException(status_code=403, detail="actor lacks register permission")
+    if playbook.hitl_mode == HitlMode.AUTO and not app.state.rbac.check(
+        registered_by, "graduate", resource
+    ):
+        raise HTTPException(
+            status_code=403, detail="only an actor with graduate permission may register auto"
+        )
     app.state.playbook_store.register(playbook)
+    _audit(registered_by, "register", resource, resource)
     return {"status": "ok"}
 
 
@@ -258,16 +290,62 @@ def get_approval(approval_id: str) -> ApprovalRequest:
     return req
 
 
+# What a human may set an approval to. action-service reads `status != "approved"`
+# as a refusal, so any other string used to be accepted, stored, and then reported
+# downstream as a timeout.
+_HUMAN_DECISIONS = {"approved": "approve", "rejected": "reject"}
+
+
 @app.post("/approvals/{approval_id}/decide")
 def decide_approval(approval_id: str, decision: Decision) -> ApprovalRequest:
     req = app.state.approval_store.get(approval_id)
     if req is None:
         raise HTTPException(status_code=404, detail="approval not found")
-    if not app.state.rbac.check(decision.decided_by, "approve", f"playbook:{req.playbook_id}"):
-        raise HTTPException(status_code=403, detail="decider lacks approve permission")
+    permission = _HUMAN_DECISIONS.get(decision.decision)
+    if permission is None:
+        raise HTTPException(status_code=422, detail="decision must be 'approved' or 'rejected'")
+    if not app.state.rbac.check(decision.decided_by, permission, f"playbook:{req.playbook_id}"):
+        raise HTTPException(status_code=403, detail=f"decider lacks {permission} permission")
+    if req.status != "pending":
+        # Deciding twice would rewrite history (approved -> rejected after the fix
+        # already ran), and deciding an expired request does nothing but look like
+        # it did.
+        raise HTTPException(status_code=409, detail=f"approval is already {req.status}")
     updated = app.state.approval_store.decide(
         approval_id, status=decision.decision, decided_by=decision.decided_by
     )
+    # The human decision is the governance event this service exists to record,
+    # and until now it only lived inside the approvals row.
+    _audit(
+        decision.decided_by,
+        permission,
+        f"playbook:{req.playbook_id}",
+        req.situation_id,
+    )
+    return updated
+
+
+class Expire(BaseModel):
+    actor: str
+
+
+@app.post("/approvals/{approval_id}/expire")
+def expire_approval(approval_id: str, body: Expire) -> ApprovalRequest:
+    """Mark a request nobody decided in time as expired.
+
+    action-service stops waiting at its HITL timeout, but the request used to stay
+    "pending" forever: the console kept offering an Approve button that could no
+    longer do anything. Only the requester may expire its own request.
+    """
+    req = app.state.approval_store.get(approval_id)
+    if req is None:
+        raise HTTPException(status_code=404, detail="approval not found")
+    if body.actor != req.requested_by:
+        raise HTTPException(status_code=403, detail="only the requester may expire a request")
+    if req.status != "pending":
+        return req
+    updated = app.state.approval_store.decide(approval_id, status="expired", decided_by=body.actor)
+    _audit(body.actor, "expire", f"playbook:{req.playbook_id}", req.situation_id)
     return updated
 
 
@@ -292,16 +370,33 @@ def graduate_playbook(playbook_id: str, body: Graduate) -> Playbook:
         raise HTTPException(status_code=403, detail="actor lacks graduate permission")
     updated = pb.model_copy(update={"hitl_mode": HitlMode.AUTO})
     app.state.playbook_store.register(updated)
-    app.state.audit_sink.write(
-        AuditRecord(
-            actor=body.decided_by,
-            action="graduate",
-            resource=f"playbook:{playbook_id}",
-            decision="allow",
-            ts=datetime.now(UTC),
-            correlation_id=f"playbook:{playbook_id}",
-        )
-    )
+    _audit(body.decided_by, "graduate", f"playbook:{playbook_id}", f"playbook:{playbook_id}")
+    return updated
+
+
+class Demote(BaseModel):
+    decided_by: str
+    reason: str = ""
+
+
+@app.post("/playbooks/{playbook_id}/demote")
+def demote_playbook(playbook_id: str, body: Demote) -> Playbook:
+    """Put an auto playbook back behind a human (auto -> hitl).
+
+    Graduation expanded automation on evidence but nothing ever contracted it: a
+    playbook that failed or rolled back after going auto stayed auto. Same
+    permission as graduation, since it is the same decision in reverse.
+    """
+    pb = app.state.playbook_store.get(playbook_id)
+    if pb is None:
+        raise HTTPException(status_code=404, detail="playbook not found")
+    if not app.state.rbac.check(body.decided_by, "graduate", f"playbook:{playbook_id}"):
+        raise HTTPException(status_code=403, detail="actor lacks graduate permission")
+    if pb.hitl_mode != HitlMode.AUTO:
+        return pb
+    updated = pb.model_copy(update={"hitl_mode": HitlMode.HITL})
+    app.state.playbook_store.register(updated)
+    _audit(body.decided_by, "demote", f"playbook:{playbook_id}", f"playbook:{playbook_id}")
     return updated
 
 
@@ -579,6 +674,10 @@ def approve_proposed(proposal_id: str, body: ProposalDecision) -> ProposedPlaybo
         raise HTTPException(status_code=404, detail="proposal not found")
     if not app.state.rbac.check(body.decided_by, "approve", f"playbook:{p.playbook.id}"):
         raise HTTPException(status_code=403, detail="decider lacks approve permission")
+    if p.status != ProposedPlaybookStatus.PROPOSED:
+        # A rejected proposal must not be approvable later (that would put a
+        # runbook a human turned down into the live registry), and vice versa.
+        raise HTTPException(status_code=409, detail=f"proposal is already {p.status.value}")
     updated = app.state.proposed_store.set_status(
         proposal_id, ProposedPlaybookStatus.APPROVED, body.decided_by
     )
@@ -611,6 +710,10 @@ def reject_proposed(proposal_id: str, body: ProposalDecision) -> ProposedPlayboo
         raise HTTPException(status_code=404, detail="proposal not found")
     if not app.state.rbac.check(body.decided_by, "reject", f"playbook:{p.playbook.id}"):
         raise HTTPException(status_code=403, detail="decider lacks reject permission")
+    if p.status != ProposedPlaybookStatus.PROPOSED:
+        # A rejected proposal must not be approvable later (that would put a
+        # runbook a human turned down into the live registry), and vice versa.
+        raise HTTPException(status_code=409, detail=f"proposal is already {p.status.value}")
     updated = app.state.proposed_store.set_status(
         proposal_id, ProposedPlaybookStatus.REJECTED, body.decided_by
     )

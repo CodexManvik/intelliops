@@ -41,6 +41,7 @@ data:
   # this correlator's name is meant to buy.
   INTELLIOPS_CORRELATION_ROBUST_WINDOW: {{ .Values.env.CORRELATION_ROBUST_WINDOW | default "128" | quote }}
   INTELLIOPS_CORRELATION_ROBUST_WARMUP: {{ .Values.env.CORRELATION_ROBUST_WARMUP | default "30" | quote }}
+  INTELLIOPS_CORRELATION_ROBUST_KEY_BY: {{ .Values.env.CORRELATION_ROBUST_KEY_BY | default "metric" | quote }}
   INTELLIOPS_DETECTION_POLICY: {{ .Values.env.DETECTION_POLICY | quote }}
   INTELLIOPS_RUNBOOK_SELECTOR_MODE: {{ .Values.env.RUNBOOK_SELECTOR_MODE | quote }}
   INTELLIOPS_REMEDIATOR_MODE: {{ .Values.env.REMEDIATOR_MODE | quote }}

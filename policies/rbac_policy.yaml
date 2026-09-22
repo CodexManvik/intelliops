@@ -10,8 +10,15 @@ roles:
     - {action: reject, resource: "playbook:*"}
   coe-admin:
     - {action: graduate, resource: "playbook:*"}
+    # Direct writes to the live playbook registry (POST /playbooks). Admin-only:
+    # it bypasses the AI-proposal review, so it is not an approver permission.
+    - {action: register, resource: "playbook:*"}
 actors:
   rca-service: [operator]
   action-service: [operator, executor]
   oncall-alice: [operator, approver]
+  # The console's default identity (VITE_OPERATOR_NAME, frontend/src/data/api.ts).
+  # Without a role here every Approve / Reject / Draft click from a stock build
+  # is a 403. Rebuild the console with a different VITE_OPERATOR_NAME to change it.
+  demo-operator: [operator, approver]
   feedback-service: [coe-admin]

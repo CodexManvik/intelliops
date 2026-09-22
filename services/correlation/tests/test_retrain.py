@@ -43,3 +43,14 @@ def test_retrain_replaces_prior():
     assert c.reliability("a") == 0.0
     c.retrain([{"signature": "a", "worked": True}, {"signature": "a", "worked": True}])
     assert c.reliability("a") == 1.0
+
+
+def test_one_success_is_not_a_track_record():
+    # reliability 1/1 = 1.0 used to clear any threshold, so a single fixed
+    # incident was enough to silence that signature.
+    c = RiverCorrelator()
+    c.retrain([{"signature": "s", "worked": True}])
+    assert c.should_suppress("s", 0.8) is True  # historical default: min_samples=1
+    assert c.should_suppress("s", 0.8, min_samples=3) is False
+    c.retrain([{"signature": "s", "worked": True}] * 3)
+    assert c.should_suppress("s", 0.8, min_samples=3) is True
