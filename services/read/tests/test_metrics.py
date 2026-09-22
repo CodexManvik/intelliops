@@ -55,6 +55,7 @@ def test_empty_metrics_all_zero():
         "approvalsPending",
         "successRate",
         "needsAttention",
+        "quietlyHandled",
     }
 
 

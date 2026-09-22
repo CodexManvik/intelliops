@@ -1749,6 +1749,61 @@ surfaced `interrupted:unknown` rather than a silent double execution.
 
 ---
 
+### ADR-034 — Suppression means "handle quietly", not "drop"
+
+**Context.** The closed loop's promise was: a signature the system has reliably fixed stops
+paging people. The implementation did something stronger. A suppressed Situation was never
+emitted, so it never reached RCA or action, and **the fix never ran**. The fault the system
+had learned to fix was the one fault it would no longer fix. This stayed latent for a long
+time, because suppression rarely fired. Signatures depended on how many samples landed in a
+window, and correlation's reliability map loaded only at boot. Once signatures became stable
+(the set of series, not the multiset of samples), suppression started to fire as coded, and
+the gap became real.
+
+**Decision.** Suppression now means **handle quietly**: remediate without paging a human, and
+record that it happened.
+
+- **Correlation marks, it does not drop.** A signature that clears
+  `reliability_suppress_threshold` over at least `reliability_suppress_min_samples` labelled
+  outcomes is emitted with `Situation.handling="quiet"` (an additive field), and is still
+  queued on `situations.suppressed` for the counter. `suppression_mode=drop` keeps the old
+  behaviour. The reliability map now refreshes every `reliability_refresh_seconds` instead of
+  only at boot. Suppression no longer loses fixes, so it no longer has to be starved.
+- **Quiet is a request; action decides.** Correlation's map is per signature, but the risk is
+  per playbook. So action re-checks **that playbook's real track record on that signature**
+  (`common/evidence.py`: at least the same minimum sample count and threshold, with dry runs
+  and records predating `TrainingRecord.mode` excluded). Only if it clears does the HITL
+  approval get waived (`quiet_skip_approval`, default on). Otherwise the situation goes
+  through the normal approval flow.
+- **The waiver is the only thing that changes.** The disabled, reversible, RBAC and
+  destructive-shape gates all still apply. A failed pre-flight rehearsal becomes a hard stop,
+  as it already was for AUTO, because no human is there to weigh it.
+- **Never out of sight.** There are three records of every quiet decision:
+  - a structured log line in correlation when the situation is marked, and in action when the
+    waiver is granted or refused (both searchable in Grafana);
+  - an audit record `quiet-handling` carrying the evidence (e.g. `3/3 real runs worked`),
+    plus `quiet-approved` on the execute path;
+  - `RemediationOutcome.handling="quiet"`, which shows up as a badge on the console card and
+    in the `quietlyHandled` KPI.
+
+**Consequences.** (+) The loop's promise holds as stated: less paging, the same fixes. (+) The
+waiver is self-correcting: a quiet fix that fails is labelled like any other, lowers the
+track record, and the next occurrence goes back to a human. (+) Only real runs count, the same
+rule graduation uses, so compose's dry-run posture never waives an approval. (−) This is a
+second path to unattended execution beside graduation. Graduation is per playbook across every
+signature; this is per (signature, playbook), and so narrower. Both paths use the same evidence
+rule and the same gates. (−) On a real cluster a fault's first `min_samples` occurrences still
+need a human. That is deliberate.
+
+**Alternatives rejected.** *Keep dropping.* It contradicts the feature's own description.
+*Quiet only as a label* (still asking a human). A "quiet" incident that pages someone is not
+quiet, and without anyone watching it would time out and hold the serial action consumer for
+the whole HITL window. That remains available as `quiet_skip_approval=false`. *Trust
+correlation's per-signature figure.* It isn't specific to the playbook RCA picks, and it
+included dry runs.
+
+---
+
 ## 4. Cross-cutting concerns
 
 **Traceability.** A `correlation_id` is threaded through every `AuditRecord`, so one

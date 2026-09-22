@@ -30,6 +30,19 @@ def _snapshot_baseline_once(engine, baseline_store) -> None:
 
 def _drain_suppressed(bus, engine: CorrelationEngine) -> None:
     while (s := engine.pop_suppressed()) is not None:
+        # The record of every suppression, whatever it did to the Situation. In
+        # quiet mode the Situation was ALSO emitted for remediation; in drop mode
+        # this line and the situations.suppressed event are all that remain.
+        logger.info(
+            "suppressed situation %s (signature %s, service %s): %s",
+            s.id,
+            s.signature,
+            next(
+                (e.labels.get("service") for e in s.member_events if e.labels.get("service")), "?"
+            ),
+            "handling quietly" if s.handling == "quiet" else "dropped",
+            extra={"situation_id": s.id, "signature": s.signature, "handling": s.handling},
+        )
         publish_model(bus, "situations.suppressed", s)
 
 

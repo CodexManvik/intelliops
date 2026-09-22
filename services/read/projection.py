@@ -172,6 +172,9 @@ class ReadModel:
             "reversible": existing.get("reversible", True),
             "reliability": existing.get("reliability", 0.0),
             "suppressed": False,
+            # "quiet" = correlation asked for this to be handled without paging a
+            # human; the outcome says whether that is what actually happened.
+            "handling": getattr(s, "handling", "normal"),
             "last_activity": existing.get("last_activity", _epoch_ms(s.first_seen)),
             "stages": existing.get("stages", {}),
         }
@@ -248,6 +251,7 @@ class ReadModel:
                 "preflight": (
                     p.model_dump() if (p := getattr(o, "preflight", None)) is not None else None
                 ),
+                "handling": getattr(o, "handling", "normal"),
             }
         result = o.result.value if isinstance(o.result, RemediationResult) else str(o.result)
         sit = self._sits.get(o.situation_id, {})
@@ -280,6 +284,7 @@ class ReadModel:
                 # restarted a pod" and "we simulated it" were indistinguishable
                 # downstream. It is the whole point of the k8s posture.
                 "mode": getattr(o, "mode", "dry_run"),
+                "handling": getattr(o, "handling", "normal"),
                 "mttr_ms": mttr_ms,
             },
         )
@@ -384,6 +389,8 @@ class ReadModel:
             "approvalsPending": len(pending),
             "successRate": round(successes / n_att, 3) if n_att else 0.0,
             "needsAttention": sum(1 for s in sits if s["status"] == "needs_attention"),
+            # Fixes that ran without a human being asked, on a proven track record.
+            "quietlyHandled": sum(1 for o in outs if o.get("handling") == "quiet"),
         }
 
     @staticmethod

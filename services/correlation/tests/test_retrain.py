@@ -54,3 +54,43 @@ def test_one_success_is_not_a_track_record():
     assert c.should_suppress("s", 0.8, min_samples=3) is False
     c.retrain([{"signature": "s", "worked": True}] * 3)
     assert c.should_suppress("s", 0.8, min_samples=3) is True
+
+
+def test_runtime_refresh_uses_only_real_outcomes():
+    from datetime import UTC, datetime
+
+    from common.contracts import RemediationResult, TrainingRecord
+    from services.correlation.app import _refresh_reliability
+    from services.correlation.engine import CorrelationEngine
+
+    def rec(mode):
+        return TrainingRecord(
+            situation_id="sit-s",
+            signature="s",
+            playbook_id="restart-pod",
+            result=RemediationResult.SUCCESS,
+            worked=True,
+            ts=datetime(2026, 9, 23, tzinfo=UTC),
+            mode=mode,
+        )
+
+    class Store:
+        records = [rec("dry_run")] * 5
+
+        def read_all(self):
+            return list(self.records)
+
+    engine = CorrelationEngine(RiverCorrelator())
+    store = Store()
+    _refresh_reliability(engine, store)
+    assert engine._correlator.reliability("s") == 0.0  # simulations prove nothing
+    store.records = [rec("k8s")] * 3
+    _refresh_reliability(engine, store)  # picked up without a restart
+    assert engine._correlator.reliability("s") == 1.0
+
+    class Broken:
+        def read_all(self):
+            raise RuntimeError("db down")
+
+    _refresh_reliability(engine, Broken())  # never raises, keeps the map
+    assert engine._correlator.reliability("s") == 1.0

@@ -162,16 +162,20 @@ export const situations: Situation[] = [
       { description: "Latency/queueing under load — capacity contention", confidence: 0.55, suggested_runbook_id: "scale-service", confidence_source: "rule" },
     ],
     suggested_runbook_id: "restart-pod",
-    hitl_mode: "auto",
+    hitl_mode: "hitl",
     reversible: true,
     reliability: 0.86,
     suppressed: false,
+    // A signature fixed reliably before: remediated without an approval request
+    // on restart-pod's real track record (still audited) - quiet handling.
+    handling: "quiet",
     outcome: {
       result: "success",
       health_after: "healthy",
-      mode: "dry_run",
+      mode: "k8s",
       steps: ["restart"],
       preflight: { passed: true, detail: "sandbox: clone healthy in 7s", mode: "k8s" },
+      handling: "quiet",
     },
   },
   {

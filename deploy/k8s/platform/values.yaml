@@ -79,6 +79,11 @@ env:
   # every service into one per metric. Re-tune warm-up before flipping it: a
   # per-series window fills ~5x slower (one sample per poll, not five).
   CORRELATION_ROBUST_KEY_BY: "metric"
+  # ADR-034. "quiet": a reliably-fixed signature is still remediated, without an
+  # approval request when its playbook's REAL track record qualifies (audited +
+  # logged). "drop": the old behaviour - never emitted, never fixed.
+  SUPPRESSION_MODE: "quiet"
+  QUIET_SKIP_APPROVAL: "true"
   GOVERNANCE_MODE: "in_process"     # "http" in values-live — action + governance are
   GOVERNANCE_URL: "http://governance:8000"  # separate pods, so approvals must go over HTTP
   HITL_POLL_TIMEOUT_SECONDS: "30"   # values-live raises this so a human has time to click Approve

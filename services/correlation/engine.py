@@ -39,6 +39,7 @@ class CorrelationEngine:
         group_by: str = "window",
         min_events: int = 1,
         suppress_min_samples: int = 1,
+        suppress_mode: str = "drop",
     ) -> None:
         self._correlator = correlator
         self._correlator_factory = (
@@ -53,6 +54,15 @@ class CorrelationEngine:
         self._window = window_seconds
         self._suppress_threshold = suppress_threshold
         self._suppress_min_samples = max(1, int(suppress_min_samples))
+        # What suppression DOES to a reliably-fixed signature:
+        #   "drop"  (historical default here): the Situation is never emitted, so
+        #           it never reaches RCA or action - the fault is left unfixed.
+        #   "quiet": the Situation IS emitted, marked handling="quiet", so it is
+        #           still diagnosed and remediated, just without paging a human
+        #           when action can confirm the playbook's track record.
+        # Either way it is also queued for situations.suppressed (the counter
+        # and the log of what was suppressed).
+        self._suppress_mode = suppress_mode
         self._group_by = group_by
         # How many anomalous events a window must hold before it is an incident.
         #
@@ -162,13 +172,22 @@ class CorrelationEngine:
         sit = sit.model_copy(update={"peak_score": peak, "baseline": baseline})
         self._buffers.pop(key, None)
         self._max_scores.pop(key, None)
-        # Closed loop: suppress a Situation whose signature reliably self-heals.
+        # Closed loop: a signature the system has reliably fixed before.
         if self._correlator.should_suppress(
             sit.signature, self._suppress_threshold, self._suppress_min_samples
         ):
+            if self._suppress_mode == "quiet":
+                sit = sit.model_copy(update={"handling": "quiet"})
+                self._suppressed.append(sit)
+                return sit
             self._suppressed.append(sit)
             return None
         return sit
+
+    def retrain(self, training_data: list[dict]) -> None:
+        """Replace the reliability map (what suppression reads) under the lock."""
+        with self._lock:
+            self._correlator.retrain(training_data)
 
     def snapshot(self) -> list[dict]:
         with self._lock:
@@ -185,7 +204,14 @@ class CorrelationEngine:
 
     def reset(self) -> None:
         with self._lock:
+            # A baseline reset forgets what "normal" looks like, not which fixes
+            # have worked: the reliability map comes from labelled outcomes and is
+            # re-derived from them anyway, so carry it across.
+            old = self._correlator
             self._correlator = self._correlator_factory()
+            for attr in ("_reliability", "_samples"):
+                if hasattr(old, attr):
+                    setattr(self._correlator, attr, getattr(old, attr))
             self._buffers = {}
             self._max_scores = {}
             self._suppressed = []
