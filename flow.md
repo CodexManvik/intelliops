@@ -6,12 +6,13 @@ and why**. Read it alongside:
 - [architectural.md](architectural.md) — *why* the system is shaped this way (ADRs).
 - [docs/superpowers/specs/2026-08-13-intelliops-coe-design.md](docs/superpowers/specs/2026-08-13-intelliops-coe-design.md) — the full spec.
 
-> **Status (updated 2026-08-18).** The six-service closed loop is **built and running
+> **Status (updated 2026-09-22).** The six-service closed loop is **built and running
 > end-to-end**, plus three things that came after the original design: a **read-model service**
 > (the CQRS read side the dashboard reads from), a **React operator console**, and a **live,
 > repeatably-runnable demo stack** on docker-compose. What ran only as a "target design" in the
 > first draft now runs live — including remediation itself, which can now drive a real
-> Kubernetes cluster behind an opt-in switch (dry-run stays the production-safe default). See
+> Kubernetes cluster behind an opt-in switch (dry-run stays the production-safe default). Kafka
+> bus binding and whole-stack Helm deploy are also shipped. See
 > [§8 Current status & what's next](#8-current-status--whats-next) for exactly what's real, what's
 > still simulated, and what's next.
 >
