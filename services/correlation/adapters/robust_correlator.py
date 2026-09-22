@@ -53,25 +53,72 @@ class RobustCorrelator(BaseCorrelator):
         seasonal_buckets: int = 24,
         window_size: int = 128,
         detection_policy: DetectionPolicy | None = None,
+        key_by: str = "metric",
     ) -> None:
         # sets _z_threshold/_warmup_samples/_reliability/_policy
         super().__init__(z_threshold, warmup_samples, detection_policy=detection_policy)
         self._n_buckets = seasonal_buckets
         self._window_size = window_size
-        self._windows: dict[tuple[str, int], collections.deque] = {}
+        # "metric" (default, historical): one window per metric NAME, pooling every
+        # service's samples. A fault on a quiet service is then judged against a
+        # busier one's normal - a 10 -> 45 CPU jump scores ~0 beside a service
+        # idling at 80. "series": one window per (metric, service label).
+        # Per-series windows fill more slowly (one sample per poll instead of one
+        # per service per poll), so pair it with a smaller warm-up.
+        self._key_by = key_by
+        self._windows: dict[tuple, collections.deque] = {}
+
+    def _clone_kwargs(self) -> dict:
+        return {
+            **super()._clone_kwargs(),
+            "seasonal_buckets": self._n_buckets,
+            "window_size": self._window_size,
+            "key_by": self._key_by,
+        }
 
     def _bucket(self, event: TelemetryEvent) -> int:
         return event.ts.hour % self._n_buckets
 
+    def _series(self, event: TelemetryEvent) -> str:
+        if self._key_by != "series":
+            return ""
+        return event.labels.get("service") or event.labels.get("job") or ""
+
+    def _key(self, name: str, series: str, bucket: int) -> tuple:
+        # The default mode keeps the historical 2-tuple so snapshots and any
+        # external reader of _windows see exactly the old shape.
+        return (name, series, bucket) if self._key_by == "series" else (name, bucket)
+
+    def _scoring_window(self, name: str, series: str, win) -> collections.deque:
+        """The window to score against: this hour's, or - while it is still
+        warming - the fullest warm window of the same series from another hour.
+
+        Without the fallback every top-of-hour opened a fresh, empty bucket and the
+        detector scored 0 for everything until it re-warmed (~2 minutes under the
+        live posture) - a blackout on the hour, every hour."""
+        if len(win) >= self._warmup_samples:
+            return win
+        best = win
+        for key, other in list(self._windows.items()):
+            if other is win or len(other) < self._warmup_samples:
+                continue
+            if key[0] != name or (self._key_by == "series" and key[1] != series):
+                continue
+            if len(other) > len(best):
+                best = other
+        return best
+
     def detect(self, event: TelemetryEvent) -> float:
         if event.value is None:
             return 0.0
-        key = (event.name, self._bucket(event))
+        series = self._series(event)
+        key = self._key(event.name, series, self._bucket(event))
         win = self._windows.setdefault(key, collections.deque(maxlen=self._window_size))
-        if len(win) < self._warmup_samples:
+        ref = self._scoring_window(event.name, series, win)
+        if len(ref) < self._warmup_samples:
             score = 0.0
         else:
-            arr = np.fromiter(win, dtype=float, count=len(win))
+            arr = np.fromiter(ref, dtype=float, count=len(ref))
             med = np.median(arr)
             mad = np.median(np.abs(arr - med))
             deviation = abs(event.value - med)
@@ -130,9 +177,9 @@ class RobustCorrelator(BaseCorrelator):
         produced the situation.
         """
         pooled: dict[str, list[float]] = {}
-        for (name, _bucket), win in list(self._windows.items()):  # list() = live-resize guard
+        for key, win in list(self._windows.items()):  # list() = live-resize guard
             if win:
-                pooled.setdefault(name, []).extend(win)
+                pooled.setdefault(key[0], []).extend(win)
 
         out: dict = {}
         for name, samples in pooled.items():
@@ -147,13 +194,16 @@ class RobustCorrelator(BaseCorrelator):
 
     def snapshot(self) -> list[dict]:
         out: list[dict] = []
-        for (name, bucket), win in list(self._windows.items()):  # list() = live-resize guard
-            out.append({"metric_name": name, "bucket": bucket, "n": len(win), "window": list(win)})
+        for key, win in list(self._windows.items()):  # list() = live-resize guard
+            row = {"metric_name": key[0], "bucket": key[-1], "n": len(win), "window": list(win)}
+            if self._key_by == "series":
+                row["series"] = key[1]
+            out.append(row)
         return out
 
     def load(self, rows: list[dict]) -> None:
         for r in rows:
-            key = (r["metric_name"], int(r["bucket"]))
+            key = self._key(r["metric_name"], r.get("series", ""), int(r["bucket"]))
             self._windows[key] = collections.deque(
                 (float(x) for x in r["window"]), maxlen=self._window_size
             )

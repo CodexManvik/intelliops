@@ -56,6 +56,7 @@ def make_correlator(settings: Settings) -> BaseCorrelator:
             seasonal_buckets=settings.correlation_seasonal_buckets,
             window_size=settings.correlation_robust_window,
             detection_policy=policy,
+            key_by=settings.correlation_robust_key_by,
         )
     if kind == "trained":
         from services.correlation.adapters.trained_correlator import TrainedCorrelator

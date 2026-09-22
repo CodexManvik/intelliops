@@ -4,10 +4,10 @@ Each rule produces a scored RootCauseHypothesis when it fires; the list is
 sorted best-first. A low-confidence fallback guarantees a non-empty result so
 downstream always has something to act on (see flow.md 5.3).
 
-An optional `reliability_provider` (situation.signature -> float in [0, 1],
-e.g. the correlator's learned worked/total track record) can boost a
-hypothesis whose suggested runbook has proven reliable for this signature.
-Passing None preserves the original rule-only ranking exactly."""
+An optional `reliability_provider` ((signature, runbook_id) -> float in [0, 1],
+the worked/total track record of THAT runbook on THAT signature) can boost a
+hypothesis whose suggested runbook has proven reliable here. Passing None
+preserves the original rule-only ranking exactly."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ def _service_labels(situation: Situation) -> set[str]:
 def rank_hypotheses(
     situation: Situation,
     context: EnrichmentContext,
-    reliability_provider: Callable[[str], float] | None = None,
+    reliability_provider: Callable[[str, str | None], float] | None = None,
     store=None,
     selector=None,
 ) -> list[RootCauseHypothesis]:
@@ -208,12 +208,21 @@ def rank_hypotheses(
     # runbook — the fallback (runbook_id=None) is never boosted, so the top
     # suggestion after ranking still resolves to a real playbook id whenever
     # any rule-based hypothesis fired.
-    reliability = reliability_provider(situation.signature) if situation.signature else 0.0
-    reliability = max(0.0, min(1.0, reliability))
+    #
+    # The track record is per (signature, runbook). It used to be one number per
+    # signature, added equally to every runbook-bearing hypothesis - a uniform
+    # offset that could never change their order, so the boost did nothing.
+    def _reliability(h: RootCauseHypothesis) -> float:
+        if h.suggested_runbook_id is None or not situation.signature:
+            return 0.0
+        value = reliability_provider(situation.signature, h.suggested_runbook_id)
+        return max(0.0, min(1.0, value))
 
-    def _score(h: RootCauseHypothesis) -> float:
-        boost = _RELIABILITY_WEIGHT * reliability if h.suggested_runbook_id is not None else 0.0
-        return min(1.0, h.confidence + boost)
+    def _score(h: RootCauseHypothesis) -> tuple[float, float]:
+        boosted = min(1.0, h.confidence + _RELIABILITY_WEIGHT * _reliability(h))
+        # Confidence breaks ties, so two hypotheses both clamped at 1.0 keep
+        # their confidence order instead of falling back to rule order.
+        return (boosted, h.confidence)
 
     hypotheses.sort(key=_score, reverse=True)
     return hypotheses

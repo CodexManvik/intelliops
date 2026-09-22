@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     hitl_poll_interval_seconds: float = 0.5
     training_store_path: str = "data/training.jsonl"
     reliability_suppress_threshold: float = 0.8
+    # Labelled outcomes a signature needs before it can be suppressed at all.
+    reliability_suppress_min_samples: int = 3
+    # How often RCA re-reads the training store for its runbook track records.
+    reliability_refresh_seconds: float = 60.0
     graduation_min_successes: int = 3
     # Whether a dry-run SUCCESS counts toward graduating a playbook to AUTO. Off:
     # a simulation always "succeeds", so it is no evidence a fix is safe unattended.
@@ -54,6 +58,9 @@ class Settings(BaseSettings):
     correlation_seasonal_buckets: int = 24
     correlation_robust_window: int = 128
     correlation_robust_warmup: int = 30
+    # "metric" (default, historical) pools every service's samples of a metric into
+    # one baseline; "series" keeps one per (metric, service). See RobustCorrelator.
+    correlation_robust_key_by: str = "metric"  # "metric" | "series"
     governance_mode: str = "in_process"  # "in_process" | "http"
     governance_url: str = "http://localhost:8005"
     # read-service asks rca for the authoritative LLM config rather than

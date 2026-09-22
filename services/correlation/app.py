@@ -106,6 +106,10 @@ async def lifespan(app: FastAPI):
         window_seconds=settings.correlation_window_seconds,
         group_by=settings.correlation_group_by,
         min_events=settings.correlation_min_events,
+        # Both were settings the service never passed: the threshold was dead
+        # config and the engine always used its 0.8 default.
+        suppress_threshold=settings.reliability_suppress_threshold,
+        suppress_min_samples=settings.reliability_suppress_min_samples,
     )
     app.state.engine = engine
     # Reload-on-boot: restore the durable baseline + reliability BEFORE the

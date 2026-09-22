@@ -184,7 +184,7 @@ def test_reliability_provider_boosts_proven_runbook():
     ctx = EnrichmentContext()  # no deploys -> only saturation rule fires
     situation = _situation(name="cpu_usage", labels={"service": "web"})
 
-    def reliability(signature: str) -> float:
+    def reliability(signature: str, runbook_id: str | None = None) -> float:
         assert signature == situation.signature
         return 1.0
 
@@ -207,7 +207,7 @@ def test_reliability_provider_never_boosts_fallback_hypothesis():
         recent_deploys=[{"service": "web", "version": "v2", "ts": NOW.isoformat()}]
     )
     situation = _situation(name="cpu", labels={"service": "web"})
-    hyps = rank_hypotheses(situation, ctx, lambda sig: 1.0)
+    hyps = rank_hypotheses(situation, ctx, lambda sig, rb=None: 1.0)
     assert hyps[0].suggested_runbook_id is not None
 
 
@@ -471,3 +471,19 @@ def test_otel_duration_metrics_map_to_the_latency_rule():
     for metric in ("otel_http_server_request_duration_ms", "otel_rpc_server_duration_ms"):
         hyps = rank_hypotheses(_situation(name=metric), ctx)
         assert hyps[0].suggested_runbook_id == "scale-service", metric
+
+
+def test_reliability_is_per_runbook_and_can_reorder():
+    # memory (restart-pod, 0.65) and cpu saturation (scale-service, 0.6) both
+    # fire. A proven track record for scale-service on THIS signature - and a
+    # poor one for restart-pod - must be able to put scale-service first. A
+    # per-signature figure applied to both equally never could.
+    situation = _situation_with_metric("memory_usage_mb cpu_usage", value=900.0)
+    ctx = EnrichmentContext()
+    record = {"scale-service": 1.0, "restart-pod": 0.0}
+
+    unboosted = rank_hypotheses(situation, ctx, None)
+    boosted = rank_hypotheses(situation, ctx, lambda sig, rb=None: record.get(rb, 0.0))
+
+    assert unboosted[0].suggested_runbook_id == "restart-pod"
+    assert boosted[0].suggested_runbook_id == "scale-service"

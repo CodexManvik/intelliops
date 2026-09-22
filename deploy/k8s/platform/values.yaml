@@ -75,6 +75,10 @@ env:
   CORRELATION_MIN_EVENTS: "1"   # values-live raises this; 1 = historical behaviour
   CORRELATION_ROBUST_WINDOW: "128"
   CORRELATION_ROBUST_WARMUP: "30"   # values-live requires a FULL window instead
+  # "series" gives each (metric, service) its own baseline instead of pooling
+  # every service into one per metric. Re-tune warm-up before flipping it: a
+  # per-series window fills ~5x slower (one sample per poll, not five).
+  CORRELATION_ROBUST_KEY_BY: "metric"
   GOVERNANCE_MODE: "in_process"     # "http" in values-live — action + governance are
   GOVERNANCE_URL: "http://governance:8000"  # separate pods, so approvals must go over HTTP
   HITL_POLL_TIMEOUT_SECONDS: "30"   # values-live raises this so a human has time to click Approve

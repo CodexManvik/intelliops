@@ -38,15 +38,21 @@ class CorrelationEngine:
         suppress_threshold: float = 0.8,
         group_by: str = "window",
         min_events: int = 1,
+        suppress_min_samples: int = 1,
     ) -> None:
         self._correlator = correlator
-        self._correlator_factory = lambda: type(correlator)(
-            z_threshold=correlator._z_threshold,
-            warmup_samples=correlator._warmup_samples,
-            detection_policy=correlator._policy,
+        self._correlator_factory = (
+            correlator.clone_empty
+            if hasattr(correlator, "clone_empty")
+            else lambda: type(correlator)(
+                z_threshold=correlator._z_threshold,
+                warmup_samples=correlator._warmup_samples,
+                detection_policy=correlator._policy,
+            )
         )
         self._window = window_seconds
         self._suppress_threshold = suppress_threshold
+        self._suppress_min_samples = max(1, int(suppress_min_samples))
         self._group_by = group_by
         # How many anomalous events a window must hold before it is an incident.
         #
@@ -157,7 +163,9 @@ class CorrelationEngine:
         self._buffers.pop(key, None)
         self._max_scores.pop(key, None)
         # Closed loop: suppress a Situation whose signature reliably self-heals.
-        if self._correlator.should_suppress(sit.signature, self._suppress_threshold):
+        if self._correlator.should_suppress(
+            sit.signature, self._suppress_threshold, self._suppress_min_samples
+        ):
             self._suppressed.append(sit)
             return None
         return sit
