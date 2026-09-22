@@ -191,7 +191,12 @@ def execute_remediation(
     sandbox,
     timeout_seconds: float,
     poll_interval_seconds: float,
+    skip_approval: bool = False,
 ) -> RemediationOutcome:
+    """`skip_approval` waives ONLY gate 3 (the human approval), and only for a
+    quiet situation whose playbook the caller has already checked against its
+    real track record (services/action/consumer.py). Gates 0-2.5 and the
+    pre-flight rehearsal apply exactly as they do to everything else."""
     # Gate 0: disabled playbooks never run.
     if playbook.hitl_mode == HitlMode.DISABLED:
         _audit(gate, situation, playbook, "skipped")
@@ -227,8 +232,9 @@ def execute_remediation(
     # approves (and before an auto playbook executes). Fail-safe — the sandbox
     # never raises; a failure is a PreflightResult(passed=False).
     preflight = sandbox.rehearse(situation, plan)
-    if not preflight.passed and playbook.hitl_mode == HitlMode.AUTO:
-        # Auto has no human to advise — block.
+    if not preflight.passed and (playbook.hitl_mode == HitlMode.AUTO or skip_approval):
+        # Auto has no human to advise — block. Neither does a quiet run whose
+        # approval was waived: a failed rehearsal is a hard stop for it too.
         _audit(gate, situation, playbook, "preflight-failed")
         return _outcome(
             situation,
@@ -242,7 +248,9 @@ def execute_remediation(
 
     # Gate 3: HITL — wait for an explicit human approval (ADR-008). The human
     # sees the pre-flight verdict on the request.
-    if playbook.hitl_mode == HitlMode.HITL:
+    if playbook.hitl_mode == HitlMode.HITL and skip_approval:
+        _audit(gate, situation, playbook, "quiet-approved")
+    elif playbook.hitl_mode == HitlMode.HITL:
         request = gate.request_approval(
             ApprovalRequest(
                 id=f"appr-{situation.id}",

@@ -12,6 +12,7 @@ from sqlalchemy import text
 
 from common.config import get_settings
 from common.envelope import publish_model
+from common.evidence import real_records
 from common.idempotency import make_guard
 from common.stores import make_stores
 from common.supervise import start_supervised
@@ -34,6 +35,8 @@ def run_flusher(
     stop_event: threading.Event,
     baseline_store=None,
     snapshot_period: float = 30.0,
+    training_store=None,
+    reliability_refresh_seconds: float = 60.0,
 ) -> None:
     """Periodically collapse the buffered window into a Situation.
 
@@ -54,8 +57,12 @@ def run_flusher(
     its own elapsed-time schedule tracked with time.monotonic() rather than once
     per wake. The snapshot is best-effort (_snapshot_baseline_once never raises),
     so a persistence hiccup can never crash this flusher.
+
+    It also refreshes the reliability map suppression reads, on its own
+    schedule. That map used to be loaded once at boot, so a fix that started
+    working was only recognised after a restart.
     """
-    last_snapshot = time.monotonic()
+    last_snapshot = last_refresh = time.monotonic()
     while not stop_event.wait(period_seconds):
         for emitted in engine.flush_all():
             publish_model(bus, "situations.detected", emitted)
@@ -64,6 +71,23 @@ def run_flusher(
         if now - last_snapshot >= snapshot_period:
             _snapshot_baseline_once(engine, baseline_store)
             last_snapshot = now
+        if training_store is not None and now - last_refresh >= reliability_refresh_seconds:
+            _refresh_reliability(engine, training_store)
+            last_refresh = now
+
+
+def _training_rows(training_store) -> list[dict]:
+    """Real outcomes only (common/evidence.py): a dry run always "works", so it
+    is no evidence a signature is reliably fixed."""
+    return [r.model_dump() for r in real_records(training_store.read_all())]
+
+
+def _refresh_reliability(engine, training_store) -> None:
+    """Best-effort: a failed read keeps the current map."""
+    try:
+        engine.retrain(_training_rows(training_store))
+    except Exception as exc:  # noqa: BLE001 - refresh again next period
+        logger.warning("reliability refresh failed (keeping the current map): %s", exc)
 
 
 def _reload_baseline(engine, baseline_store, training_records: list[dict]) -> None:
@@ -110,6 +134,7 @@ async def lifespan(app: FastAPI):
         # config and the engine always used its 0.8 default.
         suppress_threshold=settings.reliability_suppress_threshold,
         suppress_min_samples=settings.reliability_suppress_min_samples,
+        suppress_mode=settings.suppression_mode,
     )
     app.state.engine = engine
     # Reload-on-boot: restore the durable baseline + reliability BEFORE the
@@ -123,13 +148,15 @@ async def lifespan(app: FastAPI):
     # it must be inside the guard too.
     baseline_store = None
     model_store = None
+    training_store = None
     training_records: list[dict] = []
     try:
         stores = make_stores(settings)
         app.state.db_engine = stores.engine
         baseline_store = stores.baseline_store
         model_store = getattr(stores, "model_store", None)
-        training_records = [r.model_dump() for r in stores.training_store.read_all()]
+        training_store = stores.training_store
+        training_records = _training_rows(training_store)
     except Exception as exc:  # noqa: BLE001 — a failed boot-load just means a cold start
         logger.warning("store reload failed, starting cold: %s", exc)
     # The durable `correlation_baseline` table only understands the river z-score's
@@ -161,6 +188,8 @@ async def lifespan(app: FastAPI):
             stop_event,
             baseline_store,
             settings.baseline_snapshot_seconds,
+            training_store,
+            settings.reliability_refresh_seconds,
         ),
     )
     app.state.consumer_stop = stop_event

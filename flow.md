@@ -107,7 +107,7 @@ instead of waiting out a poll interval ([ADR-018](architectural.md#adr-018--real
 | `telemetry.raw` | ingestion | correlation | `TelemetryEvent` | a normalized signal |
 | `situations.detected` | correlation | rca, **read** | `Situation` (detected) | an alert storm collapsed into one incident |
 | `situations.diagnosed` | rca | action, **read** | `DiagnosedSituation` (situation + hypotheses) | incident with likely cause + suggested fix |
-| `situations.suppressed` | correlation | **read** | `Situation` (suppressed) | a signature that reliably self-heals — detected, then *not* emitted as an incident (closed-loop suppression, made visible for metrics) |
+| `situations.suppressed` | correlation | **read** | `Situation` (suppressed) | a signature the system has reliably fixed. Under the default `suppression_mode=quiet` it is ALSO emitted on `situations.detected` with `handling="quiet"` and remediated without paging a human when the playbook's real track record qualifies; this topic is the record of it ([ADR-034](architectural.md#adr-034--suppression-means-handle-quietly-not-drop)) |
 | `remediation.outcomes` | action | feedback, **read** | `RemediationOutcome` | did the fix work / roll back |
 | `audit.events` | all services | governance | `AuditRecord` | append-only trail (fire-and-forget) |
 

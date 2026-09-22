@@ -138,6 +138,12 @@ async def lifespan(app: FastAPI):
             stop_event,
             make_guard(settings, app.state.bus),
         ),
+        {
+            "training_store": stores.training_store,
+            "quiet_threshold": settings.reliability_suppress_threshold,
+            "quiet_min_samples": settings.reliability_suppress_min_samples,
+            "quiet_skip_approval": settings.quiet_skip_approval,
+        },
     )
     app.state.consumer_stop = stop_event
     app.state.consumer_thread = thread

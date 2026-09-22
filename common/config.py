@@ -22,8 +22,16 @@ class Settings(BaseSettings):
     reliability_suppress_threshold: float = 0.8
     # Labelled outcomes a signature needs before it can be suppressed at all.
     reliability_suppress_min_samples: int = 3
-    # How often RCA re-reads the training store for its runbook track records.
+    # How often RCA and correlation re-read the training store for track records.
     reliability_refresh_seconds: float = 60.0
+    # What suppression does to a signature the system has reliably fixed:
+    # "quiet" (default) still diagnoses and remediates it, without paging a human
+    # when the playbook's own real track record clears the bar below; "drop" is
+    # the historical behaviour - never emitted, so never fixed.
+    suppression_mode: str = "quiet"  # "quiet" | "drop"
+    # Whether a quiet situation whose playbook qualifies may skip the HITL
+    # approval. False keeps quiet handling to logging/labelling only.
+    quiet_skip_approval: bool = True
     graduation_min_successes: int = 3
     # Whether a dry-run SUCCESS counts toward graduating a playbook to AUTO. Off:
     # a simulation always "succeeds", so it is no evidence a fix is safe unattended.

@@ -40,6 +40,10 @@ function failureNote(reason: string | undefined): string {
   if (!reason) return "no outcome detail recorded";
   if (reason === "unhealthy:rolled-back")
     return "the fix ran, health did not recover, and it was rolled back";
+  if (reason === "unhealthy:no-rollback")
+    return "the fix ran and health did not recover; the playbook has no rollback, so a human must check";
+  if (reason === "unhealthy:rollback-failed")
+    return "the fix ran, health did not recover, and the rollback itself FAILED — a human must check";
   if (reason.startsWith("interrupted:"))
     return "the attempt was interrupted mid-flight — whether the cluster changed is UNKNOWN, so a human must check";
   if (reason === "aborted:timeout")
@@ -50,6 +54,18 @@ function failureNote(reason: string | undefined): string {
   if (reason.startsWith("preflight")) return "the sandbox rehearsal failed, so it was never applied for real";
   if (reason.startsWith("skipped:")) return "the gate skipped this — nothing executed";
   return "gate failed closed — nothing executed";
+}
+
+/** A reliably-fixed signature: remediated without paging a human, still audited. */
+function QuietChip() {
+  return (
+    <span
+      className="rounded-md border border-line px-1.5 py-0.5 font-mono text-2xs text-ink-3"
+      title="This signature has been fixed reliably before. If its playbook's real track record qualifies, it runs without an approval request; either way the decision is in the audit log."
+    >
+      quiet
+    </span>
+  );
 }
 
 const METRIC_DOCS: Record<string, { title: string; formula: string; meaning: string }> = {
@@ -343,6 +359,7 @@ export function Incidents({
                         <div className="flex items-center gap-2">
                           <SevChip sev={s.severity} />
                           <StatusChip status={s.status} />
+                          {s.handling === "quiet" && <QuietChip />}
                         </div>
                         <span className="font-mono text-2xs text-ink-3">{timeAgo(s.first_seen)}</span>
                       </div>
@@ -379,6 +396,7 @@ export function Incidents({
                     <div className="flex items-center gap-2">
                       <SevChip sev={shown.severity} />
                       <StatusChip status={shown.status} />
+                      {shown.handling === "quiet" && <QuietChip />}
                     </div>
                     <h2 className="mt-3 text-2xl font-semibold tracking-tight">{shown.title}</h2>
                     <div className="mt-1.5 flex items-center gap-3 font-mono text-2xs text-ink-3">
@@ -523,6 +541,11 @@ export function Incidents({
                         <div className="text-sm font-medium text-ink">
                           Resolved · <span className="font-mono text-sev-ok">{shown.outcome?.health_after ?? "resolved"}</span>
                           {shown.outcome?.mode === "dry_run" && <span className="ml-2 rounded-md bg-surface-2 px-1.5 py-0.5 font-mono text-2xs text-ink-3">dry-run</span>}
+                          {shown.outcome?.handling === "quiet" && (
+                            <span className="ml-2 rounded-md bg-surface-2 px-1.5 py-0.5 font-mono text-2xs text-ink-3">
+                              handled quietly · no approval needed (proven fix, audited)
+                            </span>
+                          )}
                         </div>
                         {shown.outcome?.steps && shown.outcome.steps.length > 0 && (
                           <div className="mt-1 font-mono text-2xs text-ink-3">steps: {shown.outcome.steps.join(" → ")}</div>

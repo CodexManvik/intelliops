@@ -64,7 +64,12 @@ export interface SituationOutcome {
     mode: "off" | "k8s";
     sandbox_namespace?: string | null;
   } | null;
+  /** "quiet": the fix ran without anyone being asked, on the playbook's real track record. */
+  handling?: Handling;
 }
+
+/** "quiet" = a reliably-fixed signature, handled without paging a human (and audited). */
+export type Handling = "normal" | "quiet";
 
 export interface Situation {
   id: string; // "sit-" + signature
@@ -81,6 +86,7 @@ export interface Situation {
   reversible: boolean;
   reliability: number; // per-signature reliability (0..1)
   suppressed: boolean;
+  handling?: Handling; // "quiet" = correlation asked for this to be handled without paging
   outcome?: SituationOutcome; // present once remediation has produced a result
   peak_score?: number | null;
   baseline?: Record<string, { mean: number; std: number }> | null;
@@ -97,6 +103,7 @@ export interface OutcomeRow {
   reason: OutcomeReason;
   ts: number;
   service: string;
+  handling?: Handling;
 }
 
 export interface AuditRow {
@@ -144,6 +151,7 @@ export interface Metrics {
   approvalsPending: number;
   successRate: number; // 0..1
   needsAttention: number; // escalations awaiting a human — excluded from successRate
+  quietlyHandled?: number; // fixes that ran without anyone being asked (proven track record)
 }
 
 export interface MemberEvent {

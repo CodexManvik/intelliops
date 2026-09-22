@@ -21,6 +21,7 @@ from common.contracts import (
     RemediationResult,
 )
 from common.envelope import iter_models, publish_model
+from common.evidence import quiet_eligible
 from common.idempotency import NullGuard
 from services.action.remediate import _ACTOR, execute_remediation
 from services.action.select import select_playbook
@@ -47,6 +48,53 @@ def _audit_best_effort(gate, situation_id: str, action: str, decision: str) -> N
         logger.warning("%s audit write failed for %s: %s", action, situation_id, exc)
 
 
+def _quiet_decision(
+    gate,
+    situation,
+    playbook,
+    training_store,
+    threshold: float,
+    min_samples: int,
+    allowed: bool,
+) -> bool:
+    """Should this quiet situation's playbook run without a human approval?
+
+    Correlation marks a signature quiet from its own reliability map; that is a
+    request, and it is not specific to the playbook RCA then picked. So the
+    decision is re-made here against THIS playbook's real track record on THIS
+    signature (common/evidence.py). Whatever the answer, it is audited and
+    logged: a quiet fix must never be invisible.
+
+    An AUTO playbook never asks a human anyway, so there is nothing to waive.
+    """
+    if playbook.hitl_mode != HitlMode.HITL:
+        logger.info("quiet situation %s: playbook %s is already auto", situation.id, playbook.id)
+        return False
+    record = None
+    eligible = False
+    if allowed and training_store is not None:
+        try:
+            eligible, record = quiet_eligible(
+                training_store.read_all(), situation.signature, playbook.id, threshold, min_samples
+            )
+        except Exception as exc:  # noqa: BLE001 - no evidence means ask a human
+            logger.warning("quiet situation %s: track record unreadable (%s)", situation.id, exc)
+    evidence = str(record) if record is not None else "no track record available"
+    if not allowed:
+        evidence = "quiet approval disabled (QUIET_SKIP_APPROVAL=false)"
+    decision = "quiet:skip-approval" if eligible else "quiet:needs-approval"
+    logger.info(
+        "quiet situation %s, playbook %s: %s (%s)",
+        situation.id,
+        playbook.id,
+        "running without approval" if eligible else "asking a human after all",
+        evidence,
+        extra={"situation_id": situation.id, "playbook_id": playbook.id, "quiet": eligible},
+    )
+    _audit_best_effort(gate, situation.id, "quiet-handling", f"{decision} ({evidence})")
+    return eligible
+
+
 def run_consumer(
     bus,
     store,
@@ -58,6 +106,10 @@ def run_consumer(
     poll_interval_seconds: float,
     stop_event: threading.Event,
     guard=None,
+    training_store=None,
+    quiet_threshold: float = 0.8,
+    quiet_min_samples: int = 3,
+    quiet_skip_approval: bool = True,
 ) -> None:
     guard = guard if guard is not None else NullGuard()
     for diagnosed in iter_models(
@@ -121,6 +173,17 @@ def run_consumer(
             # The only outcome-producing path here that had no audit trail.
             _audit_best_effort(gate, situation.id, "escalate", "escalated")
         else:
+            skip = False
+            if situation.handling == "quiet":
+                skip = _quiet_decision(
+                    gate,
+                    situation,
+                    playbook,
+                    training_store,
+                    quiet_threshold,
+                    quiet_min_samples,
+                    quiet_skip_approval,
+                )
             outcome = execute_remediation(
                 situation,
                 playbook,
@@ -130,6 +193,10 @@ def run_consumer(
                 sandbox,
                 timeout_seconds,
                 poll_interval_seconds,
+                skip_approval=skip,
             )
+            if situation.handling == "quiet" and (skip or playbook.hitl_mode == HitlMode.AUTO):
+                # Nobody was asked: this is what "handled quietly" means.
+                outcome = outcome.model_copy(update={"handling": "quiet"})
         publish_model(bus, "remediation.outcomes", outcome)
         guard.set_state(claim_key, "done")

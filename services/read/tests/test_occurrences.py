@@ -100,3 +100,13 @@ def test_an_event_from_an_earlier_occurrence_is_ignored():
     card = rm.situation("sit-a")
     assert card["first_seen"] == int(T2.timestamp() * 1000)
     assert card["hypotheses"] == []
+
+
+def test_quiet_handling_is_visible_on_the_card_and_counted():
+    rm = ReadModel()
+    rm.apply_detected(_sit(T1).model_copy(update={"handling": "quiet"}))
+    assert rm.situation("sit-a")["handling"] == "quiet"
+    rm.apply_outcome(_outcome(T1 + timedelta(minutes=1)).model_copy(update={"handling": "quiet"}))
+    assert rm.situation("sit-a")["outcome"]["handling"] == "quiet"
+    assert rm.outcomes()[0]["handling"] == "quiet"
+    assert rm.metrics()["quietlyHandled"] == 1
