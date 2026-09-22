@@ -117,6 +117,11 @@ services:
       PORT: "8000"
       INTELLIOPS_STORE_BACKEND: postgres
       INTELLIOPS_DATABASE_URL: postgresql+psycopg://intelliops:intelliops@postgres:5432/intelliops
+      # --- Semantic runbook selection. "embedding" activates cosine-similarity
+      # matching of incident symptoms against playbook descriptions (all-MiniLM-L6-v2).
+      # "off" (old default) falls back to keyword-only matching — embedding selector
+      # was never wired in compose, so it silently never ran. Now on by default.
+      INTELLIOPS_RUNBOOK_SELECTOR_MODE: "${INTELLIOPS_RUNBOOK_SELECTOR_MODE:-embedding}"
       # --- LLM explanation provider. Empty endpoint = the offline template, no network.
       # Values come from deploy/.env (gitignored); see deploy/.env.example. Any
       # OpenAI-compatible endpoint works (OpenAI, Groq, vLLM, Ollama).

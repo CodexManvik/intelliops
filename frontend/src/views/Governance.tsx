@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Check, LockKey, Scroll, ShieldCheck, Sparkle, UserCheck, X } from "@phosphor-icons/react";
 import { Bezel, PageHead, timeAgo } from "../components/primitives";
 import { approveProposal, loadAudit, loadOutcomes, loadPlaybooks, loadProposals, rejectProposal } from "../data/source";
+import { OPERATOR_NAME } from "../data/api";
 import { useLiveData } from "../hooks/useLiveData";
 import { pushToast } from "../hooks/useToast";
 import { Reveal as Section } from "../hooks/useReveal";
@@ -61,7 +62,7 @@ export function Governance() {
   async function decide(proposal: ProposedPlaybook, decision: "approved" | "rejected") {
     if (decidingId) return;
     setDecidingId(proposal.id);
-    const decidedBy = "oncall-alice";
+    const decidedBy = OPERATOR_NAME;
     try {
       const updated =
         decision === "approved"
@@ -282,7 +283,7 @@ export function Governance() {
                 {[
                   { role: "operator", grant: "enrich · diagnose", who: "rca-service" },
                   { role: "operator", grant: "execute playbook:*", who: "action-service" },
-                  { role: "approver", grant: "approve · reject", who: "oncall-alice" },
+                  { role: "approver", grant: "approve · reject", who: OPERATOR_NAME },
                   { role: "coe-admin", grant: "graduate playbook:*", who: "feedback-service" },
                 ].map((r, i) => (
                   <div key={i} className="flex items-center gap-2 rounded-lg bg-surface-2 px-3 py-2">
