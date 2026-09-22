@@ -29,7 +29,8 @@ need a token).
 
 In `token` mode **all** endpoints are gated — including the internal
 service-to-service paths on governance (`POST /audit`, `POST /rbac/check`,
-`POST /approvals`, `GET /approvals/{id}`, `POST /playbooks/{id}/graduate`).
+`POST /approvals`, `GET /approvals/{id}`, `POST /approvals/{id}/expire`,
+`POST /playbooks/{id}/graduate`, `POST /playbooks/{id}/demote`).
 Internal callers (action's `HttpGovernanceGate`, feedback's graduator)
 attach the shared `Bearer` token to their requests automatically.
 
@@ -65,7 +66,7 @@ that talk to governance over REST:
 | --- | --- |
 | `governance` | Validates incoming tokens on all endpoints. |
 | `action` | `HttpGovernanceGate` calls `POST /rbac/check`, `POST /audit`, `POST /approvals`, `GET /approvals/{id}`. |
-| `feedback` | `_make_graduator` calls `POST /playbooks/{id}/graduate`. |
+| `feedback` | `_make_graduator` / `_make_demoter` call `POST /playbooks/{id}/graduate` and `/demote`. |
 | `rca` | Uses the shared factory; gated if exposed. |
 
 Example compose environment block (add to each service above):
