@@ -16,13 +16,15 @@ from services.feedback.consumer import run_consumer
 from services.feedback.metrics import compute_metrics
 
 
-def _make_graduator(rbac_actor: str = "feedback-service"):
-    # In the running service, graduation calls governance's REST endpoint.
-    # Inside the docker-compose network, governance listens on its internal
-    # PORT=8000 (8005 is only the host-side port mapping). Best-effort, fire-and-
-    # forget: a failed graduation is logged by governance's own audit, and the
-    # next matching outcome will retry on a fresh process. Kept simple here.
-    def graduate(playbook_id: str) -> None:
+def _make_playbook_call(verb: str, rbac_actor: str = "feedback-service"):
+    """POST governance's /playbooks/{id}/<verb> (graduate or demote).
+
+    Inside the docker-compose network, governance listens on its internal
+    PORT=8000 (8005 is only the host-side port mapping). Best-effort, fire-and-
+    forget: governance's own audit is the record, and the next matching outcome
+    retries on a fresh process."""
+
+    def call(playbook_id: str) -> None:
         try:
             settings = get_settings()
             headers = (
@@ -31,7 +33,7 @@ def _make_graduator(rbac_actor: str = "feedback-service"):
                 else {}
             )
             httpx.post(
-                f"http://governance:8000/playbooks/{playbook_id}/graduate",
+                f"http://governance:8000/playbooks/{playbook_id}/{verb}",
                 json={"decided_by": rbac_actor},
                 headers=headers,
                 timeout=5.0,
@@ -39,7 +41,15 @@ def _make_graduator(rbac_actor: str = "feedback-service"):
         except Exception:  # noqa: BLE001, S110 — best-effort; governance's own audit is the record
             pass
 
-    return graduate
+    return call
+
+
+def _make_graduator(rbac_actor: str = "feedback-service"):
+    return _make_playbook_call("graduate", rbac_actor)
+
+
+def _make_demoter(rbac_actor: str = "feedback-service"):
+    return _make_playbook_call("demote", rbac_actor)
 
 
 @asynccontextmanager
@@ -60,6 +70,10 @@ async def lifespan(app: FastAPI):
             stop_event,
             make_guard(settings, app.state.bus),
         ),
+        kwargs={
+            "demoter": _make_demoter(),
+            "count_simulated": settings.graduation_count_simulated,
+        },
         daemon=True,
     )
     thread.start()

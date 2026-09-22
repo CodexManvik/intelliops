@@ -146,6 +146,9 @@ def test_playbook_graduates_through_governance():
                 result=RemediationResult.SUCCESS,
                 health_after="healthy",
                 ts=NOW,
+                # Graduation counts real runs only; dry-run successes are no
+                # evidence a fix is safe unattended.
+                mode="k8s",
             ),
         )
     run_consumer(bus, tstore, graduator, min_successes=3, stop_event=threading.Event())

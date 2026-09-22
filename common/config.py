@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     training_store_path: str = "data/training.jsonl"
     reliability_suppress_threshold: float = 0.8
     graduation_min_successes: int = 3
+    # Whether a dry-run SUCCESS counts toward graduating a playbook to AUTO. Off:
+    # a simulation always "succeeds", so it is no evidence a fix is safe unattended.
+    graduation_count_simulated: bool = False
 
     # --- live-stack settings (test-safe defaults) ---
     telemetry_mode: str = "file"  # "file" | "prometheus"

@@ -21,4 +21,5 @@ def label_outcome(outcome: RemediationOutcome) -> TrainingRecord:
         result=outcome.result,
         worked=outcome.result == RemediationResult.SUCCESS,
         ts=outcome.ts,
+        mode=outcome.mode,
     )

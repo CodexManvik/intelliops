@@ -20,8 +20,9 @@ def _client():
         roles={
             "operator": [{"action": "diagnose", "resource": "situation:*"}],
             "approver": [{"action": "approve", "resource": "playbook:*"}],
+            "admin": [{"action": "register", "resource": "playbook:*"}],
         },
-        actors={"rca-service": ["operator"], "oncall-alice": ["approver"]},
+        actors={"rca-service": ["operator"], "oncall-alice": ["approver"], "cara": ["admin"]},
     )
     app.state.approval_store = InMemoryApprovalStore()
     return TestClient(app)
@@ -59,7 +60,7 @@ def test_playbook_register_and_list():
         steps=[RemediationStep(action="restart")],
         hitl_mode=HitlMode.HITL,
     ).model_dump(mode="json")
-    assert c.post("/playbooks", json=pb).status_code == 200
+    assert c.post("/playbooks", params={"registered_by": "cara"}, json=pb).status_code == 200
     assert c.get("/playbooks/restart-pod").json()["name"] == "Restart Pod"
     assert [p["id"] for p in c.get("/playbooks").json()] == ["restart-pod"]
     assert c.get("/playbooks/missing").status_code == 404

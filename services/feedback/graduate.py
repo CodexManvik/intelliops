@@ -9,13 +9,26 @@ from __future__ import annotations
 
 from common.contracts import RemediationResult, TrainingRecord
 
+# Modes in which nothing real was touched. DryRunRemediator + AlwaysHealthyChecker
+# report SUCCESS unconditionally, so three approved dry runs used to graduate a
+# playbook to AUTO - and flipping REMEDIATOR_MODE=k8s afterwards meant real
+# changes with no human in the loop, on evidence from a simulation.
+_SIMULATED_MODES = frozenset({"dry_run"})
 
-def playbook_stats(records: list[TrainingRecord], playbook_id: str) -> dict:
+
+def playbook_stats(
+    records: list[TrainingRecord], playbook_id: str, count_simulated: bool = False
+) -> dict:
+    """Per-playbook evidence. A simulated success counts toward nothing unless
+    `count_simulated` - it proves the gates ran, not that the fix works. Records
+    from before `mode` existed (None) keep counting as they always did."""
     successes = failures = rollbacks = 0
     for r in records:
         if r.playbook_id != playbook_id:
             continue
         if r.result == RemediationResult.SUCCESS:
+            if r.mode in _SIMULATED_MODES and not count_simulated:
+                continue
             successes += 1
         elif r.result == RemediationResult.FAILURE:
             failures += 1

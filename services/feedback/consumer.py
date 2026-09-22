@@ -12,7 +12,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 
-from common.contracts import RemediationOutcome, RemediationResult
+from common.contracts import HitlMode, RemediationOutcome, RemediationResult
 from common.envelope import iter_models
 from common.idempotency import NullGuard
 from services.feedback.graduate import playbook_stats, should_graduate
@@ -26,6 +26,8 @@ def run_consumer(
     min_successes: int,
     stop_event: threading.Event,
     guard=None,
+    demoter: Callable[[str], None] | None = None,
+    count_simulated: bool = False,
 ) -> None:
     guard = guard if guard is not None else NullGuard()
     graduated: set[str] = set()
@@ -42,8 +44,20 @@ def run_consumer(
             continue
         store.append(label_outcome(outcome))
         pid = outcome.playbook_id
+        if (
+            pid
+            and demoter is not None
+            and outcome.hitl_mode == HitlMode.AUTO
+            and outcome.result in (RemediationResult.FAILURE, RemediationResult.ROLLED_BACK)
+        ):
+            # An auto playbook just failed unattended. Graduation only ever
+            # expanded automation; this is the matching contraction, so the next
+            # run goes back behind a human.
+            demoter(pid)
+            graduated.discard(pid)
+            continue
         if pid and pid not in graduated:
-            stats = playbook_stats(store.read_all(), pid)
+            stats = playbook_stats(store.read_all(), pid, count_simulated=count_simulated)
             if should_graduate(stats, min_successes):
                 graduator(pid)
                 graduated.add(pid)

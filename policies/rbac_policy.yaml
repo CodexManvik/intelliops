@@ -10,6 +10,9 @@ roles:
     - {action: reject, resource: "playbook:*"}
   coe-admin:
     - {action: graduate, resource: "playbook:*"}
+    # Direct writes to the live playbook registry (POST /playbooks). Admin-only:
+    # it bypasses the AI-proposal review, so it is not an approver permission.
+    - {action: register, resource: "playbook:*"}
 actors:
   rca-service: [operator]
   action-service: [operator, executor]

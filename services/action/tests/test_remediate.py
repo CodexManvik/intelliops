@@ -211,3 +211,39 @@ def test_successful_outcome_records_steps_and_mode():
     assert out.steps  # non-empty, human-readable
     assert any("scale" in s for s in out.steps)
     assert out.mode in ("dry_run", "k8s")
+
+
+# --- A timed-out approval is expired, not left pending forever ---
+
+
+class _ExpiringGate(FakeGate):
+    def __init__(self, status, raises=False):
+        super().__init__(decision_status=status)
+        self.expired = []
+        self._raises = raises
+
+    def expire(self, approval_id, actor):
+        if self._raises:
+            raise RuntimeError("governance down")
+        self.expired.append((approval_id, actor))
+
+
+def test_timeout_expires_the_approval_request():
+    gate = _ExpiringGate("pending")
+    r = RecordingRemediator()
+    out = _run(_playbook(hitl=HitlMode.HITL), gate, r, FixedHealthChecker(True))
+    assert out.health_after == "aborted:timeout"
+    assert gate.expired == [("appr-s1", "action-service")]
+    assert r.executed_plan is None
+
+
+def test_rejection_is_not_expired():
+    gate = _ExpiringGate("rejected")
+    _run(_playbook(hitl=HitlMode.HITL), gate, RecordingRemediator(), FixedHealthChecker(True))
+    assert gate.expired == []
+
+
+def test_expire_failure_does_not_change_the_outcome():
+    gate = _ExpiringGate("pending", raises=True)
+    out = _run(_playbook(hitl=HitlMode.HITL), gate, RecordingRemediator(), FixedHealthChecker(True))
+    assert out.health_after == "aborted:timeout"

@@ -258,6 +258,11 @@ class TrainingRecord(BaseModel):
     result: RemediationResult
     worked: bool
     ts: datetime
+    # How the remediation ran ("dry_run" | "k8s" | ...), copied from the outcome.
+    # Additive and optional: records written before it existed load as None.
+    # Graduation needs it - a simulated success is not evidence that a playbook
+    # is safe to run unattended on a real cluster.
+    mode: str | None = None
 
 
 class TraceStepKind(str, Enum):

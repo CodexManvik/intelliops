@@ -48,6 +48,13 @@ class InProcessGovernanceGate:
     def write_audit(self, record: AuditRecord) -> None:
         self._audit_sink.write(record)
 
+    def expire(self, approval_id: str, actor: str) -> None:
+        req = self._approvals.get(approval_id)
+        if req is not None and req.status == "pending" and req.requested_by == actor:
+            self._approvals[approval_id] = req.model_copy(
+                update={"status": "expired", "decided_by": actor}
+            )
+
 
 class HttpGovernanceGate:
     """The cross-process gate: action talks to governance over REST.
@@ -119,3 +126,6 @@ class HttpGovernanceGate:
 
     def write_audit(self, record: AuditRecord) -> None:
         self._client.post(f"{self._base}/audit", json=record.model_dump(mode="json"))
+
+    def expire(self, approval_id: str, actor: str) -> None:
+        self._client.post(f"{self._base}/approvals/{approval_id}/expire", json={"actor": actor})

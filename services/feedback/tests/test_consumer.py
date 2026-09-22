@@ -10,7 +10,14 @@ NOW = datetime(2026, 8, 13, tzinfo=UTC)
 
 def _raw_outcome(result, playbook="restart-pod"):
     o = RemediationOutcome(
-        situation_id="sit-abc", playbook_id=playbook, result=result, health_after="healthy", ts=NOW
+        situation_id="sit-abc",
+        playbook_id=playbook,
+        result=result,
+        health_after="healthy",
+        ts=NOW,
+        # Real runs: a dry-run success is not graduation evidence
+        # (see test_graduation_safety.py).
+        mode="k8s",
     )
     return {"data": o.model_dump_json()}
 
