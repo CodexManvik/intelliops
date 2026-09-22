@@ -40,6 +40,10 @@ the `console`), `helm install`s with `values-live.yaml` (+ your key via
   dashboard shows **real** situations, embedding-fit confidences, and per-metric
   verification.
 - **Read service:** <http://localhost:30007>.
+- **Grafana (logs + metrics + audit trail):** <http://localhost:30300>, requiring
+  the 30300 port mapping in `kind-config-full.yaml` (recreate an existing cluster to
+  pick it up, or `kubectl port-forward svc/grafana 3000:3000`). Off with
+  `--set observability.enabled=false`.
 
 **Safe by default.** `helm install` *without* the live overlay (or
 `SAFE=1 ./scripts/kind-up-full.sh`) keeps the safe posture — `dry_run` / selector

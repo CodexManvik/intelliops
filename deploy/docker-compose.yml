@@ -261,6 +261,62 @@ services:
       demo-app:
         condition: service_healthy
 
+  # ---- Logs & metrics UI: Grafana at http://localhost:3000 ----------------
+  # Loki stores every container's logs (shipped by Alloy through the Docker
+  # socket); Grafana puts them next to the Prometheus metrics and the Postgres
+  # audit trail on one provisioned dashboard. Config lives in
+  # deploy/k8s/platform/files/observability/ so the Helm chart ships the same.
+  loki:
+    image: grafana/loki:3.2.1
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    volumes:
+      - ./k8s/platform/files/observability/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki-data:/loki
+    ports:
+      - "3100:3100"
+
+  alloy:
+    image: grafana/alloy:v1.4.3
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./observability/alloy-docker.alloy:/etc/alloy/config.alloy:ro
+      # Read-only access to the Docker API, to discover and tail containers.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "12345:12345"   # Alloy's own UI: pipeline graph + per-target status
+    depends_on:
+      - loki
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    environment:
+      # Anyone who can reach localhost:3000 can VIEW (dashboards, Explore, logs).
+      # Editing needs the admin login. Turn anonymous off for anything shared.
+      GF_AUTH_ANONYMOUS_ENABLED: "${GRAFANA_ANONYMOUS:-true}"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:-admin}"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/intelliops-dashboard.json
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      # Read by the provisioned Postgres datasource (audit trail panel).
+      INTELLIOPS_PG_USER: intelliops
+      INTELLIOPS_PG_PASSWORD: intelliops
+      INTELLIOPS_PG_DB: intelliops
+    volumes:
+      - ./k8s/platform/files/observability/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/intelliops.yaml:ro
+      - ./k8s/platform/files/observability/grafana-dashboards.yaml:/etc/grafana/provisioning/dashboards/intelliops.yaml:ro
+      - ./k8s/platform/files/observability/intelliops-dashboard.json:/var/lib/grafana/dashboards/intelliops-dashboard.json:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - loki
+      - prometheus
+      - postgres
+
   read:
     <<: *service
     environment:
@@ -392,5 +448,6 @@ services:
 
 volumes:
   postgres-data:
+  loki-data:
   # Shared between rca and (Task 3) meridian-gateway at rca_context_path.
   rca-context:

@@ -114,6 +114,11 @@ npm install && npm run dev
 # open http://localhost:5173
 ```
 
+**Logs, metrics and the audit trail in one place:** Grafana at
+<http://localhost:3000> (on kind: <http://localhost:30300>). Every container's
+logs (via Loki), the Prometheus metrics, and the Postgres audit trail on one
+dashboard, viewable without logging in. See [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md#4-logs-and-metrics-ui-grafana).
+
 **Drive a real incident end to end:**
 
 ```bash

@@ -1,0 +1,273 @@
+{{/*
+observability.yaml
+Logs + metrics UI for the release, gated on observability.enabled:
+
+  - Loki   stores logs (single binary, emptyDir - logs are for looking at now,
+           not an archive; they are lost when the pod is rescheduled).
+  - Alloy  tails every pod in the release namespace through the Kubernetes API
+           (loki.source.kubernetes) and ships the lines to Loki. Namespace-scoped
+           Role, no hostPath, no DaemonSet.
+  - Grafana serves one provisioned dashboard: service logs, the Prometheus
+           metrics, and the Postgres audit trail. NodePort observability.grafana.nodePort.
+
+All config files live in files/observability/ and are shared with docker-compose.
+*/}}
+{{- if .Values.observability.enabled }}
+{{- $o := .Values.observability }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: observability-config
+  labels:
+    {{- include "intelliops.labels" . | nindent 4 }}
+data:
+  loki.yaml: |
+{{ .Files.Get "files/observability/loki.yaml" | indent 4 }}
+  config.alloy: |
+{{ .Files.Get "files/observability/alloy-kubernetes.alloy" | indent 4 }}
+  datasources.yaml: |
+{{ .Files.Get "files/observability/grafana-datasources.yaml" | indent 4 }}
+  dashboards.yaml: |
+{{ .Files.Get "files/observability/grafana-dashboards.yaml" | indent 4 }}
+  intelliops-dashboard.json: |
+{{ .Files.Get "files/observability/intelliops-dashboard.json" | indent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki
+  labels:
+    {{- include "intelliops.labels" . | nindent 4 }}
+    {{- include "intelliops.selectorLabels" (dict "root" . "name" "loki") | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "intelliops.selectorLabels" (dict "root" . "name" "loki") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "intelliops.selectorLabels" (dict "root" . "name" "loki") | nindent 8 }}
+      annotations:
+        checksum/config: {{ .Files.Get "files/observability/loki.yaml" | sha256sum }}
+    spec:
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: loki
+          image: {{ $o.loki.image | quote }}
+          args: ["-config.file=/etc/loki/loki.yaml"]
+          ports:
+            - containerPort: 3100
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3100
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - name: config
+              mountPath: /etc/loki/loki.yaml
+              subPath: loki.yaml
+            - name: data
+              mountPath: /loki
+      volumes:
+        - name: config
+          configMap:
+            name: observability-config
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki
+  labels:
+    {{- include "intelliops.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "intelliops.selectorLabels" (dict "root" . "name" "loki") | nindent 4 }}
+  ports:
+    - port: 3100
+      targetPort: 3100
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: intelliops-alloy
+  labels:
+    {{- include "intelliops.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: intelliops-alloy
+  labels:
+    {{- include "intelliops.labels" . | nindent 4 }}
+rules:
+  # Discover the release's pods and stream their logs. Read-only, this namespace only.
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: intelliops-alloy
+  labels:
+    {{- include "intelliops.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: intelliops-alloy
+subjects:
+  - kind: ServiceAccount
+    name: intelliops-alloy
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alloy
+  labels:
+    {{- include "intelliops.labels" . | nindent 4 }}
+    {{- include "intelliops.selectorLabels" (dict "root" . "name" "alloy") | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "intelliops.selectorLabels" (dict "root" . "name" "alloy") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "intelliops.selectorLabels" (dict "root" . "name" "alloy") | nindent 8 }}
+      annotations:
+        checksum/config: {{ .Files.Get "files/observability/alloy-kubernetes.alloy" | sha256sum }}
+    spec:
+      serviceAccountName: intelliops-alloy
+      containers:
+        - name: alloy
+          image: {{ $o.alloy.image | quote }}
+          args:
+            - run
+            - --server.http.listen-addr=0.0.0.0:12345
+            - --storage.path=/var/lib/alloy/data
+            - /etc/alloy/config.alloy
+          env:
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          ports:
+            - containerPort: 12345
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alloy/config.alloy
+              subPath: config.alloy
+            - name: data
+              mountPath: /var/lib/alloy/data
+      volumes:
+        - name: config
+          configMap:
+            name: observability-config
+        - name: data
+          emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  labels:
+    {{- include "intelliops.labels" . | nindent 4 }}
+    {{- include "intelliops.selectorLabels" (dict "root" . "name" "grafana") | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "intelliops.selectorLabels" (dict "root" . "name" "grafana") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "intelliops.selectorLabels" (dict "root" . "name" "grafana") | nindent 8 }}
+      annotations:
+        checksum/dashboard: {{ .Files.Get "files/observability/intelliops-dashboard.json" | sha256sum }}
+        checksum/datasources: {{ .Files.Get "files/observability/grafana-datasources.yaml" | sha256sum }}
+    spec:
+      containers:
+        - name: grafana
+          image: {{ $o.grafana.image | quote }}
+          env:
+            # Anyone who can reach the NodePort can VIEW; editing needs the admin
+            # login. Set observability.grafana.anonymous=false for anything shared.
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: {{ $o.grafana.anonymous | quote }}
+            - name: GF_AUTH_ANONYMOUS_ORG_ROLE
+              value: Viewer
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              value: {{ $o.grafana.adminPassword | quote }}
+            - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
+              value: /var/lib/grafana/dashboards/intelliops-dashboard.json
+            - name: GF_ANALYTICS_REPORTING_ENABLED
+              value: "false"
+            - name: GF_ANALYTICS_CHECK_FOR_UPDATES
+              value: "false"
+            # The provisioned Postgres datasource reads these (audit trail panel).
+            - name: INTELLIOPS_PG_USER
+              valueFrom:
+                secretKeyRef: { name: postgres-credentials, key: POSTGRES_USER }
+            - name: INTELLIOPS_PG_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: postgres-credentials, key: POSTGRES_PASSWORD }
+            - name: INTELLIOPS_PG_DB
+              valueFrom:
+                secretKeyRef: { name: postgres-credentials, key: POSTGRES_DB }
+          ports:
+            - containerPort: 3000
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: config
+              mountPath: /etc/grafana/provisioning/datasources/intelliops.yaml
+              subPath: datasources.yaml
+            - name: config
+              mountPath: /etc/grafana/provisioning/dashboards/intelliops.yaml
+              subPath: dashboards.yaml
+            - name: config
+              mountPath: /var/lib/grafana/dashboards/intelliops-dashboard.json
+              subPath: intelliops-dashboard.json
+      volumes:
+        - name: config
+          configMap:
+            name: observability-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  labels:
+    {{- include "intelliops.labels" . | nindent 4 }}
+spec:
+  {{- if $o.grafana.nodePort }}
+  type: NodePort
+  {{- end }}
+  selector:
+    {{- include "intelliops.selectorLabels" (dict "root" . "name" "grafana") | nindent 4 }}
+  ports:
+    - port: 3000
+      targetPort: 3000
+      {{- if $o.grafana.nodePort }}
+      nodePort: {{ $o.grafana.nodePort }}
+      {{- end }}
+{{- end }}

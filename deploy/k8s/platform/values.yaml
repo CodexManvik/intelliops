@@ -155,3 +155,22 @@ postgres:
   # Durable storage size for the StatefulSet's PVC (issue #55). The DB survives
   # a pod reschedule now; size to taste (audit/approval/training/trace rows).
   storage: 1Gi
+
+# Logs + metrics UI (Grafana + Loki + Alloy). Grafana is served on a NodePort:
+#   kind:  http://localhost:30300   (deploy/k8s/kind-config-full.yaml maps it)
+#   other: kubectl port-forward svc/grafana 3000:3000 -> http://localhost:3000
+# One dashboard: every pod's logs (via Loki), the Prometheus metrics, and the
+# Postgres audit trail. Enabling it also switches the services to JSON logs so
+# levels are searchable.
+observability:
+  enabled: true
+  grafana:
+    image: grafana/grafana:11.3.0
+    nodePort: 30300
+    # Anonymous visitors get read-only Viewer access. Set false for anything shared.
+    anonymous: true
+    adminPassword: admin   # change with --set-string observability.grafana.adminPassword=...
+  loki:
+    image: grafana/loki:3.2.1
+  alloy:
+    image: grafana/alloy:v1.4.3
