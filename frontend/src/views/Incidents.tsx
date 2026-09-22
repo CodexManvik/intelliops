@@ -15,6 +15,7 @@ import {
 } from "@phosphor-icons/react";
 import { Bezel, PageHead, SevChip, StatusChip, motion as m, timeAgo } from "../components/primitives";
 import { loadSituations, loadSituationDetail, decideApproval, loadMetrics, loadOutcomes, draftAsync } from "../data/source";
+import { OPERATOR_NAME } from "../data/api";
 import { useLiveData } from "../hooks/useLiveData";
 import { pushToast } from "../hooks/useToast";
 import type { View } from "../components/Shell";
@@ -258,7 +259,7 @@ export function Incidents({
     if (proposing || !sel) return;
     setProposing(true);
     try {
-      const { run_id } = await draftAsync(sel, "oncall-alice");
+      const { run_id } = await draftAsync(sel, OPERATOR_NAME);
       pushToast("success", "Drafting… see Agent Activity");
       onFocusRun?.(run_id);
       onView?.("agent-activity");

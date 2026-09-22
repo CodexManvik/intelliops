@@ -20,6 +20,8 @@ const RCA = import.meta.env.VITE_RCA_URL ?? "http://localhost:8003";
 
 const AUTH_TOKEN = import.meta.env.VITE_AUTH_TOKEN ?? "";
 
+export const OPERATOR_NAME = import.meta.env.VITE_OPERATOR_NAME || "demo-operator";
+
 function authHeaders(base: Record<string, string> = {}): Record<string, string> {
   return AUTH_TOKEN ? { ...base, Authorization: `Bearer ${AUTH_TOKEN}` } : base;
 }
@@ -57,7 +59,7 @@ export const testLlmConfig = (cfg: { endpoint: string; api_key: string; model: s
 export async function decideApproval(
   approvalId: string,
   decision: "approved" | "rejected",
-  decidedBy = "oncall-alice",
+  decidedBy = OPERATOR_NAME,
 ): Promise<void> {
   const r = await fetch(`${GOV}/approvals/${approvalId}/decide`, {
     method: "POST",
