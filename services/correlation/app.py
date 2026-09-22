@@ -14,6 +14,7 @@ from common.config import get_settings
 from common.envelope import publish_model
 from common.idempotency import make_guard
 from common.stores import make_stores
+from common.supervise import start_supervised
 from services.base import create_app, db_ready
 from services.correlation.adapters import make_correlator
 from services.correlation.consumer import (
@@ -139,15 +140,17 @@ async def lifespan(app: FastAPI):
     _reload_model(engine, model_store)
     app.state.baseline_store = baseline_store
     app.state.model_store = model_store
-    thread = threading.Thread(
-        target=run_consumer,
-        args=(app.state.bus, engine, stop_event, make_guard(settings, app.state.bus)),
-        daemon=True,
+    thread = start_supervised(
+        "correlation-consumer",
+        run_consumer,
+        stop_event,
+        (app.state.bus, engine, stop_event, make_guard(settings, app.state.bus)),
     )
-    thread.start()
-    flusher = threading.Thread(
-        target=run_flusher,
-        args=(
+    flusher = start_supervised(
+        "correlation-flusher",
+        run_flusher,
+        stop_event,
+        (
             app.state.bus,
             engine,
             settings.correlation_window_seconds,
@@ -155,9 +158,7 @@ async def lifespan(app: FastAPI):
             baseline_store,
             settings.baseline_snapshot_seconds,
         ),
-        daemon=True,
     )
-    flusher.start()
     app.state.consumer_stop = stop_event
     app.state.consumer_thread = thread
     app.state.flusher_thread = flusher

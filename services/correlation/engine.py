@@ -64,7 +64,9 @@ class CorrelationEngine:
         # this is the old single-buffer behaviour with one dict lookup.
         self._buffers: dict[str, list[TelemetryEvent]] = {}
         self._max_scores: dict[str, float] = {}
-        self._suppressed: Situation | None = None
+        # A queue, not a slot: one flush_all() can suppress several buckets, and a
+        # single slot kept only the last, silently dropping the rest.
+        self._suppressed: list[Situation] = []
         # Guards _buffer/_max_score so a background time-flush (see the service
         # lifespan) can run concurrently with add() on the consumer thread.
         # Single-threaded callers (tests) are unaffected — the lock is uncontended.
@@ -156,7 +158,7 @@ class CorrelationEngine:
         self._max_scores.pop(key, None)
         # Closed loop: suppress a Situation whose signature reliably self-heals.
         if self._correlator.should_suppress(sit.signature, self._suppress_threshold):
-            self._suppressed = sit
+            self._suppressed.append(sit)
             return None
         return sit
 
@@ -169,14 +171,13 @@ class CorrelationEngine:
             self._correlator.load(rows)
 
     def pop_suppressed(self) -> Situation | None:
+        """Oldest suppressed Situation not yet published, or None."""
         with self._lock:
-            s = self._suppressed
-            self._suppressed = None
-            return s
+            return self._suppressed.pop(0) if self._suppressed else None
 
     def reset(self) -> None:
         with self._lock:
             self._correlator = self._correlator_factory()
             self._buffers = {}
             self._max_scores = {}
-            self._suppressed = None
+            self._suppressed = []

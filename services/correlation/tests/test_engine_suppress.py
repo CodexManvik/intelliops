@@ -70,3 +70,27 @@ def test_engine_still_emits_unreliable_signature():
     engine.add(_event(120.0, "b", 4))
     still_emitted = engine.flush()
     assert still_emitted is not None  # unreliable signature is NOT suppressed
+
+
+def test_every_bucket_suppressed_in_one_flush_is_reported():
+    # With group_by="service", one flush_all() can suppress several buckets. The
+    # engine used to keep suppressed situations in a single slot, so only the
+    # last one ever reached situations.suppressed.
+    correlator = RiverCorrelator(z_threshold=3.0)
+    engine = CorrelationEngine(correlator, window_seconds=30, group_by="service")
+    ev_a = _event(1.0, "fa").model_copy(update={"labels": {"service": "a"}})
+    ev_b = _event(1.0, "fb").model_copy(update={"labels": {"service": "b"}})
+    engine._buffers = {"a": [ev_a], "b": [ev_b]}
+    engine._max_scores = {"a": 9.0, "b": 9.0}
+    correlator.retrain(
+        [
+            {"signature": correlator._signature([ev_a]), "worked": True},
+            {"signature": correlator._signature([ev_b]), "worked": True},
+        ]
+    )
+
+    assert engine.flush_all() == []
+    suppressed = []
+    while (s := engine.pop_suppressed()) is not None:
+        suppressed.append(s)
+    assert len(suppressed) == 2

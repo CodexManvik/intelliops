@@ -59,7 +59,7 @@ env:
   DETECTION_POLICY: "off"           # on in values-live (Phase 2)
   RUNBOOK_SELECTOR_MODE: "off"      # embedding in values-live (Phase 3)
   REMEDIATOR_MODE: "dry_run"        # k8s in values-live (real remediation)
-  SANDBOX_MODE: "off"               # k8s in values-live (pre-flight rehearsal)
+  SANDBOX_MODE: "off"               # off in values-live too (ADR-029); k8s via docker-compose.k8s.yml
   HEALTH_CHECK_MODE: "always"       # k8s in values-live (Phase 4 per-metric verify)
   # Must stay comfortably above the remediated workload's termination grace
   # period; see the configmap comment. 30 (the old hardcoded value) equalled

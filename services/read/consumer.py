@@ -18,6 +18,7 @@ import threading
 
 from common.contracts import DiagnosedSituation, RemediationOutcome, Situation
 from common.envelope import iter_models
+from common.supervise import start_supervised
 from services.read.projection import ReadModel
 
 _GROUP = "read-model"
@@ -53,11 +54,11 @@ def _run_topic(
 def run_consumer(bus, model: ReadModel, stop_event: threading.Event) -> list[threading.Thread]:
     threads = []
     for topic, model_type, method in _TOPICS:
-        t = threading.Thread(
-            target=_run_topic,
-            args=(bus, model, topic, model_type, method, stop_event, bus),
-            daemon=True,
+        t = start_supervised(
+            f"read-{topic}",
+            _run_topic,
+            stop_event,
+            (bus, model, topic, model_type, method, stop_event, bus),
         )
-        t.start()
         threads.append(t)
     return threads

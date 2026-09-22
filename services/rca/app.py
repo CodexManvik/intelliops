@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from common.config import get_settings
 from common.idempotency import make_guard
 from common.stores import make_stores
+from common.supervise import start_supervised
 from services.base import create_app, db_ready
 from services.rca.adapters.context_provider import FileContextProvider
 from services.rca.adapters.explanation_provider import (
@@ -81,17 +82,17 @@ async def lifespan(app: FastAPI):
     app.state.provider_holder = holder
     reliability_provider = _build_reliability_provider(stores.training_store)
     selector = _make_runbook_selector(settings)
-    thread = threading.Thread(
-        target=run_consumer,
-        args=(app.state.bus, provider, store, audit_sink, holder.get, stop_event),
-        kwargs={
+    thread = start_supervised(
+        "rca-consumer",
+        run_consumer,
+        stop_event,
+        (app.state.bus, provider, store, audit_sink, holder.get, stop_event),
+        {
             "reliability_provider": reliability_provider,
             "selector": selector,
             "guard": make_guard(settings, app.state.bus),
         },
-        daemon=True,
     )
-    thread.start()
     app.state.consumer_stop = stop_event
     app.state.consumer_thread = thread
     try:

@@ -29,8 +29,7 @@ def _snapshot_baseline_once(engine, baseline_store) -> None:
 
 
 def _drain_suppressed(bus, engine: CorrelationEngine) -> None:
-    s = engine.pop_suppressed()
-    if s is not None:
+    while (s := engine.pop_suppressed()) is not None:
         publish_model(bus, "situations.suppressed", s)
 
 

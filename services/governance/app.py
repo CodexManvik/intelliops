@@ -30,6 +30,7 @@ from common.contracts import (
 )
 from common.idempotency import make_guard
 from common.stores import make_stores
+from common.supervise import start_supervised
 from services.base import create_app, db_ready
 from services.governance.adapters.author_tools import AuthorToolbox
 from services.governance.adapters.runbook_author import (
@@ -120,17 +121,17 @@ async def lifespan(app: FastAPI):
     # see services/governance/consumer.py) and disposes the engine on shutdown,
     # matching feedback's lifespan.
     stop_event = threading.Event()
-    thread = threading.Thread(
-        target=run_consumer,
-        args=(
+    thread = start_supervised(
+        "governance-consumer",
+        run_consumer,
+        stop_event,
+        (
             app.state.bus,
             app.state.author_decision_store,
             stop_event,
             make_guard(get_settings(), app.state.bus),
         ),
-        daemon=True,
     )
-    thread.start()
     app.state.consumer_stop = stop_event
     app.state.consumer_thread = thread
     # The draft-async worker threads publish trace steps via AgentRunHub from

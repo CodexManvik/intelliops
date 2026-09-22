@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from common.config import get_settings
 from common.idempotency import make_guard
 from common.stores import make_stores
+from common.supervise import start_supervised
 from services.action.adapters.governance_gate import (
     HttpGovernanceGate,
     InProcessGovernanceGate,
@@ -121,9 +122,11 @@ async def lifespan(app: FastAPI):
     app.state.db_engine = stores.engine
     store = stores.playbook_store
     gate = _make_gate(settings, stores.audit_sink)
-    thread = threading.Thread(
-        target=run_consumer,
-        args=(
+    thread = start_supervised(
+        "action-consumer",
+        run_consumer,
+        stop_event,
+        (
             app.state.bus,
             store,
             gate,
@@ -135,9 +138,7 @@ async def lifespan(app: FastAPI):
             stop_event,
             make_guard(settings, app.state.bus),
         ),
-        daemon=True,
     )
-    thread.start()
     app.state.consumer_stop = stop_event
     app.state.consumer_thread = thread
     try:

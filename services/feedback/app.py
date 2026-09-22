@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from common.config import get_settings
 from common.idempotency import make_guard
 from common.stores import make_stores
+from common.supervise import start_supervised
 from services.base import create_app, db_ready
 from services.feedback.consumer import run_consumer
 from services.feedback.metrics import compute_metrics
@@ -60,9 +61,11 @@ async def lifespan(app: FastAPI):
     app.state.db_engine = stores.engine
     store = stores.training_store
     app.state.training_store = store
-    thread = threading.Thread(
-        target=run_consumer,
-        args=(
+    thread = start_supervised(
+        "feedback-consumer",
+        run_consumer,
+        stop_event,
+        (
             app.state.bus,
             store,
             _make_graduator(),
@@ -70,13 +73,11 @@ async def lifespan(app: FastAPI):
             stop_event,
             make_guard(settings, app.state.bus),
         ),
-        kwargs={
+        {
             "demoter": _make_demoter(),
             "count_simulated": settings.graduation_count_simulated,
         },
-        daemon=True,
     )
-    thread.start()
     app.state.consumer_stop = stop_event
     app.state.consumer_thread = thread
     try:
