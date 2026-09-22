@@ -247,3 +247,22 @@ def test_expire_failure_does_not_change_the_outcome():
     gate = _ExpiringGate("pending", raises=True)
     out = _run(_playbook(hitl=HitlMode.HITL), gate, RecordingRemediator(), FixedHealthChecker(True))
     assert out.health_after == "aborted:timeout"
+
+
+# --- An unhealthy result is only "rolled back" when something was undone ---
+
+
+def test_no_rollback_steps_is_a_failure_not_a_rollback():
+    pb = _playbook().model_copy(update={"rollback_steps": []})
+    r = RecordingRemediator()
+    out = _run(pb, FakeGate(), r, FixedHealthChecker(False))
+    assert out.result == RemediationResult.FAILURE
+    assert out.health_after == "unhealthy:no-rollback"
+    assert r.rolled_back_plan is None
+
+
+def test_a_failed_rollback_is_reported_as_such():
+    r = RecordingRemediator(rollback_result=False)
+    out = _run(_playbook(), FakeGate(), r, FixedHealthChecker(False))
+    assert out.result == RemediationResult.FAILURE
+    assert out.health_after == "unhealthy:rollback-failed"

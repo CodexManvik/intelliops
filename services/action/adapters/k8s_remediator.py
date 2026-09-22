@@ -37,6 +37,11 @@ class KubernetesRemediator:
         self._ns_default = namespace_default
         self._apps_v1 = apps_v1  # injected in tests; loaded lazily if None
         self._exc_type = exc_type  # the exception class to treat as a safe failure
+        # Replica count each deployment had before execute() first scaled it, so
+        # rollback() can put back exactly that. Undoing a scale with the inverse
+        # DELTA was wrong whenever the forward step was clamped: 9 replicas + 2
+        # clamps to 10, and 10 - 2 = 8, one below where we started.
+        self._pre_scale: dict[tuple[str, str], int] = {}
 
     def _api(self):
         if self._apps_v1 is None:
@@ -49,18 +54,25 @@ class KubernetesRemediator:
         return self._exc_type
 
     def execute(self, plan: RemediationPlan) -> bool:
-        return self._run(plan.target, plan.steps)
+        ns = plan.target.namespace or self._ns_default
+        self._pre_scale.pop((ns, plan.target.deployment), None)
+        return self._run(plan.target, plan.steps, rolling_back=False)
 
     def rollback(self, plan: RemediationPlan) -> bool:
-        return self._run(plan.target, plan.rollback_steps)
+        ok = self._run(plan.target, plan.rollback_steps, rolling_back=True)
+        ns = plan.target.namespace or self._ns_default
+        self._pre_scale.pop((ns, plan.target.deployment), None)
+        return ok
 
-    def _run(self, target: RemediationTarget, steps: list[RemediationStep]) -> bool:
+    def _run(
+        self, target: RemediationTarget, steps: list[RemediationStep], rolling_back: bool = False
+    ) -> bool:
         ns = target.namespace or self._ns_default
         try:
             exc_type = self._exc()
             api = self._api()
             for step in steps:
-                self._dispatch(api, ns, target.deployment, step)
+                self._dispatch(api, ns, target.deployment, step, rolling_back)
         except exc_type as exc:  # any K8s API error → safe failure
             logger.warning("k8s remediation failed on %s/%s: %s", ns, target.deployment, exc)
             return False
@@ -69,7 +81,9 @@ class KubernetesRemediator:
             return False
         return True
 
-    def _dispatch(self, api, ns: str, deployment: str, step: RemediationStep) -> None:
+    def _dispatch(
+        self, api, ns: str, deployment: str, step: RemediationStep, rolling_back: bool = False
+    ) -> None:
         if step.action == "wait":
             return  # readiness is the health checker's job
         if step.action == "restart":
@@ -84,7 +98,17 @@ class KubernetesRemediator:
             api.patch_namespaced_deployment(deployment, ns, body)
             return
         if step.action == "scale":
+            key = (ns, deployment)
+            if rolling_back and key in self._pre_scale:
+                # Restore the recorded original; the step's delta is only a hint.
+                desired = self._pre_scale[key]
+                api.patch_namespaced_deployment_scale(
+                    deployment, ns, {"spec": {"replicas": desired}}
+                )
+                return
             current = api.read_namespaced_deployment(deployment, ns).spec.replicas or 1
+            if not rolling_back:
+                self._pre_scale.setdefault(key, current)
             desired = max(_MIN_REPLICAS, min(_MAX_REPLICAS, current + (step.replicas or 0)))
             api.patch_namespaced_deployment_scale(deployment, ns, {"spec": {"replicas": desired}})
             return

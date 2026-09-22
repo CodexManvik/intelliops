@@ -141,3 +141,46 @@ def test_back_compat_injected_metric_healthy_still_used():
         exc_type=FakeExc,
     )
     assert checker.check(_sit(), _tgt()) is False  # injected predicate honored
+
+
+class _RolloutApps:
+    """Status whose controller has not caught up with the latest spec yet."""
+
+    def __init__(self, generation, observed, updated, ready=1, desired=1):
+        self.generation, self.observed, self.updated = generation, observed, updated
+        self.ready, self.desired = ready, desired
+
+    def read_namespaced_deployment_status(self, name, namespace):
+        outer = self
+
+        class _Meta:
+            generation = outer.generation
+
+        class _St:
+            observed_generation = outer.observed
+            updated_replicas = outer.updated
+            ready_replicas = outer.ready
+            replicas = outer.desired
+
+        class _Dep:
+            metadata = _Meta()
+            status = _St()
+
+        return _Dep()
+
+
+def test_stale_status_from_before_the_patch_is_not_ready():
+    # The old ReplicaSet is fully ready, but the controller has not observed
+    # the restart yet - that is not a recovered deployment.
+    apps = _RolloutApps(generation=5, observed=4, updated=1)
+    assert _hc(apps, metric_ok=True).check(_sit(), _tgt()) is False
+
+
+def test_old_pods_still_serving_is_not_ready():
+    apps = _RolloutApps(generation=5, observed=5, updated=0, ready=1, desired=1)
+    assert _hc(apps, metric_ok=True).check(_sit(), _tgt()) is False
+
+
+def test_converged_rollout_is_ready():
+    apps = _RolloutApps(generation=5, observed=5, updated=1, ready=1, desired=1)
+    assert _hc(apps, metric_ok=True).check(_sit(), _tgt()) is True

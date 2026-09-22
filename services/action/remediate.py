@@ -288,7 +288,32 @@ def execute_remediation(
             preflight=preflight,
         )
 
-    remediator.rollback(plan)
+    # Unhealthy. Only report ROLLED_BACK when something was actually undone: a
+    # playbook with no rollback steps (restart-pod ships with none) used to be
+    # reported as rolled back when nothing ran, and a rollback that FAILED was
+    # reported the same way as one that worked.
+    if not plan.rollback_steps:
+        _audit(gate, situation, playbook, "unhealthy-no-rollback")
+        return _outcome(
+            situation,
+            playbook,
+            RemediationResult.FAILURE,
+            "unhealthy:no-rollback",
+            steps=steps,
+            mode=mode,
+            preflight=preflight,
+        )
+    if not remediator.rollback(plan):
+        _audit(gate, situation, playbook, "rollback-failed")
+        return _outcome(
+            situation,
+            playbook,
+            RemediationResult.FAILURE,
+            "unhealthy:rollback-failed",
+            steps=steps,
+            mode=mode,
+            preflight=preflight,
+        )
     _audit(gate, situation, playbook, "rolled-back")
     return _outcome(
         situation,
