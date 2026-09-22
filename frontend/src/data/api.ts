@@ -71,9 +71,6 @@ export async function decideApproval(
 
 export const loadProposals = () => getJSON<ProposedPlaybook[]>(`${GOV}/playbooks/proposed`);
 
-export const proposePlaybook = (situation: Situation, requestedBy: string) =>
-  postJSON<ProposedPlaybook>(`${GOV}/playbooks/proposed`, { situation, requested_by: requestedBy });
-
 export const approveProposal = (id: string, decidedBy: string) =>
   postJSON<ProposedPlaybook>(`${GOV}/playbooks/proposed/${id}/approve`, { decided_by: decidedBy });
 

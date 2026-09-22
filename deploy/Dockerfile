@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 FROM python:3.11-slim AS builder-base
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+# Pinned: :latest made every image build depend on whatever uv shipped that day.
+COPY --from=ghcr.io/astral-sh/uv:0.11.28 /uv /usr/local/bin/uv
 
 WORKDIR /app
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
