@@ -3,13 +3,16 @@ postgres.yaml
 Renders a Secret, a StatefulSet (with a volumeClaimTemplate for durable storage),
 and a headless Service for the Postgres instance used as the data store.
 
-- Credentials live in a Secret (NOT the shared ConfigMap) — issue #57.
+- Credentials live in a Secret (NOT the shared ConfigMap) — issue #57. Set
+  values.postgres.existingSecret to use a pre-created Secret instead (then no
+  password ever passes through Helm values); it must carry the same four keys.
 - A StatefulSet + volumeClaimTemplate gives Postgres a real PersistentVolumeClaim,
   so the database survives a pod reschedule/restart (issue #55). The prior plain
   Deployment had no volume, so any restart wiped audit/approval/learning/trace state.
 Image is configured via values.postgres.image (default postgres:16); the PVC size
 via values.postgres.storage (default 1Gi).
 */}}
+{{- if not .Values.postgres.existingSecret }}
 ---
 apiVersion: v1
 kind: Secret
@@ -26,6 +29,7 @@ stringData:
   # ConfigMap — every service picks it up via `envFrom: secretRef` (issue #57).
   # psycopg (v3) driver + the plain `postgres` Service host.
   INTELLIOPS_DATABASE_URL: {{ printf "postgresql+psycopg://%s:%s@postgres:5432/%s" .Values.postgres.user .Values.postgres.password .Values.postgres.db | quote }}
+{{- end }}
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -55,7 +59,7 @@ spec:
           # Credentials come from the Secret, never the ConfigMap.
           envFrom:
             - secretRef:
-                name: postgres-credentials
+                name: {{ include "intelliops.postgresSecretName" . }}
           # postgres:16 puts PGDATA under /var/lib/postgresql/data; the initdb
           # subdir avoids the "lost+found" clash some volumes create at the mount root.
           env:

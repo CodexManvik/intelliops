@@ -32,3 +32,25 @@ Usage: {{ include "intelliops.selectorLabels" (dict "root" . "name" .name) }}
 app.kubernetes.io/name: {{ .name | quote }}
 app.kubernetes.io/instance: {{ .root.Release.Name }}
 {{- end }}
+
+{{/*
+Container securityContext for everything running the IntelliOps Python images
+(deploy/Dockerfile sets `USER 10001`). Not read-only-rootfs: the file-backed
+stores write under /app/data.
+*/}}
+{{- define "intelliops.securityContext" -}}
+runAsNonRoot: true
+runAsUser: 10001
+allowPrivilegeEscalation: false
+capabilities:
+  drop: ["ALL"]
+{{- end }}
+
+{{/*
+Name of the Secret holding POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB /
+INTELLIOPS_DATABASE_URL: a pre-created one (postgres.existingSecret) or the
+chart-rendered `postgres-credentials`. Call with the root context.
+*/}}
+{{- define "intelliops.postgresSecretName" -}}
+{{- .Values.postgres.existingSecret | default "postgres-credentials" }}
+{{- end }}

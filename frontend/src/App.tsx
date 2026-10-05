@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ComponentType } from "react";
 import { MotionConfig } from "framer-motion";
 import { Shell, type View } from "./components/Shell";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -7,6 +7,10 @@ import { Incidents } from "./views/Incidents";
 import { Governance } from "./views/Governance";
 import { AgentActivity } from "./views/AgentActivity";
 import { System } from "./views/System";
+import Dashboard from "./pages/Dashboard";
+import AuditLog from "./pages/AuditLog";
+import Product from "./pages/Product";
+import Docs from "./pages/Docs";
 import "./styles/view.css";
 
 /* The five views were in-memory state only, so the browser back button did
@@ -15,15 +19,34 @@ import "./styles/view.css";
    you can send someone. */
 const VIEWS: View[] = ["overview", "incidents", "governance", "agent-activity", "settings"];
 
+/* Standalone pages render outside the console Shell, on the same hash router
+   (#/dashboard, #/audit-log, #/product, #/docs). */
+const PAGES: Record<string, ComponentType<{ onNavigate: (p: string) => void }>> = {
+  dashboard: Dashboard,
+  "audit-log": AuditLog,
+  product: Product,
+  docs: Docs,
+};
+
+const hashRoute = () => window.location.hash.replace(/^#\/?/, "");
+// The pages call "landing" what the router calls the console's overview.
+const navigate = (p: string) => {
+  window.location.hash = `#/${p === "landing" ? "overview" : p}`;
+};
+
 function viewFromHash(): View {
-  const h = window.location.hash.replace(/^#\/?/, "");
+  const h = hashRoute();
   return (VIEWS as string[]).includes(h) ? (h as View) : "overview";
 }
 
 export default function App() {
   const [view, setViewState] = useState<View>(viewFromHash);
+  const [route, setRoute] = useState(hashRoute);
   useEffect(() => {
-    const onHash = () => setViewState(viewFromHash());
+    const onHash = () => {
+      setRoute(hashRoute());
+      setViewState(viewFromHash());
+    };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
@@ -36,6 +59,9 @@ export default function App() {
   // Deep-link a specific agent run into the Agent Activity tab — set by
   // Incidents' "Draft a runbook with AI" button, consumed by AgentActivity.
   const [focusRun, setFocusRun] = useState<string | null>(null);
+
+  const Page = PAGES[route];
+  if (Page) return <Page onNavigate={navigate} />;
 
   // The view mounts at full opacity (no Framer mount animation — that strands
   // at opacity 0 under StrictMode's double-invoke). Entrance polish comes from

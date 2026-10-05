@@ -50,6 +50,8 @@ spec:
               value: "8000"
           ports:
             - containerPort: 8000
+          securityContext:
+            {{- include "intelliops.securityContext" $root | nindent 12 }}
           readinessProbe:
             httpGet: { path: /health, port: 8000 }
             initialDelaySeconds: 2

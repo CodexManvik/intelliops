@@ -8,6 +8,13 @@ them; an initContainer blocks until Postgres accepts connections, then alembic
 runs. Application pods stay out of rotation via their readiness probes until the
 schema is present, so ordering is safe without a hook.
 
+The Job name carries the RELEASE REVISION. A Job's pod template is immutable
+and a completed Job is never re-run, so with a fixed name `helm upgrade` either
+skipped new migrations (same image tag) or failed outright (changed tag). A
+per-revision name gives every install/upgrade a fresh Job; Helm prunes the
+previous one, and ttlSecondsAfterFinished cleans up after a rollback.
+`alembic upgrade head` is idempotent, so re-running on a no-op upgrade is safe.
+
 `backoffLimit` retries the whole Job if it fails (e.g. Postgres still starting);
 the initContainer wait makes that rare. helm.sh/hook-succeeded is intentionally
 NOT used — a hook cannot see the DB.
@@ -15,11 +22,12 @@ NOT used — a hook cannot see the DB.
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ include "intelliops.fullname" . }}-migrate
+  name: {{ include "intelliops.fullname" . }}-migrate-{{ .Release.Revision }}
   labels:
     {{- include "intelliops.labels" . | nindent 4 }}
 spec:
   backoffLimit: 20
+  ttlSecondsAfterFinished: 86400
   template:
     metadata:
       labels:
@@ -43,10 +51,12 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["alembic", "upgrade", "head"]
+          securityContext:
+            {{- include "intelliops.securityContext" . | nindent 12 }}
           envFrom:
             - configMapRef:
                 name: intelliops-env
             # INTELLIOPS_DATABASE_URL now lives in the Secret (issue #57) — the
             # migration needs it, so pull the secret in too.
             - secretRef:
-                name: postgres-credentials
+                name: {{ include "intelliops.postgresSecretName" . }}

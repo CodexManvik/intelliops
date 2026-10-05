@@ -9,14 +9,18 @@ Each Deployment:
   - action: uses the intelliops-action ServiceAccount when rbac.create (real remediation)
   - rca: gets the LLM API key via secretKeyRef when a key/secret is configured
   - includes liveness (/health) + readiness (/ready) probes
+  - sets resources (values.resources, or values.fullResources for `full`-image
+    services) and a non-root, no-privilege-escalation securityContext
 */}}
 {{- range .Values.services }}
 {{- $img := $.Values.image.repository }}
 {{- $tag := $.Values.image.tag }}
+{{- $resources := $.Values.resources }}
 {{- if eq (.image | default "base") "full" }}
 {{-   $img = ($.Values.image.fullRepository | default "") }}
 {{-   if eq $img "" }}{{ $img = $.Values.image.repository }}{{ end }}
 {{-   $tag = $.Values.image.fullTag }}
+{{-   $resources = $.Values.fullResources }}
 {{- end }}
 ---
 apiVersion: apps/v1
@@ -74,7 +78,7 @@ spec:
             # INTELLIOPS_DATABASE_URL (password-bearing) comes from the Secret,
             # not the ConfigMap (issue #57).
             - secretRef:
-                name: postgres-credentials
+                name: {{ include "intelliops.postgresSecretName" $ }}
           env:
             - name: SERVICE_MODULE
               value: {{ .module | quote }}
@@ -102,6 +106,10 @@ spec:
             {{- end }}
           ports:
             - containerPort: {{ .port }}
+          resources:
+            {{- toYaml $resources | nindent 12 }}
+          securityContext:
+            {{- include "intelliops.securityContext" $ | nindent 12 }}
           livenessProbe:
             httpGet:
               path: /health
