@@ -216,3 +216,20 @@ convenience. Editing needs the admin login (`admin`/`admin` unless you set
 the chart). For anything shared, turn anonymous access off (`GRAFANA_ANONYMOUS=false`,
 or `observability.grafana.anonymous=false`) and point the Postgres datasource at a
 read-only role.
+
+---
+
+## 5. Platform self-metrics (`/_metrics`)
+
+Every platform service built with `services.base.create_app` exposes Prometheus
+metrics about *itself* at `/_metrics` (not `/metrics` — read and feedback already
+serve token-gated JSON business metrics there):
+
+- `intelliops_http_requests_total{service,method,path,status}`
+- `intelliops_http_request_duration_seconds{service,method,path}` (histogram)
+
+`path` is the matched route template, so path parameters do not add label
+cardinality. Like `/health` and `/ready`, `/_metrics` is exempt from `AUTH_MODE`
+so Prometheus can scrape it without a token. The `intelliops` scrape job is in
+`deploy/prometheus.yml` (compose) and the chart's `prometheus.yaml` (k8s).
+Meridian opts out (`metrics=False`): it is the monitored workload, not the platform.

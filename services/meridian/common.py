@@ -272,7 +272,7 @@ def make_meridian_service(name: str, domain_routes=None, registry: CollectorRegi
     timeseries in CollectorRegistry" error from registering `cpu_usage` twice
     against the shared default registry.
     """
-    app = create_app(name)
+    app = create_app(name, metrics=False)  # the monitored workload, not the platform
     state = MeridianState()
     app.state.meridian = state
     effective_registry = registry if registry is not None else REGISTRY

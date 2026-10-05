@@ -16,6 +16,9 @@ FROM python:3.11-slim
 # Pinned: :latest made every image build depend on whatever uv shipped that day.
 COPY --from=ghcr.io/astral-sh/uv:0.11.28 /uv /usr/local/bin/uv
 
+# Unprivileged runtime user (see deploy/Dockerfile).
+RUN useradd --uid 10001 --create-home app
+
 WORKDIR /app
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 
@@ -34,6 +37,8 @@ COPY --from=ui /ui/dist ./services/meridian/ui/dist
 COPY alembic.ini ./alembic.ini
 COPY alembic/ ./alembic/
 RUN uv sync --frozen --no-dev
+RUN mkdir -p data/rca_context && chown -R app:app data
+USER 10001
 
 # Launch uvicorn directly from the built venv. Using `uv run` here would try to
 # re-sync the environment at container startup (re-resolving/downloading deps),

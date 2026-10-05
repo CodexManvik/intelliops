@@ -18,7 +18,7 @@ const LIVE = import.meta.env.VITE_DATA_MODE === "live";
 type Sub = () => void;
 
 let es: EventSource | null = null;
-let subs = new Set<Sub>();
+const subs = new Set<Sub>();
 let streamHealthy = false;
 
 function ensureStream() {

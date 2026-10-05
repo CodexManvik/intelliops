@@ -1,17 +1,24 @@
 {{/*
 redis.yaml
-Renders a Deployment and a Service for the Redis instance used as the event bus.
-Image is configured via values.redis.image (default redis:7).
+Renders a StatefulSet (with a volumeClaimTemplate) and a Service for the Redis
+instance used as the event bus. Image is configured via values.redis.image.
+
+Redis IS the bus: un-consumed stream entries + consumer-group offsets live here,
+so a plain volume-less Deployment dropped in-flight events on every pod restart.
+AOF on a PersistentVolumeClaim makes the bus survive a reschedule. `maxmemory`
+with `noeviction` makes a full bus fail publishes loudly instead of the kernel
+OOM-killing the pod (streams are already length-bounded by BUS_STREAM_MAXLEN).
 */}}
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: redis
   labels:
     {{- include "intelliops.labels" . | nindent 4 }}
     {{- include "intelliops.selectorLabels" (dict "root" . "name" "redis") | nindent 4 }}
 spec:
+  serviceName: redis
   replicas: 1
   selector:
     matchLabels:
@@ -25,8 +32,38 @@ spec:
         - name: redis
           image: {{ .Values.redis.image | quote }}
           imagePullPolicy: IfNotPresent
+          args:
+            - "--appendonly"
+            - "yes"
+            - "--maxmemory"
+            - {{ .Values.redis.maxmemory | quote }}
+            - "--maxmemory-policy"
+            - "noeviction"
           ports:
             - containerPort: 6379
+          readinessProbe:
+            exec: { command: ["redis-cli", "ping"] }
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket: { port: 6379 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.redis.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "intelliops.labels" . | nindent 10 }}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.redis.storage | quote }}
 ---
 apiVersion: v1
 kind: Service

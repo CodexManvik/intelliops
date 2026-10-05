@@ -23,3 +23,18 @@ scrape_configs:
     static_configs: [{ targets: ["meridian-aggregation:8000"], labels: { service: meridian-aggregation } }]
   - job_name: meridian-reporting
     static_configs: [{ targets: ["meridian-reporting:8000"], labels: { service: meridian-reporting } }]
+
+  # The platform's own services (request rate / errors / latency, from
+  # services/base.py). No `service:` label on purpose: that label is what RCA
+  # keys on for the MONITORED workloads above; `job`/`instance` identify these.
+  - job_name: intelliops
+    metrics_path: /_metrics
+    static_configs:
+      - targets:
+          - ingestion:8000
+          - correlation:8000
+          - rca:8000
+          - action:8000
+          - governance:8000
+          - feedback:8000
+          - read:8000

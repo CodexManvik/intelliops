@@ -29,6 +29,10 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - containerPort: 8080
+          # nginx-unprivileged image: already uid 101, listens on 8080.
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
           readinessProbe:
             httpGet: { path: /, port: 8080 }
             initialDelaySeconds: 3

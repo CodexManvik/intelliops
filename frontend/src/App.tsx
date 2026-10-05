@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState, type ComponentType } from "react";
 import { MotionConfig } from "framer-motion";
 import { Shell, type View } from "./components/Shell";
+import { PageBar, PAGE_LINKS, type PageId } from "./components/PageBar";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Overview } from "./views/Overview";
 import { Incidents } from "./views/Incidents";
@@ -15,15 +16,37 @@ import "./styles/view.css";
    you can send someone. */
 const VIEWS: View[] = ["overview", "incidents", "governance", "agent-activity", "settings"];
 
+/* Standalone pages render outside the console Shell, on the same hash router
+   (#/dashboard, #/audit-log, #/product, #/docs). Lazy: the console is the
+   default route and should not pay for pages most sessions never open. */
+type PageProps = { onNavigate: (p: string) => void };
+const PAGES: Record<PageId, ComponentType<PageProps>> = {
+  dashboard: lazy(() => import("./pages/Dashboard")),
+  "audit-log": lazy(() => import("./pages/AuditLog")),
+  product: lazy(() => import("./pages/Product")),
+  docs: lazy(() => import("./pages/Docs")),
+};
+const isPage = (r: string): r is PageId => PAGE_LINKS.some((p) => p.id === r);
+
+const hashRoute = () => window.location.hash.replace(/^#\/?/, "");
+// The pages call "landing" what the router calls the console's overview.
+const navigate = (p: string) => {
+  window.location.hash = `#/${p === "landing" ? "overview" : p}`;
+};
+
 function viewFromHash(): View {
-  const h = window.location.hash.replace(/^#\/?/, "");
+  const h = hashRoute();
   return (VIEWS as string[]).includes(h) ? (h as View) : "overview";
 }
 
 export default function App() {
   const [view, setViewState] = useState<View>(viewFromHash);
+  const [route, setRoute] = useState(hashRoute);
   useEffect(() => {
-    const onHash = () => setViewState(viewFromHash());
+    const onHash = () => {
+      setRoute(hashRoute());
+      setViewState(viewFromHash());
+    };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
@@ -36,6 +59,20 @@ export default function App() {
   // Deep-link a specific agent run into the Agent Activity tab — set by
   // Incidents' "Draft a runbook with AI" button, consumed by AgentActivity.
   const [focusRun, setFocusRun] = useState<string | null>(null);
+
+  if (isPage(route)) {
+    const Page = PAGES[route];
+    return (
+      <>
+        <PageBar current={route} />
+        <ErrorBoundary resetKey={route}>
+          <Suspense fallback={<div className="pt-24 text-center text-sm text-ink-3">Loading…</div>}>
+            <Page onNavigate={navigate} />
+          </Suspense>
+        </ErrorBoundary>
+      </>
+    );
+  }
 
   // The view mounts at full opacity (no Framer mount animation — that strands
   // at opacity 0 under StrictMode's double-invoke). Entrance polish comes from

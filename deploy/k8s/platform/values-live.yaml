@@ -75,7 +75,9 @@ env:
   LLM_RUNBOOK_ENDPOINT: "https://api.groq.com/openai/v1"
   LLM_RUNBOOK_MODEL: "openai/gpt-oss-120b"
 
-# The action service needs cluster RBAC to patch Deployments + create/delete the
-# sandbox namespace.
+# The action service needs RBAC to patch Deployments in the release namespace.
+# SANDBOX_MODE is off above, so the namespaced Role is enough; set
+# rbac.sandbox=true (ClusterRole) only if you also flip SANDBOX_MODE to k8s.
 rbac:
   create: true
+  sandbox: false
