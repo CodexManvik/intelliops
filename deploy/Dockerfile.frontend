@@ -1,7 +1,7 @@
 # The IntelliOps React console: Vite build → nginx static serve + same-origin
 # backend proxy (see deploy/nginx.conf). Built for LIVE mode with each backend
 # URL pointing at the nginx /api/* prefix, so the browser talks to one origin.
-FROM node:20-alpine AS build
+FROM node:26-alpine AS build
 WORKDIR /app
 COPY frontend/package*.json ./
 RUN npm ci
