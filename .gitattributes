@@ -1,3 +1,5 @@
 * text=auto eol=lf
 *.png binary
 *.jpg binary
+rust/units/*/*.jsonl text eol=lf
+rust/app-cases/**/*.json text eol=lf

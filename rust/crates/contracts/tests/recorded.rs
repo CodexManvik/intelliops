@@ -88,3 +88,18 @@ fn diagnoses_and_outcomes_round_trip() {
     let outcomes: Vec<RemediationOutcome> = round_trip(topics::REMEDIATION_OUTCOMES);
     assert!(!diagnosed.is_empty() && !outcomes.is_empty());
 }
+
+/// The governance API responses, which carry models the bus never does.
+#[test]
+fn governance_responses_round_trip() {
+    fn check<T: DeserializeOwned + Serialize>(file: &str) {
+        let path = rust_dir().join(format!("app-cases/golden/{file}.json"));
+        let theirs: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let models: Vec<T> = serde_json::from_value(theirs.clone()).unwrap();
+        assert!(!models.is_empty(), "{file}");
+        assert_eq!(serde_json::to_value(models).unwrap(), theirs, "{file}");
+    }
+    check::<Playbook>("governance_playbooks");
+    check::<ApprovalRequest>("governance_approvals");
+    check::<AuditRecord>("governance_audit");
+}
