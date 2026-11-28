@@ -117,7 +117,9 @@ Consequences: "Matches Python" is a claim only for what the cases cover.
   nobody could approve, is gone (`GOVERNANCE_MODE` is ignored).
 - A resource-limit or probe step with no container named patches the first one
   (the Python patch was rejected by the API server).
-- Rolling back to a revision drops the old `pod-template-hash` label.
+- Rolling back to a revision drops the old `pod-template-hash` label and
+  replaces the pod template. Python merged it, so anything added since (such as
+  resource limits) survived the rollback. Found on a real cluster.
 - A quantity like `nan` is refused by the denylist.
 - Configured for a real cluster but unable to reach one, action refuses to start.
 - An unwritable audit record is retried, then logged, instead of crashing.

@@ -177,6 +177,11 @@ impl KubeRemediator {
         if let Some(labels) = template.metadata.as_mut().and_then(|m| m.labels.as_mut()) {
             labels.remove("pod-template-hash");
         }
+        // Replace, not merge: a merge keeps whatever was added since, such as
+        // resource limits, so the "rollback" would not roll them back.
+        let mut template =
+            serde_json::to_value(template).map_err(|e| StepError::Missing(e.to_string()))?;
+        template["$patch"] = "replace".into();
         self.patch(target, json!({"spec": {"template": template}}))
             .await
     }
