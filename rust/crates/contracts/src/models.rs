@@ -345,6 +345,14 @@ pub struct TrainingRecord {
     pub mode: Option<String>,
 }
 
+impl TrainingRecord {
+    /// A dry run "always works", so it is no evidence about a real cluster.
+    #[must_use]
+    pub fn is_real(&self) -> bool {
+        !matches!(self.mode.as_deref(), None | Some("dry_run" | "none"))
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TraceStepKind {

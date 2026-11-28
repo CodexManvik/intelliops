@@ -1,0 +1,24 @@
+[package]
+name = "intelliops-correlation"
+version = "0.1.0"
+description = "Scores telemetry and collapses anomalies into situations"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+axum.workspace = true
+intelliops-bus = { path = "../bus" }
+intelliops-service = { path = "../service" }
+intelliops-store = { path = "../store" }
+tokio = { workspace = true, features = ["sync"] }
+tracing.workspace = true
+chrono.workspace = true
+indexmap.workspace = true
+intelliops-contracts = { path = "../contracts" }
+intelliops-detect = { path = "../detect" }
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

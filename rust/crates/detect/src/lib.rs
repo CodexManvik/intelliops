@@ -6,7 +6,9 @@
 //! by either can be loaded by the other.
 
 mod policy;
+mod robust;
 mod zscore;
 
 pub use policy::{MetricKind, Policy, Thresholds};
+pub use robust::{Robust, RobustConfig};
 pub use zscore::{BaselineRow, Detector};

@@ -21,3 +21,13 @@ services:
         SERVICE: ingestion
       target: !reset null
     healthcheck: *rust-healthcheck
+
+  correlation:
+    image: intelliops-correlation-rs:latest
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.rust
+      args:
+        SERVICE: correlation
+      target: !reset null
+    healthcheck: *rust-healthcheck

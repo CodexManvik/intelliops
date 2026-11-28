@@ -15,6 +15,11 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # No shell or package manager: the binary is its own healthcheck.
 FROM gcr.io/distroless/cc-debian12:nonroot
 COPY --from=build /usr/local/bin/service /usr/local/bin/service
+# Seed playbooks, RBAC policy and system context, at the paths services default to.
+WORKDIR /app
+COPY deploy/playbooks /app/data/playbooks
+COPY policies /app/policies
+COPY config /app/config
 USER 10001
 ENV PORT=8000
 EXPOSE 8000

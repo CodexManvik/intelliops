@@ -1,6 +1,6 @@
 {
   "label": "python",
-  "measured_at": "2026-11-28T13:40:27+00:00",
+  "measured_at": "2026-11-28T14:32:11+00:00",
   "host": 12,
   "image_mib": {
     "ingestion": 492.8,
@@ -12,37 +12,37 @@
     "read": 492.8
   },
   "idle_memory_mib": {
-    "ingestion": 64.1,
-    "correlation": 74.5,
-    "rca": 70.0,
+    "ingestion": 64.0,
+    "correlation": 98.2,
+    "rca": 69.8,
     "action": 74.2,
-    "governance": 71.3,
-    "feedback": 69.0,
-    "read": 59.5
+    "governance": 70.3,
+    "feedback": 69.6,
+    "read": 59.9
   },
   "ingest": {
     "events": 20000,
-    "ingest_events_per_s": 1582,
-    "end_to_end_events_per_s": 1107,
-    "ingest_batch_p50_ms": 79.0,
-    "ingest_batch_p99_ms": 516.0
+    "ingest_events_per_s": 3536,
+    "end_to_end_events_per_s": 2411,
+    "ingest_batch_p50_ms": 47.0,
+    "ingest_batch_p99_ms": 125.0
   },
   "loaded_memory_mib": {
-    "ingestion": 64.6,
-    "correlation": 74.5,
-    "rca": 70.1,
-    "action": 74.2,
-    "governance": 71.4,
-    "feedback": 69.1,
-    "read": 59.5
+    "ingestion": 64.5,
+    "correlation": 98.4,
+    "rca": 69.9,
+    "action": 74.4,
+    "governance": 70.3,
+    "feedback": 69.7,
+    "read": 59.9
   },
   "cold_start_s": {
-    "ingestion": 3.09,
-    "correlation": 5.52,
-    "rca": 4.48,
-    "action": 4.83,
-    "governance": 4.31,
-    "feedback": 5.2,
-    "read": 3.0
+    "ingestion": 2.7,
+    "correlation": 3.8,
+    "rca": 3.88,
+    "action": 3.48,
+    "governance": 3.86,
+    "feedback": 4.89,
+    "read": 2.81
   }
 }

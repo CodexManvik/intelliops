@@ -101,6 +101,12 @@ Consequences: "Matches Python" is a claim only for what the cases cover.
 - `/ingest` answers 422 for a bad event (Python: 500) and 503 when Redis is
   unavailable.
 - Ingestion publishes a batch in one pipelined round trip.
+- Consumers read in batches of 64. At-most-once acknowledges a batch before
+  handling it, so a crash can lose that batch, not just one event.
+- A consumer retries a failed publish instead of crashing.
+- Deciding an approval or proposal is a single conditional update, so two
+  deciders cannot both win.
+- `memory` idempotency mode uses Redis, like `redis` mode.
 - `handling` is a closed type ("normal" | "quiet"); Python accepted any string.
 
 ## ADR-011: The per-service switch is a compose override
@@ -109,3 +115,12 @@ Decision: `deploy/docker-compose.rust.yml` swaps ported services to Rust images
 built by `deploy/Dockerfile.rust` (distroless; the binary is its own
 healthcheck). Removing a block returns that service to Python.
 Consequences: Helm has no equivalent switch yet.
+
+## ADR-012: Storage is Postgres or memory
+Status: accepted (2026-11-28)
+Context: Every deployment uses Postgres; the Python file stores served local
+development only.
+Decision: Do not port the file backends. The Rust schema file is generated from
+Alembic and applies with `IF NOT EXISTS`, so it is a no-op on an existing
+database.
+Consequences: `STORE_BACKEND=file` now means memory.

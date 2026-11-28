@@ -10,6 +10,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use intelliops_bus::Bus;
+use intelliops_store::Store;
 use prometheus_client::encoding::{EncodeLabelSet, text::encode};
 use prometheus_client::metrics::counter::Counter;
 use prometheus_client::metrics::family::Family;
@@ -62,6 +63,7 @@ pub struct Service {
     name: &'static str,
     config: Config,
     bus: Bus,
+    database: Option<Store>,
     registry: Registry,
     requests: Family<Handled, Counter>,
     duration: Family<Route, Histogram>,
@@ -89,10 +91,18 @@ impl Service {
             name,
             config,
             bus,
+            database: None,
             registry,
             requests,
             duration,
         }
+    }
+
+    /// Make readiness depend on the database too.
+    #[must_use]
+    pub fn with_database(mut self, store: Store) -> Self {
+        self.database = Some(store);
+        self
     }
 
     fn authorized(&self, request: &Request) -> bool {
@@ -196,16 +206,25 @@ async fn health(State(service): State<Arc<Service>>) -> Json<Value> {
 }
 
 async fn ready(State(service): State<Arc<Service>>) -> Response {
-    match service.bus.ping().await {
-        Ok(()) => Json(json!({"ready": true})).into_response(),
-        Err(error) => {
-            tracing::warn!(%error, "redis is not reachable");
-            (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(json!({"ready": false, "failed": ["redis"]})),
-            )
-                .into_response()
-        }
+    let mut failed = Vec::new();
+    if let Err(error) = service.bus.ping().await {
+        tracing::warn!(%error, "redis is not reachable");
+        failed.push("redis");
+    }
+    if let Some(database) = &service.database
+        && let Err(error) = database.ping().await
+    {
+        tracing::warn!(%error, "postgres is not reachable");
+        failed.push("postgres");
+    }
+    if failed.is_empty() {
+        Json(json!({"ready": true})).into_response()
+    } else {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"ready": false, "failed": failed})),
+        )
+            .into_response()
     }
 }
 

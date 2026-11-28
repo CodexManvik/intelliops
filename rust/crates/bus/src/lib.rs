@@ -1,5 +1,8 @@
-//! Publishing onto Redis Streams. Consuming arrives with the first Rust
-//! consumer (correlation).
+//! Redis Streams: publishing and consumer groups.
+
+mod consumer;
+
+pub use consumer::{Consumer, ConsumerConfig};
 
 use std::time::Duration;
 
@@ -23,6 +26,7 @@ const RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
 /// itself, so a service starts even while Redis is still coming up.
 #[derive(Clone)]
 pub struct Bus {
+    url: String,
     connection: ConnectionManager,
     stream_maxlen: usize,
 }
@@ -36,6 +40,7 @@ impl Bus {
             .set_response_timeout(Some(RESPONSE_TIMEOUT))
             .set_number_of_retries(1);
         Ok(Self {
+            url: url.to_string(),
             connection: ConnectionManager::new_lazy_with_config(client, config)?,
             stream_maxlen,
         })
@@ -70,6 +75,11 @@ impl Bus {
             .query_async::<()>(&mut self.connection.clone())
             .await?;
         Ok(())
+    }
+
+    /// A consumer with a connection of its own, since its reads block.
+    pub fn consumer(&self, config: ConsumerConfig) -> Result<Consumer, BusError> {
+        Consumer::new(&self.url, config)
     }
 
     pub async fn ping(&self) -> Result<(), BusError> {

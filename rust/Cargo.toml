@@ -10,6 +10,9 @@ rust-version = "1.97"
 publish = false
 
 [workspace.dependencies]
+serde_yaml_ng = "0.10"
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "postgres", "json", "chrono", "derive"] }
+indexmap = "2"
 axum = "0.8"
 prometheus-client = "0.26"
 redis = { version = "1", default-features = false, features = ["tokio-comp", "connection-manager", "streams"] }
@@ -35,6 +38,8 @@ unwrap_used = "warn"
 expect_used = "warn"
 
 [profile.release]
+# A panicking background task takes the process down, so it is restarted.
+panic = "abort"
 lto = true
 codegen-units = 1
 strip = true

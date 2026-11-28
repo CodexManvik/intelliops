@@ -34,6 +34,15 @@ jobs:
   rust:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: intelliops
+          POSTGRES_DB: rust_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-retries 10
     defaults:
       run:
         working-directory: rust
@@ -43,9 +52,8 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo test --locked
-      - name: Build the service images
-        working-directory: .
-        run: docker build -f deploy/Dockerfile.rust --build-arg SERVICE=ingestion .
+        env:
+          INTELLIOPS_TEST_DATABASE_URL: postgresql://postgres:intelliops@127.0.0.1:5432/rust_test
 
   test:
     runs-on: ubuntu-latest
@@ -267,6 +275,10 @@ jobs:
             [ "$attempt" -eq 30 ] && { echo " ✗ no service logs reached loki"; exit 1; }
             sleep 3
           done
+      # Swap in the services ported to Rust and check they interoperate with the
+      # Python ones: published events are consumed and decoded.
+      - name: Rust services in the same stack
+        run: bash rust/harness/smoke.sh
       - if: failure()
         run: docker compose -f deploy/docker-compose.yml logs
       - if: always()
