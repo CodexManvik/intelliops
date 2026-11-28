@@ -3,6 +3,7 @@
 Run it against the Python stack and again, unchanged, against the Rust one:
 
     python rust/harness/measure.py --label python
+    python rust/harness/measure.py --label rust-ingestion         --compose-file deploy/docker-compose.rust.yml
 
 It only talks to Docker, Redis (via `docker compose exec`) and the services' HTTP
 ports, so nothing here depends on how a service is implemented. Stdlib only.
@@ -150,7 +151,10 @@ def ingest_throughput() -> dict[str, float]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--label", required=True, help="e.g. python or rust")
+    parser.add_argument("--compose-file", action="append", default=[], help="extra compose file")
     args = parser.parse_args()
+    for extra in args.compose_file:
+        COMPOSE.extend(["-f", str(ROOT / extra)])
     for port in SERVICES.values():
         wait_ready(port)
     result = {

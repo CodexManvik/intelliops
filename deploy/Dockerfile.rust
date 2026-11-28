@@ -1,0 +1,21 @@
+# syntax=docker/dockerfile:1
+# One image per Rust service: --build-arg SERVICE=ingestion. Builds natively for
+# the target platform, so `buildx --platform linux/arm64` produces arm64 images.
+
+FROM rust:1.100-slim-bookworm AS build
+ARG SERVICE
+WORKDIR /src
+COPY rust/Cargo.toml rust/Cargo.lock ./
+COPY rust/crates ./crates
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/src/target \
+    cargo build --release --locked -p "intelliops-${SERVICE}" \
+    && cp "target/release/intelliops-${SERVICE}" /usr/local/bin/service
+
+# No shell or package manager: the binary is its own healthcheck.
+FROM gcr.io/distroless/cc-debian12:nonroot
+COPY --from=build /usr/local/bin/service /usr/local/bin/service
+USER 10001
+ENV PORT=8000
+EXPOSE 8000
+ENTRYPOINT ["/usr/local/bin/service"]

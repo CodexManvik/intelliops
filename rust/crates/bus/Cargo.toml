@@ -1,0 +1,17 @@
+[package]
+name = "intelliops-bus"
+version = "0.1.0"
+description = "Redis Streams bus, wire-compatible with common/bus.py"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+intelliops-contracts = { path = "../contracts" }
+redis.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true

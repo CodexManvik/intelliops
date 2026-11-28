@@ -1,0 +1,20 @@
+[package]
+name = "intelliops-ingestion"
+version = "0.1.0"
+description = "Normalizes telemetry onto the bus: POST /ingest and a Prometheus poll"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+axum.workspace = true
+intelliops-bus = { path = "../bus" }
+intelliops-contracts = { path = "../contracts" }
+intelliops-service = { path = "../service" }
+reqwest.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true

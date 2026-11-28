@@ -1,6 +1,6 @@
 //! Timestamps as lenient as Pydantic's on the way in, canonical on the way out.
 
-use chrono::{DateTime, FixedOffset, NaiveDateTime, SecondsFormat, Utc};
+use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, SecondsFormat, Utc};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 
 /// An instant with its offset. A value without an offset is read as UTC (Python
@@ -19,7 +19,12 @@ impl Timestamp {
 
     #[must_use]
     pub fn parse(text: &str) -> Option<Self> {
-        let text = text.trim();
+        // Pydantic takes `_` between date and time; chrono does not.
+        let normalized = match text.as_bytes().get(10) {
+            Some(b'_') => text.replacen('_', "T", 1),
+            _ => text.to_string(),
+        };
+        let text = normalized.as_str();
         if let Ok(aware) = DateTime::parse_from_rfc3339(text) {
             return Some(Self(aware));
         }
@@ -36,6 +41,10 @@ impl Timestamp {
             if let Ok(naive) = NaiveDateTime::parse_from_str(text, format) {
                 return Some(Self(naive.and_utc().fixed_offset()));
             }
+        }
+        if let Ok(date) = NaiveDate::parse_from_str(text, "%Y-%m-%d") {
+            let midnight = date.and_hms_opt(0, 0, 0)?;
+            return Some(Self(midnight.and_utc().fixed_offset()));
         }
         text.parse::<f64>().ok().and_then(Self::from_epoch)
     }

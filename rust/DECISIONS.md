@@ -96,4 +96,16 @@ Consequences: "Matches Python" is a claim only for what the cases cover.
 ## Intentional differences so far (ADR-010)
 - A timestamp without an offset is read as UTC. Python kept it naive, which
   could not be compared with offset-aware values.
+- `/ingest` validates the whole batch before publishing. Python published the
+  events ahead of a bad one and then failed.
+- `/ingest` answers 422 for a bad event (Python: 500) and 503 when Redis is
+  unavailable.
+- Ingestion publishes a batch in one pipelined round trip.
 - `handling` is a closed type ("normal" | "quiet"); Python accepted any string.
+
+## ADR-011: The per-service switch is a compose override
+Status: accepted (2026-11-28), refines ADR-002
+Decision: `deploy/docker-compose.rust.yml` swaps ported services to Rust images
+built by `deploy/Dockerfile.rust` (distroless; the binary is its own
+healthcheck). Removing a block returns that service to Python.
+Consequences: Helm has no equivalent switch yet.
