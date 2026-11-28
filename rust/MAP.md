@@ -7,7 +7,7 @@ Goal: all backend code in Rust, deployed free on ARM, one service at a time
 | --- | --- | --- | --- |
 | Wire contracts, envelope, ids | `crates/contracts` | recorded streams round-trip; 600 fingerprint cases | done |
 | Fingerprint (plugin unit) | `units/ingestion` | `rust-anything gate` passes, 600/600 | done |
-| Online z-score and detection policy | `crates/detect` | 9,000 recorded steps, within 1 ulp (libm `pow` differs by platform) | done |
+| Online z-score and detection policy | `crates/detect` | 9,000 recorded steps, to 1e-12 (libm `pow` differs by platform) | done |
 | Redis Streams bus | `crates/bus` | live stack | done |
 | Storage (all tables) | `crates/store` | same tests on memory and Postgres | done |
 | Correlation service | `crates/correlation` | 20,800 recorded engine ops; live | done except the `trained` detector |

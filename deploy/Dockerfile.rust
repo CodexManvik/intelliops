@@ -2,19 +2,18 @@
 # One image per Rust service: --build-arg SERVICE=ingestion. Builds natively for
 # the target platform, so `buildx --platform linux/arm64` produces arm64 images.
 
+# One compile of every service, shared by all the images: this stage does not
+# depend on SERVICE, so BuildKit runs it once however many are built together.
 FROM rust:1.100-slim-bookworm AS build
-ARG SERVICE
 WORKDIR /src
 COPY rust/Cargo.toml rust/Cargo.lock ./
 COPY rust/crates ./crates
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/src/target \
-    cargo build --release --locked -p "intelliops-${SERVICE}" \
-    && cp "target/release/intelliops-${SERVICE}" /usr/local/bin/service
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked     --mount=type=cache,target=/src/target,sharing=locked     cargo build --release --locked --bins     && mkdir /out     && find target/release -maxdepth 1 -type f -executable -name 'intelliops-*' -exec cp {} /out/ \;
 
 # No shell or package manager: the binary is its own healthcheck.
 FROM gcr.io/distroless/cc-debian12:nonroot
-COPY --from=build /usr/local/bin/service /usr/local/bin/service
+ARG SERVICE
+COPY --from=build /out/intelliops-${SERVICE} /usr/local/bin/service
 # Seed playbooks, RBAC policy and system context, at the paths services default to.
 WORKDIR /app
 COPY deploy/playbooks /app/data/playbooks

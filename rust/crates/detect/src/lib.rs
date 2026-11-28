@@ -2,7 +2,7 @@
 //!
 //! The arithmetic follows River's `stats.Mean` / `stats.Var` operation for
 //! operation: on one platform scores equal the Python detector's, across
-//! platforms they agree to the last bit of the libm `pow`. A baseline persisted
+//! platforms they differ only by the rounding of the libm `pow`. A baseline persisted
 //! by either can be loaded by the other.
 
 mod policy;

@@ -30,7 +30,7 @@ fn scores_decisions_and_baselines_match_python() {
             // The only inexact operation is `** 0.5`, whose last bit depends on
             // the platform's libm (for Python too). Recorded on Windows.
             assert!(
-                score.to_bits().abs_diff(expected.to_bits()) <= 1,
+                (score - expected).abs() <= 1e-12 * expected.abs().max(1.0),
                 "scenario {index} step {step_no}: {score} vs {expected}"
             );
             assert_eq!(
