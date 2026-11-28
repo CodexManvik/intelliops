@@ -1,0 +1,164 @@
+[
+ {
+  "id": "restart-pod",
+  "name": "Restart affected pod",
+  "match_rule": "error spike in service logs or metrics",
+  "steps": [
+   {
+    "action": "restart",
+    "replicas": null,
+    "note": "kubectl rollout restart deployment/${service}",
+    "cpu_limit": null,
+    "mem_limit": null,
+    "container": null,
+    "revision": null,
+    "probe": null,
+    "initial_delay_seconds": null,
+    "period_seconds": null,
+    "timeout_seconds": null,
+    "failure_threshold": null
+   },
+   {
+    "action": "wait",
+    "replicas": null,
+    "note": "wait for readiness probe to pass",
+    "cpu_limit": null,
+    "mem_limit": null,
+    "container": null,
+    "revision": null,
+    "probe": null,
+    "initial_delay_seconds": null,
+    "period_seconds": null,
+    "timeout_seconds": null,
+    "failure_threshold": null
+   }
+  ],
+  "hitl_mode": "hitl",
+  "reversible": true,
+  "rollback_steps": [
+   {
+    "action": "rollback_deploy",
+    "replicas": null,
+    "note": "kubectl rollout undo deployment/${service}",
+    "cpu_limit": null,
+    "mem_limit": null,
+    "container": null,
+    "revision": null,
+    "probe": null,
+    "initial_delay_seconds": null,
+    "period_seconds": null,
+    "timeout_seconds": null,
+    "failure_threshold": null
+   }
+  ],
+  "symptoms": "crash loops, wedged or hung process, memory leak trending to OOM, database connection-pool exhaustion, elevated error rate, stuck workers \u2014 a process that must be recycled"
+ },
+ {
+  "id": "rollback-deploy",
+  "name": "Roll back recent deployment",
+  "match_rule": "recent deploy preceded the incident",
+  "steps": [
+   {
+    "action": "rollback_deploy",
+    "replicas": null,
+    "note": "kubectl rollout undo deployment/${service}",
+    "cpu_limit": null,
+    "mem_limit": null,
+    "container": null,
+    "revision": null,
+    "probe": null,
+    "initial_delay_seconds": null,
+    "period_seconds": null,
+    "timeout_seconds": null,
+    "failure_threshold": null
+   },
+   {
+    "action": "wait",
+    "replicas": null,
+    "note": "verify health after rollback",
+    "cpu_limit": null,
+    "mem_limit": null,
+    "container": null,
+    "revision": null,
+    "probe": null,
+    "initial_delay_seconds": null,
+    "period_seconds": null,
+    "timeout_seconds": null,
+    "failure_threshold": null
+   }
+  ],
+  "hitl_mode": "hitl",
+  "reversible": true,
+  "rollback_steps": [
+   {
+    "action": "rollback_deploy",
+    "replicas": null,
+    "note": "kubectl rollout undo deployment/${service} --to-revision=previous",
+    "cpu_limit": null,
+    "mem_limit": null,
+    "container": null,
+    "revision": null,
+    "probe": null,
+    "initial_delay_seconds": null,
+    "period_seconds": null,
+    "timeout_seconds": null,
+    "failure_threshold": null
+   }
+  ],
+  "symptoms": "a regression immediately after a recent deployment or release, a bad new version misbehaving \u2014 revert to the prior revision"
+ },
+ {
+  "id": "scale-service",
+  "name": "Scale out affected service",
+  "match_rule": "resource saturation (cpu/mem/disk)",
+  "steps": [
+   {
+    "action": "scale",
+    "replicas": 2,
+    "note": "kubectl scale deployment/${service} --replicas=+2",
+    "cpu_limit": null,
+    "mem_limit": null,
+    "container": null,
+    "revision": null,
+    "probe": null,
+    "initial_delay_seconds": null,
+    "period_seconds": null,
+    "timeout_seconds": null,
+    "failure_threshold": null
+   },
+   {
+    "action": "wait",
+    "replicas": null,
+    "note": "wait for new replicas to become ready",
+    "cpu_limit": null,
+    "mem_limit": null,
+    "container": null,
+    "revision": null,
+    "probe": null,
+    "initial_delay_seconds": null,
+    "period_seconds": null,
+    "timeout_seconds": null,
+    "failure_threshold": null
+   }
+  ],
+  "hitl_mode": "hitl",
+  "reversible": true,
+  "rollback_steps": [
+   {
+    "action": "scale",
+    "replicas": -2,
+    "note": "kubectl scale deployment/${service} --replicas=-2",
+    "cpu_limit": null,
+    "mem_limit": null,
+    "container": null,
+    "revision": null,
+    "probe": null,
+    "initial_delay_seconds": null,
+    "period_seconds": null,
+    "timeout_seconds": null,
+    "failure_threshold": null
+   }
+  ],
+  "symptoms": "CPU or resource saturation, high latency under load, growing queue depth, a traffic surge or capacity shortfall \u2014 needs more replicas"
+ }
+]

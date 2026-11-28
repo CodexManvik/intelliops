@@ -39,3 +39,4 @@ models
 # runtime and the build uses --no-install-project, so they are pure payload.
 **/tests
 **/docs
+rust/**/target

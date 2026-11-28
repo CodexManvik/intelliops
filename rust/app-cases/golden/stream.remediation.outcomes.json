@@ -1,0 +1,146 @@
+[
+ [
+  "1795873561940-0",
+  [
+   "data",
+   "{\"situation_id\":\"sit-5c025fa0200c747c\",\"playbook_id\":\"restart-pod\",\"result\":\"success\",\"health_after\":\"healthy\",\"ts\":\"2026-11-28T13:46:01.939552Z\",\"hitl_mode\":\"hitl\",\"steps\":[\"restart: kubectl rollout restart deployment/${service}\",\"wait: wait for readiness probe to pass\"],\"mode\":\"dry_run\",\"preflight\":{\"passed\":true,\"detail\":\"not rehearsed (sandbox off)\",\"mode\":\"off\",\"sandbox_namespace\":null},\"handling\":\"normal\"}",
+   "id",
+   "c416825177e84c9a8bbfad9155b0fb02"
+  ]
+ ],
+ [
+  "1795873606540-0",
+  [
+   "data",
+   "{\"situation_id\":\"sit-5c025fa0200c747c\",\"playbook_id\":\"restart-pod\",\"result\":\"failure\",\"health_after\":\"aborted:timeout\",\"ts\":\"2026-11-28T13:46:46.540073Z\",\"hitl_mode\":\"hitl\",\"steps\":[],\"mode\":\"dry_run\",\"preflight\":{\"passed\":true,\"detail\":\"not rehearsed (sandbox off)\",\"mode\":\"off\",\"sandbox_namespace\":null},\"handling\":\"normal\"}",
+   "id",
+   "8674ff89df414f19870de31304ee5e03"
+  ]
+ ],
+ [
+  "1795873636934-0",
+  [
+   "data",
+   "{\"situation_id\":\"sit-5c025fa0200c747c\",\"playbook_id\":\"restart-pod\",\"result\":\"failure\",\"health_after\":\"aborted:timeout\",\"ts\":\"2026-11-28T13:47:16.934337Z\",\"hitl_mode\":\"hitl\",\"steps\":[],\"mode\":\"dry_run\",\"preflight\":{\"passed\":true,\"detail\":\"not rehearsed (sandbox off)\",\"mode\":\"off\",\"sandbox_namespace\":null},\"handling\":\"normal\"}",
+   "id",
+   "b52e3c60c6774261a0de523e6b1b5f96"
+  ]
+ ],
+ [
+  "1795873666188-0",
+  [
+   "data",
+   "{\"situation_id\":\"sit-5c025fa0200c747c\",\"playbook_id\":\"restart-pod\",\"result\":\"failure\",\"health_after\":\"aborted:rejected\",\"ts\":\"2026-11-28T13:47:46.188421Z\",\"hitl_mode\":\"hitl\",\"steps\":[],\"mode\":\"dry_run\",\"preflight\":{\"passed\":true,\"detail\":\"not rehearsed (sandbox off)\",\"mode\":\"off\",\"sandbox_namespace\":null},\"handling\":\"normal\"}",
+   "id",
+   "e4e7295236ff4b729f773af1625fa6d0"
+  ]
+ ],
+ [
+  "1795873711442-0",
+  [
+   "data",
+   "{\"situation_id\":\"sit-5c025fa0200c747c\",\"playbook_id\":\"restart-pod\",\"result\":\"failure\",\"health_after\":\"aborted:timeout\",\"ts\":\"2026-11-28T13:48:31.442418Z\",\"hitl_mode\":\"hitl\",\"steps\":[],\"mode\":\"dry_run\",\"preflight\":{\"passed\":true,\"detail\":\"not rehearsed (sandbox off)\",\"mode\":\"off\",\"sandbox_namespace\":null},\"handling\":\"normal\"}",
+   "id",
+   "c33d5b69f5a0487fa3c6bee5b1d685ef"
+  ]
+ ],
+ [
+  "1795873741954-0",
+  [
+   "data",
+   "{\"situation_id\":\"sit-5c025fa0200c747c\",\"playbook_id\":\"restart-pod\",\"result\":\"failure\",\"health_after\":\"aborted:timeout\",\"ts\":\"2026-11-28T13:49:01.953992Z\",\"hitl_mode\":\"hitl\",\"steps\":[],\"mode\":\"dry_run\",\"preflight\":{\"passed\":true,\"detail\":\"not rehearsed (sandbox off)\",\"mode\":\"off\",\"sandbox_namespace\":null},\"handling\":\"normal\"}",
+   "id",
+   "e5e0162a9ec24322939e08580227fc80"
+  ]
+ ],
+ [
+  "1795873800705-0",
+  [
+   "data",
+   "{\"situation_id\":\"sit-5c025fa0200c747c\",\"playbook_id\":\"restart-pod\",\"result\":\"failure\",\"health_after\":\"aborted:timeout\",\"ts\":\"2026-11-28T13:50:00.704435Z\",\"hitl_mode\":\"hitl\",\"steps\":[],\"mode\":\"dry_run\",\"preflight\":{\"passed\":true,\"detail\":\"not rehearsed (sandbox off)\",\"mode\":\"off\",\"sandbox_namespace\":null},\"handling\":\"normal\"}",
+   "id",
+   "8ff43b028bac4c1294cee3e46b315da1"
+  ]
+ ],
+ [
+  "1795873830839-0",
+  [
+   "data",
+   "{\"situation_id\":\"sit-5c025fa0200c747c\",\"playbook_id\":\"restart-pod\",\"result\":\"failure\",\"health_after\":\"aborted:timeout\",\"ts\":\"2026-11-28T13:50:30.839174Z\",\"hitl_mode\":\"hitl\",\"steps\":[],\"mode\":\"dry_run\",\"preflight\":{\"passed\":true,\"detail\":\"not rehearsed (sandbox off)\",\"mode\":\"off\",\"sandbox_namespace\":null},\"handling\":\"normal\"}",
+   "id",
+   "e68e4a4202dc4ac69e6ab7a9f9c5a4e2"
+  ]
+ ],
+ [
+  "1795873861246-0",
+  [
+   "data",
+   "{\"situation_id\":\"sit-5c025fa0200c747c\",\"playbook_id\":\"restart-pod\",\"result\":\"failure\",\"health_after\":\"aborted:timeout\",\"ts\":\"2026-11-28T13:51:01.245725Z\",\"hitl_mode\":\"hitl\",\"steps\":[],\"mode\":\"dry_run\",\"preflight\":{\"passed\":true,\"detail\":\"not rehearsed (sandbox off)\",\"mode\":\"off\",\"sandbox_namespace\":null},\"handling\":\"normal\"}",
+   "id",
+   "20311f53a1b04f73aeb6b8dedcc1d039"
+  ]
+ ],
+ [
+  "1795873891778-0",
+  [
+   "data",
+   "{\"situation_id\":\"sit-5c025fa0200c747c\",\"playbook_id\":\"restart-pod\",\"result\":\"failure\",\"health_after\":\"aborted:timeout\",\"ts\":\"2026-11-28T13:51:31.778102Z\",\"hitl_mode\":\"hitl\",\"steps\":[],\"mode\":\"dry_run\",\"preflight\":{\"passed\":true,\"detail\":\"not rehearsed (sandbox off)\",\"mode\":\"off\",\"sandbox_namespace\":null},\"handling\":\"normal\"}",
+   "id",
+   "6123e9215c5a453dbb935c1b860be446"
+  ]
+ ],
+ [
+  "1795873899974-0",
+  [
+   "data",
+   "{\"situation_id\":\"sit-5c025fa0200c747c\",\"playbook_id\":\"restart-pod\",\"result\":\"success\",\"health_after\":\"healthy\",\"ts\":\"2026-11-28T13:51:39.973703Z\",\"hitl_mode\":\"hitl\",\"steps\":[\"restart: kubectl rollout restart deployment/${service}\",\"wait: wait for readiness probe to pass\"],\"mode\":\"dry_run\",\"preflight\":{\"passed\":true,\"detail\":\"not rehearsed (sandbox off)\",\"mode\":\"off\",\"sandbox_namespace\":null},\"handling\":\"normal\"}",
+   "id",
+   "52aba320b439449f8a4ee1ab0b3d588b"
+  ]
+ ],
+ [
+  "1795873951838-0",
+  [
+   "data",
+   "{\"situation_id\":\"sit-5c025fa0200c747c\",\"playbook_id\":\"restart-pod\",\"result\":\"failure\",\"health_after\":\"aborted:timeout\",\"ts\":\"2026-11-28T13:52:31.836862Z\",\"hitl_mode\":\"hitl\",\"steps\":[],\"mode\":\"dry_run\",\"preflight\":{\"passed\":true,\"detail\":\"not rehearsed (sandbox off)\",\"mode\":\"off\",\"sandbox_namespace\":null},\"handling\":\"normal\"}",
+   "id",
+   "c72c3fdc35664d5daaa702ca12c7d24a"
+  ]
+ ],
+ [
+  "1795874012632-0",
+  [
+   "data",
+   "{\"situation_id\":\"sit-5c025fa0200c747c\",\"playbook_id\":\"restart-pod\",\"result\":\"failure\",\"health_after\":\"aborted:rejected\",\"ts\":\"2026-11-28T13:53:32.632644Z\",\"hitl_mode\":\"hitl\",\"steps\":[],\"mode\":\"dry_run\",\"preflight\":{\"passed\":true,\"detail\":\"not rehearsed (sandbox off)\",\"mode\":\"off\",\"sandbox_namespace\":null},\"handling\":\"normal\"}",
+   "id",
+   "00f2ff7917da4fb6b0dd542ca53c8ab0"
+  ]
+ ],
+ [
+  "1795874056933-0",
+  [
+   "data",
+   "{\"situation_id\":\"sit-5c025fa0200c747c\",\"playbook_id\":\"restart-pod\",\"result\":\"failure\",\"health_after\":\"aborted:timeout\",\"ts\":\"2026-11-28T13:54:16.932376Z\",\"hitl_mode\":\"hitl\",\"steps\":[],\"mode\":\"dry_run\",\"preflight\":{\"passed\":true,\"detail\":\"not rehearsed (sandbox off)\",\"mode\":\"off\",\"sandbox_namespace\":null},\"handling\":\"normal\"}",
+   "id",
+   "ec9e8fc151d349298c3aafed50f6cd8e"
+  ]
+ ],
+ [
+  "1795874087429-0",
+  [
+   "data",
+   "{\"situation_id\":\"sit-5c025fa0200c747c\",\"playbook_id\":\"restart-pod\",\"result\":\"failure\",\"health_after\":\"aborted:timeout\",\"ts\":\"2026-11-28T13:54:47.429635Z\",\"hitl_mode\":\"hitl\",\"steps\":[],\"mode\":\"dry_run\",\"preflight\":{\"passed\":true,\"detail\":\"not rehearsed (sandbox off)\",\"mode\":\"off\",\"sandbox_namespace\":null},\"handling\":\"normal\"}",
+   "id",
+   "d7b69daa727e41fe88e7d0cbde6b9aaf"
+  ]
+ ],
+ [
+  "1795874147012-0",
+  [
+   "data",
+   "{\"situation_id\":\"sit-5c025fa0200c747c\",\"playbook_id\":\"restart-pod\",\"result\":\"failure\",\"health_after\":\"aborted:timeout\",\"ts\":\"2026-11-28T13:55:47.011476Z\",\"hitl_mode\":\"hitl\",\"steps\":[],\"mode\":\"dry_run\",\"preflight\":{\"passed\":true,\"detail\":\"not rehearsed (sandbox off)\",\"mode\":\"off\",\"sandbox_namespace\":null},\"handling\":\"normal\"}",
+   "id",
+   "c25ec178c6ec4f2dad6bc21731441d5f"
+  ]
+ ]
+]

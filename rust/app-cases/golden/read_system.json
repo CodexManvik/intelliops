@@ -1,0 +1,20 @@
+{
+ "bus_backend": "redis",
+ "auth_mode": "off",
+ "correlator_kind": "river",
+ "detection_policy": "off",
+ "correlation_group_by": "window",
+ "remediator_mode": "dry_run",
+ "health_check_mode": "always",
+ "sandbox_mode": "off",
+ "store_backend": "postgres",
+ "runbook_selector_mode": "embedding",
+ "llm": {
+  "provider": "openai-compatible",
+  "endpoint_configured": true,
+  "endpoint": "https://api.groq.com",
+  "model": "openai/gpt-oss-120b",
+  "last_probe": null,
+  "source": "rca"
+ }
+}

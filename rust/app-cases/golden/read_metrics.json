@@ -1,0 +1,12 @@
+{
+ "alertsIngested": 18,
+ "situationsOpen": 1,
+ "noiseReductionPct": 94.4,
+ "mttrMinutes": 0.0,
+ "autoRemediatedPct": 0.0,
+ "suppressedToday": 0,
+ "approvalsPending": 1,
+ "successRate": 0.0,
+ "needsAttention": 0,
+ "quietlyHandled": 0
+}
