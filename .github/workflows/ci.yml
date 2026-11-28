@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -34,7 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -56,7 +56,7 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -74,7 +74,7 @@ jobs:
     env:
       CHART: deploy/k8s/platform
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: azure/setup-helm@v4
       - run: helm lint "$CHART"
       - run: helm lint "$CHART" -f "$CHART/values-live.yaml"
@@ -91,7 +91,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v3
       - name: Export the locked dependency set (all extras, no dev)
         run: uv export --frozen --all-extras --no-dev --no-emit-project --format requirements-txt -o requirements-audit.txt
@@ -105,7 +105,7 @@ jobs:
       matrix:
         dir: [frontend, services/meridian/ui]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -121,7 +121,7 @@ jobs:
     timeout-minutes: 10
     needs: [lint, test]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -155,7 +155,7 @@ jobs:
     timeout-minutes: 45
     needs: [lint, test, frontend-build]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Pre-build the three compose images with a persistent layer cache (the
       # `full` target is ~4GB of torch — rebuilding it cold every run was most of
       # this job). Tags match the `image:` names in deploy/docker-compose.yml, so
@@ -277,7 +277,7 @@ jobs:
           - { name: intelliops, file: deploy/Dockerfile, target: full, prefix: "full-", scope: full }
           - { name: intelliops-console, file: deploy/Dockerfile.frontend, target: "", prefix: "", scope: console }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Image reference (GHCR requires a lowercase owner)
         id: ref
         run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${{ matrix.name }}:${{ matrix.prefix }}${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
