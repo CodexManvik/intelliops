@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use intelliops_llm::redact;
 use intelliops_service::Config;
 use serde_json::{Map, Value, json};
 use tokio::sync::Mutex;
@@ -29,19 +30,6 @@ pub struct Peers {
     client: reqwest::Client,
     config: Config,
     cache: Mutex<Option<(Instant, Value)>>,
-}
-
-/// The host and port of an endpoint, never an embedded credential.
-fn redact(endpoint: &str) -> String {
-    match reqwest::Url::parse(endpoint) {
-        _ if endpoint.is_empty() => String::new(),
-        Ok(url) => match (url.host_str(), url.port()) {
-            (Some(host), Some(port)) => format!("{}://{host}:{port}", url.scheme()),
-            (Some(host), None) => format!("{}://{host}", url.scheme()),
-            _ => "configured".to_string(),
-        },
-        Err(_) => "configured".to_string(),
-    }
 }
 
 impl Peers {
@@ -244,19 +232,4 @@ fn series(body: &Value) -> Option<Vec<Value>> {
             Some(json!({"service": service, "points": points}))
         })
         .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn never_shows_a_credential() {
-        assert_eq!(
-            redact("https://user:secret@api.example.com:8443/v1?key=k"),
-            "https://api.example.com:8443"
-        );
-        assert_eq!(redact("not a url"), "configured");
-        assert_eq!(redact(""), "");
-    }
 }

@@ -110,6 +110,9 @@ Consequences: "Matches Python" is a claim only for what the cases cover.
 - A runbook draft is validated without Pydantic's type coercion: `"2"` is not
   accepted where an integer is required; the model is asked to resubmit.
 - Storage failures answer 503 instead of 500.
+- RCA's embedding selector now runs. In the Python compose stack it was enabled
+  but the image lacked the library, so ranking silently used rules only.
+- With embedding selection configured and no model present, RCA refuses to start.
 - `handling` is a closed type ("normal" | "quiet"); Python accepted any string.
 
 ## ADR-011: The per-service switch is a compose override
@@ -127,3 +130,12 @@ Decision: Do not port the file backends. The Rust schema file is generated from
 Alembic and applies with `IF NOT EXISTS`, so it is a no-op on an existing
 database.
 Consequences: `STORE_BACKEND=file` now means memory.
+
+## ADR-013: Python is removed from master once the port is complete
+Status: accepted (2026-11-28)
+Context: The owner: back up the current main to another branch, then remove the
+Python code from main after porting.
+Decision: `python-legacy` holds master as it was (commit 17f4107). When every
+service runs on Rust, the Python code and its tooling are deleted from master.
+Consequences: Recorded cases stay; the scripts that produced them need
+`python-legacy` to run.

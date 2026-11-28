@@ -59,6 +59,12 @@ impl ChatClient {
     }
 
     #[must_use]
+    pub fn with_attempts(mut self, attempts: u32) -> Self {
+        self.max_attempts = attempts.max(1);
+        self
+    }
+
+    #[must_use]
     pub fn base_url(&self) -> &str {
         &self.base_url
     }
@@ -116,9 +122,33 @@ impl ChatClient {
     }
 }
 
+/// The scheme, host and port of an endpoint, never an embedded credential.
+#[must_use]
+pub fn redact(endpoint: &str) -> String {
+    match reqwest::Url::parse(endpoint) {
+        _ if endpoint.is_empty() => String::new(),
+        Ok(url) => match (url.host_str(), url.port()) {
+            (Some(host), Some(port)) => format!("{}://{host}:{port}", url.scheme()),
+            (Some(host), None) => format!("{}://{host}", url.scheme()),
+            _ => "configured".to_string(),
+        },
+        Err(_) => "configured".to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn never_shows_a_credential() {
+        assert_eq!(
+            redact("https://user:secret@api.example.com:8443/v1?key=k"),
+            "https://api.example.com:8443"
+        );
+        assert_eq!(redact("not a url"), "configured");
+        assert_eq!(redact(""), "");
+    }
 
     #[test]
     fn reads_the_advised_delay() {

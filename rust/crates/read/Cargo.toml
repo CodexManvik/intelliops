@@ -12,6 +12,7 @@ futures-util.workspace = true
 indexmap.workspace = true
 intelliops-bus = { path = "../bus" }
 intelliops-contracts = { path = "../contracts" }
+intelliops-llm = { path = "../llm" }
 intelliops-service = { path = "../service" }
 reqwest.workspace = true
 serde.workspace = true
