@@ -22,7 +22,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
@@ -52,7 +52,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
@@ -89,7 +89,7 @@ jobs:
       CHART: deploy/k8s/platform
     steps:
       - uses: actions/checkout@v7
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
       - run: helm lint "$CHART"
       - run: helm lint "$CHART" -f "$CHART/values-live.yaml"
       - name: Render safe, live, sandbox and existing-secret postures
@@ -106,7 +106,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@v7
       - name: Export the locked dependency set (all extras, no dev)
         run: uv export --frozen --all-extras --no-dev --no-emit-project --format requirements-txt -o requirements-audit.txt
       - run: uvx pip-audit -r requirements-audit.txt --require-hashes --disable-pip
@@ -139,7 +139,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - uses: astral-sh/setup-uv@v3
+      - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
