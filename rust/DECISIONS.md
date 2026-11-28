@@ -123,6 +123,11 @@ Consequences: "Matches Python" is a claim only for what the cases cover.
 - A quantity like `nan` is refused by the denylist.
 - Configured for a real cluster but unable to reach one, action refuses to start.
 - An unwritable audit record is retried, then logged, instead of crashing.
+- The trained detector's forest is written in Rust. Its trees differ from
+  scikit-learn's; on the five benchmark streams it is within two events of it.
+  A joblib model saved by Python is not readable and is refitted.
+- A human decision that lands as the wait ends is honoured. Python recorded the
+  approval and still reported `aborted:timeout`.
 - `handling` is a closed type ("normal" | "quiet"); Python accepted any string.
 
 ## ADR-011: The per-service switch is a compose override

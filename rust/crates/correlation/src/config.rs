@@ -25,17 +25,28 @@ fn policy(config: &Config) -> Result<Policy, String> {
     }))
 }
 
+fn robust(config: &Config, per_series: bool) -> Result<RobustConfig, String> {
+    Ok(RobustConfig {
+        warmup_samples: config.number("correlation_robust_warmup", 30)?,
+        seasonal_buckets: config.number("correlation_seasonal_buckets", 24)?,
+        window_size: config.number("correlation_robust_window", 128)?,
+        per_series,
+    })
+}
+
 fn scorer(config: &Config) -> Result<Scorer, String> {
     match config.get("correlator_kind", "river").as_str() {
         "river" => Ok(Scorer::River(Detector::new(
             config.number("correlation_warmup_samples", 50)?,
         ))),
-        "robust" => Ok(Scorer::Robust(Robust::new(RobustConfig {
-            warmup_samples: config.number("correlation_robust_warmup", 30)?,
-            seasonal_buckets: config.number("correlation_seasonal_buckets", 24)?,
-            window_size: config.number("correlation_robust_window", 128)?,
-            per_series: config.get("correlation_robust_key_by", "metric") == "series",
-        }))),
+        "robust" => {
+            let per_series = config.get("correlation_robust_key_by", "metric") == "series";
+            Ok(Scorer::Robust(Robust::new(robust(config, per_series)?)))
+        }
+        "trained" => Ok(Scorer::Trained(
+            Robust::new(robust(config, false)?),
+            Box::default(),
+        )),
         other => Err(format!("unknown CORRELATOR_KIND: {other:?}")),
     }
 }

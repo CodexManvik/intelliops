@@ -28,6 +28,7 @@ async fn run(config: Config) -> Result<(), Failure> {
     };
     // Restore before consuming, so the first events meet a warm baseline.
     correlation.restore_baseline().await;
+    correlation.restore_model().await;
     correlation.refresh_reliability().await;
 
     let events = consumer_config(&config, topics::TELEMETRY_RAW, "correlation")?;

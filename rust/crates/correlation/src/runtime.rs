@@ -19,6 +19,8 @@ use tokio::time::Instant;
 
 use crate::{Engine, Scorer, Training};
 
+const MODEL: &str = "trained";
+
 #[derive(Clone)]
 pub struct Correlation {
     pub engine: Arc<Mutex<Engine>>,
@@ -64,6 +66,21 @@ impl Correlation {
         }
     }
 
+    /// A missing or unreadable model just means starting without one.
+    pub async fn restore_model(&self) {
+        if let Scorer::Trained(_, model) = self.engine.lock().await.scorer_mut() {
+            match self.store.model_load(MODEL).await {
+                Ok(Some(blob)) => {
+                    if !model.load(&blob) {
+                        tracing::warn!("stored model is unreadable; starting without one");
+                    }
+                }
+                Ok(None) => {}
+                Err(error) => tracing::warn!(%error, "model reload failed"),
+            }
+        }
+    }
+
     /// Only the mean/variance detector has a baseline that fits the table.
     pub async fn restore_baseline(&self) {
         let rows = match self.store.baseline_load().await {
@@ -101,7 +118,7 @@ impl Correlation {
                     count: i64::try_from(r.count).unwrap_or(i64::MAX),
                 })
                 .collect(),
-            Scorer::Robust(_) => return,
+            Scorer::Robust(_) | Scorer::Trained(..) => return,
         };
         if let Err(error) = self.store.baseline_save(&rows).await {
             tracing::warn!(%error, "baseline snapshot failed");
@@ -167,9 +184,22 @@ async fn reset_baseline(State(correlation): State<Correlation>) -> Response {
     Json(json!({"reset": true})).into_response()
 }
 
-/// Neither online detector has a model to fit.
-async fn retrain() -> Json<Value> {
-    Json(json!({"fitted": false, "persisted": false}))
+/// Fit the trained detector from what it has seen, and keep the model. The
+/// online detectors have nothing to fit.
+async fn retrain(State(correlation): State<Correlation>) -> Json<Value> {
+    let blob = match correlation.engine.lock().await.scorer_mut() {
+        Scorer::Trained(_, model) => model.fit().then(|| model.serialize()),
+        _ => None,
+    };
+    let fitted = blob.is_some();
+    let mut persisted = false;
+    if let Some(Some(blob)) = blob {
+        match correlation.store.model_save(MODEL, &blob).await {
+            Ok(()) => persisted = true,
+            Err(error) => tracing::warn!(%error, "could not persist the model"),
+        }
+    }
+    Json(json!({"fitted": fitted, "persisted": persisted}))
 }
 
 async fn baseline(State(correlation): State<Correlation>) -> Json<Value> {
@@ -186,7 +216,7 @@ async fn baseline(State(correlation): State<Correlation>) -> Json<Value> {
                 })
                 .collect(),
         ),
-        Scorer::Robust(detector) => {
+        Scorer::Robust(detector) | Scorer::Trained(detector, _) => {
             let counts = detector.counts();
             (
                 "median/MAD",

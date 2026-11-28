@@ -81,3 +81,63 @@ services:
         SERVICE: action
       target: service
     healthcheck: *rust-healthcheck
+
+  demo-app:
+    image: intelliops-sim-rs:latest
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.rust
+      args:
+        SERVICE: sim
+      target: sim
+    environment:
+      INTELLIOPS_SIM: demo-app
+    healthcheck: *rust-healthcheck
+
+  meridian-gateway:
+    image: intelliops-sim-rs:latest
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.rust
+      args:
+        SERVICE: sim
+      target: sim
+    environment:
+      INTELLIOPS_SIM: meridian-gateway
+    healthcheck: *rust-healthcheck
+
+  meridian-validation:
+    image: intelliops-sim-rs:latest
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.rust
+      args:
+        SERVICE: sim
+      target: sim
+    environment:
+      INTELLIOPS_SIM: meridian-validation
+    healthcheck: *rust-healthcheck
+
+  meridian-aggregation:
+    image: intelliops-sim-rs:latest
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.rust
+      args:
+        SERVICE: sim
+      target: sim
+    environment:
+      INTELLIOPS_SIM: meridian-aggregation
+    healthcheck: *rust-healthcheck
+
+  meridian-reporting:
+    image: intelliops-sim-rs:latest
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.rust
+      args:
+        SERVICE: sim
+      target: sim
+    environment:
+      INTELLIOPS_SIM: meridian-reporting
+    healthcheck: *rust-healthcheck

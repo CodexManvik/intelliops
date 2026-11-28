@@ -66,6 +66,25 @@ impl HttpGate {
     }
 }
 
+impl HttpGate {
+    /// Time is up: expire the request and believe the answer. A human who
+    /// decided between the last poll and now is honoured, because governance
+    /// recorded their decision. Both sides then agree on what happened.
+    async fn close(&self, approval_id: &str) -> String {
+        let path = format!("/approvals/{approval_id}/expire");
+        match self.post(&path, &json!({"actor": ACTOR})).await {
+            Ok(request) => match request["status"].as_str() {
+                Some(status @ ("approved" | "rejected")) => status.to_string(),
+                _ => "pending".to_string(),
+            },
+            Err(error) => {
+                tracing::warn!(%error, "could not close the approval; treating as timed out");
+                "pending".to_string()
+            }
+        }
+    }
+}
+
 impl Gate for HttpGate {
     async fn allowed(&self, resource: &str) -> bool {
         let question = json!({"actor": ACTOR, "action": "execute", "resource": resource});
@@ -94,7 +113,7 @@ impl Gate for HttpGate {
                 Err(error) => tracing::debug!(%error, "approval poll failed"),
             }
             if Instant::now() >= deadline {
-                return "pending".to_string();
+                return self.close(approval_id).await;
             }
             tokio::time::sleep(self.poll).await;
         }

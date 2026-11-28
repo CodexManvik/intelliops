@@ -22,6 +22,7 @@ tracing.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+axum.workspace = true
 http = "1"
 tower-test = "0.4"
 

@@ -10,20 +10,20 @@ Goal: all backend code in Rust, deployed free on ARM, one service at a time
 | Online z-score and detection policy | `crates/detect` | 9,000 recorded steps, to 1e-12 (libm `pow` differs by platform) | done |
 | Redis Streams bus | `crates/bus` | live stack | done |
 | Storage (all tables) | `crates/store` | same tests on memory and Postgres | done |
-| Correlation service | `crates/correlation` | 20,800 recorded engine ops; live | done except the `trained` detector |
 | Service base: probes, metrics, auth, logging | `crates/service` | unit tests | done |
 | Ingestion service | `crates/ingestion` | 93 recorded `/ingest` cases; live in the compose stack | done (compose switch only) |
+| Correlation service, all three detectors | `crates/correlation` | 20,800 engine ops; 5 benchmark streams; live | done |
+| demo_app and Meridian | `crates/sim` | recorded faults and jitter; live | done |
 | Feedback service | `crates/feedback` | recorded rules; live | done |
 | Read service | `crates/read` | recorded projection; live | done |
 | Governance service and AI runbook author | `crates/governance`, `crates/llm` | 3,015 fnmatch cases, API tests, scripted model; live incident approval and live draft | done |
 | RCA service (rules, embeddings, explainer) | `crates/rca`, `crates/embed` | 400 recorded diagnoses; vectors match sentence-transformers; live | done |
 | Action service: gates, Kubernetes, health, sandbox | `crates/action` | 2,500 recorded gate cases, 600 health cases, mock API server; live dry run; `tests/live_cluster.rs` on kind | done |
-| demo_app, Meridian | | | open |
 | Per-service switch (Helm), arm64 images | | | open (compose switch done) |
 | Public demo mode, auth fix (#59, #60), Docs page rewrite | | | open |
 | Free deployment | | | open |
 
-Ingestion, correlation, feedback, read, governance, rca and action (all platform services) run on Rust when `deploy/docker-compose.rust.yml` is added.
+Ingestion, correlation, feedback, read, governance, rca and action and the demo apps run on Rust when `deploy/docker-compose.rust.yml` is added.
 
 ## Working on it
 - Oracles: `app-cases/golden/` (live traffic), `app-cases/detector.json`
@@ -33,8 +33,8 @@ Ingestion, correlation, feedback, read, governance, rca and action (all platform
   `cargo test` in `rust/`.
 
 ## Next, in order
-1. demo_app and Meridian.
-2. The `trained` (isolation forest) detector, before Python is removed.
+1. Remove Python from the tree (ADR-013): compose, Helm, CI, scripts, docs.
+2. Measure against the Python baseline; README section.
 
 ## Limits of the golden recording
 It proves message and response shapes only. It keeps the last 500 telemetry

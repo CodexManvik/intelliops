@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 axum.workspace = true
 intelliops-bus = { path = "../bus" }
+intelliops-contracts = { path = "../contracts" }
 intelliops-store = { path = "../store" }
 prometheus-client.workspace = true
 serde.workspace = true

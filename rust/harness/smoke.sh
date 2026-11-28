@@ -11,11 +11,8 @@ fail() {
   echo " ✗ $1"
   exit 1
 }
-streamlen() {
-  compose exec -T redis redis-cli XLEN telemetry.raw | tr -d '\r'
-}
 
-compose up -d --build --wait --wait-timeout 300 ingestion correlation feedback read governance rca action
+compose up -d --build --wait --wait-timeout 600 ingestion correlation feedback read governance rca action   demo-app meridian-gateway meridian-validation meridian-aggregation meridian-reporting
 [ "$(docker inspect -f '{{.Config.Image}}' "$(compose ps -q ingestion)")" = intelliops-ingestion-rs:latest ] ||
   fail "ingestion is not the Rust image"
 [ "$(docker inspect -f '{{.Config.User}}' "$(compose ps -q ingestion)")" = 10001 ] ||
@@ -23,11 +20,13 @@ compose up -d --build --wait --wait-timeout 300 ingestion correlation feedback r
 echo " ✓ Rust ingestion is healthy and unprivileged"
 
 since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-before=$(streamlen)
-body='{"events":[{"source":"smoke","kind":"metric","name":"smoke_metric","value":1,"labels":{"service":"smoke"}}]}'
+marker=smoke-$$-$RANDOM
+body='{"events":[{"source":"'$marker'","kind":"metric","name":"smoke_metric","value":1,"labels":{"service":"smoke"}}]}'
 [ "$(curl -fsS -H 'Content-Type: application/json' -d "$body" http://localhost:8001/ingest)" = '{"accepted":1}' ] ||
   fail "/ingest did not accept the batch"
-[ "$(streamlen)" -gt "$before" ] || fail "nothing reached telemetry.raw"
+# Captured first: `grep -q` quitting early would fail the pipe under pipefail.
+recent=$(compose exec -T redis redis-cli XREVRANGE telemetry.raw + - COUNT 2000)
+grep -q "$marker" <<<"$recent" || fail "nothing reached telemetry.raw"
 code=$(curl -s -o /dev/null -w '%{http_code}' -d '{"events":[{}]}' http://localhost:8001/ingest)
 [ "$code" = 422 ] || fail "a bad event answered $code, not 422"
 echo " ✓ /ingest publishes and refuses bad input"
@@ -55,3 +54,7 @@ curl -fsS http://localhost:8003/config/llm | grep -q '"provider"' || fail "rca /
 echo " ✓ Rust rca is serving"
 curl -fsS http://localhost:8004/config/posture | grep -q '"remediator_mode"' || fail "action posture"
 echo " ✓ Rust action is serving"
+curl -fsS http://localhost:8080/metrics | grep -q '^cpu_usage ' || fail "demo-app metrics"
+curl -fsS http://localhost:8008/ | grep -qi '<html' || fail "Meridian UI"
+curl -fsS http://localhost:8011/metrics | grep -q '^service_up 1' || fail "meridian metrics"
+echo " ✓ Rust demo app and Meridian are serving"

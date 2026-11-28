@@ -38,3 +38,15 @@ ENTRYPOINT ["/usr/local/bin/service"]
 FROM service AS rca
 COPY --from=model /minilm /app/models/minilm
 
+# The Meridian ops panel, served by the gateway.
+FROM node:26-slim AS meridian-ui
+WORKDIR /ui
+COPY services/meridian/ui/package*.json ./
+RUN npm ci
+COPY services/meridian/ui/ ./
+RUN npm run build
+
+# One binary plays the demo app and all four Meridian services.
+FROM service AS sim
+COPY --from=meridian-ui /ui/dist /app/ui
+
