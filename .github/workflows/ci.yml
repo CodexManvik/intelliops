@@ -75,7 +75,7 @@ jobs:
       CHART: deploy/k8s/platform
     steps:
       - uses: actions/checkout@v7
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
       - run: helm lint "$CHART"
       - run: helm lint "$CHART" -f "$CHART/values-live.yaml"
       - name: Render safe, live, sandbox and existing-secret postures
