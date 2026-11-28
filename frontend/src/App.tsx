@@ -1,16 +1,13 @@
-import { useEffect, useState, type ComponentType } from "react";
+import { lazy, Suspense, useEffect, useState, type ComponentType } from "react";
 import { MotionConfig } from "framer-motion";
 import { Shell, type View } from "./components/Shell";
+import { PageBar, PAGE_LINKS, type PageId } from "./components/PageBar";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Overview } from "./views/Overview";
 import { Incidents } from "./views/Incidents";
 import { Governance } from "./views/Governance";
 import { AgentActivity } from "./views/AgentActivity";
 import { System } from "./views/System";
-import Dashboard from "./pages/Dashboard";
-import AuditLog from "./pages/AuditLog";
-import Product from "./pages/Product";
-import Docs from "./pages/Docs";
 import "./styles/view.css";
 
 /* The five views were in-memory state only, so the browser back button did
@@ -20,13 +17,16 @@ import "./styles/view.css";
 const VIEWS: View[] = ["overview", "incidents", "governance", "agent-activity", "settings"];
 
 /* Standalone pages render outside the console Shell, on the same hash router
-   (#/dashboard, #/audit-log, #/product, #/docs). */
-const PAGES: Record<string, ComponentType<{ onNavigate: (p: string) => void }>> = {
-  dashboard: Dashboard,
-  "audit-log": AuditLog,
-  product: Product,
-  docs: Docs,
+   (#/dashboard, #/audit-log, #/product, #/docs). Lazy: the console is the
+   default route and should not pay for pages most sessions never open. */
+type PageProps = { onNavigate: (p: string) => void };
+const PAGES: Record<PageId, ComponentType<PageProps>> = {
+  dashboard: lazy(() => import("./pages/Dashboard")),
+  "audit-log": lazy(() => import("./pages/AuditLog")),
+  product: lazy(() => import("./pages/Product")),
+  docs: lazy(() => import("./pages/Docs")),
 };
+const isPage = (r: string): r is PageId => PAGE_LINKS.some((p) => p.id === r);
 
 const hashRoute = () => window.location.hash.replace(/^#\/?/, "");
 // The pages call "landing" what the router calls the console's overview.
@@ -60,8 +60,19 @@ export default function App() {
   // Incidents' "Draft a runbook with AI" button, consumed by AgentActivity.
   const [focusRun, setFocusRun] = useState<string | null>(null);
 
-  const Page = PAGES[route];
-  if (Page) return <Page onNavigate={navigate} />;
+  if (isPage(route)) {
+    const Page = PAGES[route];
+    return (
+      <>
+        <PageBar current={route} />
+        <ErrorBoundary resetKey={route}>
+          <Suspense fallback={<div className="pt-24 text-center text-sm text-ink-3">Loading…</div>}>
+            <Page onNavigate={navigate} />
+          </Suspense>
+        </ErrorBoundary>
+      </>
+    );
+  }
 
   // The view mounts at full opacity (no Framer mount animation — that strands
   // at opacity 0 under StrictMode's double-invoke). Entrance polish comes from

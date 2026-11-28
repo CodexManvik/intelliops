@@ -4,6 +4,7 @@ import { Circuitry, ListChecks, SquaresFour, ShieldCheck, Waveform } from "@phos
 import { fluid } from "./primitives";
 import { ThemeToggle } from "./ThemeToggle";
 import { ToastHost } from "../hooks/useToast";
+import { PAGE_LINKS } from "./PageBar";
 import { onConnectionHealth } from "../hooks/useLiveData";
 import { WarningCircle } from "@phosphor-icons/react";
 
@@ -166,7 +167,18 @@ export function Shell({
       </AnimatePresence>
 
       {/* view content */}
-      <main id="main" className="relative z-10 mx-auto w-full max-w-6xl px-4 pb-24 pt-8 sm:px-6">{children}</main>
+      <main id="main" className="relative z-10 mx-auto w-full max-w-6xl px-4 pb-16 pt-8 sm:px-6">{children}</main>
+      {/* The standalone pages live outside the console; this is the way to them. */}
+      <footer className="relative z-10 mx-auto w-full max-w-6xl px-4 pb-10 sm:px-6">
+        <nav aria-label="More pages" className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-line pt-5 text-[13px]">
+          <span className="text-2xs font-medium uppercase tracking-[0.16em] text-ink-4">More</span>
+          {PAGE_LINKS.map((p) => (
+            <a key={p.id} href={`#/${p.id}`} className="text-ink-3 transition-colors hover:text-ink">
+              {p.label}
+            </a>
+          ))}
+        </nav>
+      </footer>
       <ToastHost />
     </div>
   );

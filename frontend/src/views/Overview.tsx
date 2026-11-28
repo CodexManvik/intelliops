@@ -361,7 +361,7 @@ export function Overview({ onView }: { onView: (v: View) => void }) {
           <Head
             icon={<Waveform size={16} weight="light" />}
             right={
-              <div className="flex items-center gap-1">
+              <div className="flex flex-wrap items-center justify-end gap-1">
                 {METRIC_CHOICES.map((m) => (
                   <button
                     key={m.key}

@@ -1,0 +1,111 @@
+/* Palette for the standalone pages (src/pages). They style with inline
+   `style` objects, so they cannot use the Tailwind tokens directly; these
+   variables give them the same light/dark switch (data-theme on <html>).
+   Light values are the pages' original colours. */
+:root,
+:root[data-theme="dark"] {
+  --pg-page: #0A0A0A;
+  --pg-card: #111111;
+  --pg-subtle: #1A1A1A;
+  --pg-line: #242424;
+  --pg-ink: #EDEDED;
+  --pg-ink-2: #B4B4B4;
+  --pg-ink-3: #9C9C9C;
+  --pg-ink-4: #8E8E8E;
+  --pg-accent: #4A78FA;
+  --pg-accent-soft: #141C33;
+  --pg-accent-line: #2A3A6B;
+  --pg-indigo: #A5B4FC;
+  --pg-indigo-ink: #A5B4FC;
+  --pg-crit: #FF6369;
+  --pg-crit-ink: #FF6369;
+  --pg-crit-soft: #2A1416;
+  --pg-crit-line: #5C2327;
+  --pg-ok: #62C073;
+  --pg-ok-ink: #62C073;
+  --pg-ok-soft: #11241A;
+  --pg-ok-line: #1F4D30;
+  --pg-warn: #FFB224;
+  --pg-warn-ink: #FFB224;
+  --pg-warn-soft: #2A2110;
+  --pg-warn-line: #5C4613;
+  --pg-purple: #BF7AF0;
+  --pg-purple-soft: #24162C;
+  --pg-on-accent: #FFFFFF;
+  --pg-code-bg: #000000;
+}
+
+:root[data-theme="light"] {
+  --pg-page: #F7F8FA;
+  --pg-card: #FFFFFF;
+  --pg-subtle: #F3F4F6;
+  --pg-line: #E4E5E9;
+  --pg-ink: #101114;
+  --pg-ink-2: #374151;
+  --pg-ink-3: #6B7280;
+  --pg-ink-4: #9CA3AF;
+  --pg-accent: #2F5FF6;
+  --pg-accent-soft: #EEF2FF;
+  --pg-accent-line: #C7D2FE;
+  --pg-indigo: #6366F1;
+  --pg-indigo-ink: #4338CA;
+  --pg-crit: #EF4444;
+  --pg-crit-ink: #DC2626;
+  --pg-crit-soft: #FEF2F2;
+  --pg-crit-line: #FECACA;
+  --pg-ok: #22C55E;
+  --pg-ok-ink: #16A34A;
+  --pg-ok-soft: #F0FDF4;
+  --pg-ok-line: #BBF7D0;
+  --pg-warn: #F59E0B;
+  --pg-warn-ink: #D97706;
+  --pg-warn-soft: #FFFBEB;
+  --pg-warn-line: #FDE68A;
+  --pg-purple: #9333EA;
+  --pg-purple-soft: #FDF4FF;
+  --pg-on-accent: #FFFFFF;
+  --pg-code-bg: #101114;
+}
+
+/* Responsive hooks. The pages use inline styles, which only !important can
+   override from a stylesheet. */
+@media (max-width: 899px) {
+  /* Sidebar + content layouts (Dashboard, Docs) stack; the page scrolls. */
+  .pg-split {
+    flex-direction: column !important;
+    height: auto !important;
+    min-height: 100vh;
+    overflow: visible !important;
+  }
+  .pg-split-nav {
+    width: auto !important;
+    max-height: 260px;
+    overflow-y: auto !important;
+    border-right: none !important;
+    border-bottom: 1px solid var(--pg-line);
+  }
+  .pg-split-main {
+    overflow: visible !important;
+    padding: 24px 16px !important;
+    min-width: 0;
+  }
+  .pg-hide-narrow {
+    display: none !important;
+  }
+  .pg-feature {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 32px !important;
+    padding: 48px 0 !important;
+  }
+  .pg-grid-3,
+  .pg-grid-2 {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  .pg-grid-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  .pg-section {
+    padding-left: 20px !important;
+    padding-right: 20px !important;
+  }
+}

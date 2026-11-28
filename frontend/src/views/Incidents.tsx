@@ -452,7 +452,7 @@ export function Incidents({
                       {shown.member_events.slice(0, 6).map((ev, i) => {
                         const b = shown.baseline?.[ev.name];
                         return (
-                          <div key={i} className="flex items-center gap-3 rounded-lg bg-surface px-3 py-1.5 font-mono text-2xs">
+                          <div key={i} className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-surface px-3 py-1.5 font-mono text-2xs">
                             <span className="text-ink">{ev.name}</span>
                             <span className="text-signal-dim">{ev.value ?? "—"}</span>
                             {b && <span className="text-ink-3">vs baseline {fmtBaseline(b.mean)}±{fmtBaseline(b.std)}</span>}
