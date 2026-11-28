@@ -1,90 +1,64 @@
 # syntax=docker/dockerfile:1
+# Every IntelliOps image. Pick one with --target and --build-arg SERVICE:
+#
+#   --target service --build-arg SERVICE=ingestion   (any platform service)
+#   --target rca     --build-arg SERVICE=rca         (carries the embedding model)
+#   --target sim     --build-arg SERVICE=sim         (demo app and Meridian)
+#
+# Builds natively for the target platform, so arm64 hosts build arm64 images.
 
-# ---- sources: the app tree, copied once and shared by both runtime targets ----
-FROM scratch AS sources
-COPY common/ /app/common/
-COPY services/ /app/services/
-COPY policies/ /app/policies/
-COPY config/ /app/config/
-COPY deploy/playbooks/ /app/data/playbooks/
-# Alembic config + migration scripts, so the one-shot `migrate` compose service
-# can run `alembic upgrade head` against Postgres before the store services boot.
-COPY alembic.ini /app/alembic.ini
-COPY alembic/ /app/alembic/
+# One compile of every binary, shared by all the images: this stage does not
+# depend on SERVICE, so BuildKit runs it once however many are built together.
+FROM rust:1.100-slim-bookworm AS build
+WORKDIR /src
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/src/target,sharing=locked \
+    cargo build --release --locked --bins \
+    && mkdir /out \
+    && find target/release -maxdepth 1 -type f -executable -name 'intelliops-*' -exec cp {} /out/ \; \
+    && mkdir -p /out/data/rca_context
 
-FROM python:3.11-slim AS builder-base
+# The embedding model rca ranks with, at a pinned revision, verified.
+FROM scratch AS model
+ARG REVISION=1110a243fdf4706b3f48f1d95db1a4f5529b4d41
+ARG BASE=https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve
+ADD --chmod=644 --checksum=sha256:953f9c0d463486b10a6871cc2fd59f223b2c70184f49815e7efbcab5d8908b41 \
+    ${BASE}/${REVISION}/config.json /minilm/config.json
+ADD --chmod=644 --checksum=sha256:be50c3628f2bf5bb5e3a7f17b1f74611b2561a3a27eeab05e5aa30f411572037 \
+    ${BASE}/${REVISION}/tokenizer.json /minilm/tokenizer.json
+ADD --chmod=644 --checksum=sha256:53aa51172d142c89d9012cce15ae4d6cc0ca6895895114379cacb4fab128d9db \
+    ${BASE}/${REVISION}/model.safetensors /minilm/model.safetensors
 
-# Pinned: :latest made every image build depend on whatever uv shipped that day.
-COPY --from=ghcr.io/astral-sh/uv:0.11.28 /uv /usr/local/bin/uv
+# The Meridian ops panel, served by the gateway.
+FROM node:26-slim AS meridian-ui
+WORKDIR /ui
+COPY meridian-ui/package*.json ./
+RUN npm ci
+COPY meridian-ui/ ./
+RUN npm run build
 
-# Unprivileged runtime user. Numeric so k8s `runAsNonRoot` can verify it.
-RUN useradd --uid 10001 --create-home app
-
+# No shell or package manager: the binary is its own healthcheck.
+FROM gcr.io/distroless/cc-debian12:nonroot AS service
+ARG SERVICE
+COPY --from=build /out/intelliops-${SERVICE} /usr/local/bin/service
 WORKDIR /app
-ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
-
-COPY pyproject.toml uv.lock ./
-
-# ---- base: 12 common deps, NO ml/k8s extras (11 of 13 services) ----
-FROM builder-base AS base
-RUN uv sync --frozen --no-dev --no-install-project
-
-COPY --from=sources /app/ ./
-# The only paths services write to (file stores, the shared rca-context volume).
-# Pre-creating rca_context app-owned makes a fresh named volume inherit that owner.
-RUN mkdir -p data/rca_context && chown -R app:app data
+# A fresh named volume inherits this owner (the Meridian gateway writes deploys).
+COPY --from=build --chown=10001:10001 /out/data /app/data
+# Seed playbooks, RBAC policy and system context, at the paths services default to.
+COPY deploy/playbooks /app/data/playbooks
+COPY policies /app/policies
+COPY config /app/config
 USER 10001
-
-# Launch uvicorn directly from the built venv. Using `uv run` here would try to
-# re-sync the environment at container startup (re-resolving/downloading deps),
-# which delays or hangs the server bind and trips healthchecks. The venv is
-# already populated by `uv sync` above, so call its uvicorn directly.
-ENV PATH="/app/.venv/bin:${PATH}"
-ENV SERVICE_MODULE=services.ingestion.app:app
 ENV PORT=8000
-CMD ["sh", "-c", "uvicorn \"$SERVICE_MODULE\" --host 0.0.0.0 --port \"$PORT\""]
+EXPOSE 8000
+ENTRYPOINT ["/usr/local/bin/service"]
 
-# ---- full: base + ml + k8s (rca: embedding selection; action: k8s remediation) ----
-FROM builder-base AS full
-RUN uv sync --frozen --no-dev --extra ml --extra k8s --no-install-project
+# rca carries the model; every other service uses the `service` target.
+FROM service AS rca
+COPY --from=model /minilm /app/models/minilm
 
-# The embedding-model cache is written by the app user below, so it owns it.
-RUN mkdir .cache && chown app:app .cache
-
-# Everything from here to the source COPY depends only on the dependency set,
-# so it stays cached when project source changes. Keep the COPYs last.
-# torch is used for INFERENCE ONLY (sentence-transformers .encode for cosine fit;
-# no training/CUDA). pyproject.toml pins torch to the CPU-only PyTorch index
-# (`[tool.uv.sources]` + `[[tool.uv.index]] pytorch-cpu`), so the `uv sync` above
-# ALREADY installs `torch ...+cpu` and never downloads the multi-GB CUDA wheels
-# (the CUDA build is ~6GB; this CPU image measures ~4GB). Assert it here as a build-time guard.
-RUN /app/.venv/bin/python -c "import torch; assert torch.version.cuda is None and torch.__version__.endswith('+cpu'), f'expected CPU-only torch, got {torch.__version__} (cuda={torch.version.cuda})'; print('torch OK:', torch.__version__)"
-
-# Pre-cache all-MiniLM-L6-v2 (~90MB) so RUNBOOK_SELECTOR_MODE=embedding needs no
-# runtime HuggingFace egress. Set a stable cache dir the runtime also uses.
-# Runs as the app user (above) so the cache is owned by the user that reads it.
-# NOTE: PATH isn't pointed at /app/.venv/bin until below, so invoke the venv's
-# python explicitly here (bare `python` would hit the base image's system
-# interpreter, which has none of these packages installed).
-USER 10001
-ENV HF_HOME=/app/.cache/huggingface
-ENV SENTENCE_TRANSFORMERS_HOME=/app/.cache/sentence-transformers
-RUN /app/.venv/bin/python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')" \
-    && test -d "$SENTENCE_TRANSFORMERS_HOME" -o -d "$HF_HOME/hub"
-# The model is baked, so never reach out to HuggingFace at runtime (avoids a
-# name-resolution stall + a noisy warning on each cold start in an air-gapped
-# cluster). Loads straight from the cache above.
-ENV HF_HUB_OFFLINE=1
-ENV TRANSFORMERS_OFFLINE=1
-
-# Source last (see above). Back to root only to lay the tree down and hand the
-# writable data dir to the app user, then drop privileges for good.
-USER root
-COPY --from=sources /app/ ./
-RUN mkdir -p data/rca_context && chown -R app:app data
-USER 10001
-
-ENV PATH="/app/.venv/bin:${PATH}"
-ENV SERVICE_MODULE=services.ingestion.app:app
-ENV PORT=8000
-CMD ["sh", "-c", "uvicorn \"$SERVICE_MODULE\" --host 0.0.0.0 --port \"$PORT\""]
+# One binary plays the demo app and all four Meridian services.
+FROM service AS sim
+COPY --from=meridian-ui /ui/dist /app/ui

@@ -1,27 +1,18 @@
 {{/*
 service-deployment.yaml
-Ranges over .Values.services and renders one Deployment + one Service per entry.
+One Deployment and Service per entry of .Values.services.
 
-Each Deployment:
-  - selects the base or `full` image per service (service.image: full → rca, action)
-  - sets SERVICE_MODULE from service.module and PORT from service.port as env vars
-  - mounts intelliops-env ConfigMap as envFrom
-  - action: uses the intelliops-action ServiceAccount when rbac.create (real remediation)
-  - rca: gets the LLM API key via secretKeyRef when a key/secret is configured
-  - includes liveness (/health) + readiness (/ready) probes
-  - sets resources (values.resources, or values.fullResources for `full`-image
-    services) and a non-root, no-privilege-escalation securityContext
+  - image <prefix>-<name>:<tag>; the binary reads INTELLIOPS_* settings
+  - mounts the intelliops-env ConfigMap and the Postgres Secret
+  - action uses the intelliops-action ServiceAccount when rbac.create
+  - rca and governance get the LLM key by secretKeyRef when configured
+  - liveness (/health) and readiness (/ready) probes
+  - non-root, no privilege escalation, no capabilities
+Services create any missing database tables when they start.
 */}}
 {{- range .Values.services }}
-{{- $img := $.Values.image.repository }}
-{{- $tag := $.Values.image.tag }}
 {{- $resources := $.Values.resources }}
-{{- if eq (.image | default "base") "full" }}
-{{-   $img = ($.Values.image.fullRepository | default "") }}
-{{-   if eq $img "" }}{{ $img = $.Values.image.repository }}{{ end }}
-{{-   $tag = $.Values.image.fullTag }}
-{{-   $resources = $.Values.fullResources }}
-{{- end }}
+{{- if .large }}{{- $resources = $.Values.largeResources }}{{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -70,7 +61,7 @@ spec:
               echo "deps ready"
       containers:
         - name: {{ .name }}
-          image: "{{ $img }}:{{ $tag }}"
+          image: "{{ $.Values.image.prefix }}-{{ .name }}:{{ $.Values.image.tag }}"
           imagePullPolicy: {{ $.Values.image.pullPolicy }}
           envFrom:
             - configMapRef:
@@ -80,8 +71,6 @@ spec:
             - secretRef:
                 name: {{ include "intelliops.postgresSecretName" $ }}
           env:
-            - name: SERVICE_MODULE
-              value: {{ .module | quote }}
             - name: PORT
               value: {{ .port | quote }}
             {{- if or $.Values.llm.apiKey $.Values.llm.apiKeySecretName }}

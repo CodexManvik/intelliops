@@ -65,7 +65,6 @@ data:
   # HITL approvals: in k8s the action + governance services are SEPARATE pods, so
   # the action gate must reach governance over HTTP (not the in-process store) or
   # the console's "Approve" (which hits the governance service) 404s.
-  INTELLIOPS_GOVERNANCE_MODE: {{ .Values.env.GOVERNANCE_MODE | quote }}
   INTELLIOPS_GOVERNANCE_URL: {{ .Values.env.GOVERNANCE_URL | quote }}
   # The namespace the action service remediates in (+ clones the sandbox from).
   # Track the RELEASE namespace so real remediation targets where the workloads

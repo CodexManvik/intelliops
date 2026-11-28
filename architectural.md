@@ -1,5 +1,7 @@
 # IntelliOps CoE — Architecture & Decisions
 
+> **Note:** this document describes the original Python implementation, kept on the [`python-legacy`](https://github.com/CodexManvik/intelliops/tree/python-legacy) branch. The platform is now Rust: the behaviour and settings carry over, but file paths and commands below that mention Python do not. See [docs/rust/DECISIONS.md](docs/rust/DECISIONS.md) for what changed.
+
 This document explains **why the system is shaped the way it is**. It covers the layer model,
 the major architectural decisions (as numbered ADRs with context, trade-offs, and rejected
 alternatives), and how the design maps to the compliance obligations the project targets.

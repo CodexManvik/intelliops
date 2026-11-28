@@ -1,5 +1,7 @@
 # IntelliOps CoE — Observability & readiness
 
+> **Note:** this document describes the original Python implementation, kept on the [`python-legacy`](https://github.com/CodexManvik/intelliops/tree/python-legacy) branch. The platform is now Rust: the behaviour and settings carry over, but file paths and commands below that mention Python do not. See [docs/rust/DECISIONS.md](rust/DECISIONS.md) for what changed.
+
 This document covers **how the services report what they are doing and whether they are
 healthy**: the structured JSON log format and its switches, and the split between a *liveness*
 probe (`/health`) and a *readiness* probe (`/ready`) that actively pings the service's

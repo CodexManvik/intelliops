@@ -34,9 +34,8 @@ app.kubernetes.io/instance: {{ .root.Release.Name }}
 {{- end }}
 
 {{/*
-Container securityContext for everything running the IntelliOps Python images
-(deploy/Dockerfile sets `USER 10001`). Not read-only-rootfs: the file-backed
-stores write under /app/data.
+Container securityContext for the IntelliOps images (deploy/Dockerfile sets
+`USER 10001`). Not read-only-rootfs: the gateway writes deploy markers.
 */}}
 {{- define "intelliops.securityContext" -}}
 runAsNonRoot: true

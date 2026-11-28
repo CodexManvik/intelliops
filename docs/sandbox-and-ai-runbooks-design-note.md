@@ -1,5 +1,7 @@
 # Sandbox + AI-Runbooks — an honest design note
 
+> **Note:** this document describes the original Python implementation, kept on the [`python-legacy`](https://github.com/CodexManvik/intelliops/tree/python-legacy) branch. The platform is now Rust: the behaviour and settings carry over, but file paths and commands below that mention Python do not. See [docs/rust/DECISIONS.md](rust/DECISIONS.md) for what changed.
+
 *You pushed back on three things. You were right on all three. This note owns where the
 earlier research over-claimed, and lays out what we should actually build.*
 

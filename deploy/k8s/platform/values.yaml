@@ -1,61 +1,46 @@
 image:
-  # Local kind flow: scripts/kind-up-full.sh builds + loads `intelliops:latest`
-  # / `intelliops:full`. For a real cluster use the immutable, CI-published
-  # images instead (pushed by .github/workflows/ci.yml on every master commit):
-  #   --set image.repository=ghcr.io/<owner>/intelliops \
-  #   --set image.tag=<git-sha> --set image.fullTag=full-<git-sha> \
+  # One image per service, named <prefix>-<service>:<tag>. The local kind flow
+  # (scripts/kind-up-full.sh) builds `intelliops-*:latest`. For a real cluster
+  # use the CI-published multi-arch images:
+  #   --set image.prefix=ghcr.io/<owner>/intelliops --set image.tag=<git-sha> \
   #   --set console.repository=ghcr.io/<owner>/intelliops-console
-  repository: intelliops
+  prefix: intelliops
   tag: latest
-  # The `full` image target (base + ml + k8s extras, CPU torch + baked embedding
-  # model). rca + action reference it (embedding selection + k8s remediation).
-  # Defaults to the same repo with a distinct tag; override for a separate repo.
-  fullRepository: ""        # "" → use `repository`
-  fullTag: "full"
   pullPolicy: IfNotPresent
 
 services:
   - name: ingestion
-    module: "services.ingestion.app:app"
     port: 8000
     externalPort: 8001
   - name: correlation
-    module: "services.correlation.app:app"
     port: 8000
     externalPort: 8002
-    image: full            # RiverCorrelator imports `river`/`numpy` (the ml extra) at module load
   - name: rca
-    module: "services.rca.app:app"
     port: 8000
     externalPort: 8003
-    image: full            # embedding runbook selection needs sentence-transformers
+    large: true            # carries the embedding model
   - name: action
-    module: "services.action.app:app"
     port: 8000
     externalPort: 8004
-    image: full            # k8s remediation + sandbox + per-metric health need the k8s extra
   - name: governance
-    module: "services.governance.app:app"
     port: 8000
     externalPort: 8005
   - name: feedback
-    module: "services.feedback.app:app"
     port: 8000
     externalPort: 8006
   - name: read
-    module: "services.read.app:app"
     port: 8000
     externalPort: 8007
 
-# Per-pod resources for the platform services. `fullResources` applies to the
-# `image: full` services (torch + the embedding model / river are loaded in-process).
+# Per-pod resources, sized from measurements (docs/rust/baselines): an idle
+# service uses about 2 MiB and rca, with its model, about 100 MiB.
 # Memory limits only: a CPU limit just throttles a single-replica service.
 resources:
+  requests: { cpu: "10m", memory: "16Mi" }
+  limits: { memory: "128Mi" }
+largeResources:
   requests: { cpu: "50m", memory: "128Mi" }
-  limits: { memory: "512Mi" }
-fullResources:
-  requests: { cpu: "100m", memory: "512Mi" }
-  limits: { memory: "2Gi" }
+  limits: { memory: "384Mi" }
 
 # Platform env — SAFE DEFAULTS (dry-run / off / template). The LIVE posture is
 # strictly opt-in via values-live.yaml. A plain `helm install` never touches a
@@ -100,8 +85,7 @@ env:
   # logged). "drop": the old behaviour - never emitted, never fixed.
   SUPPRESSION_MODE: "quiet"
   QUIET_SKIP_APPROVAL: "true"
-  GOVERNANCE_MODE: "in_process"     # "http" in values-live — action + governance are
-  GOVERNANCE_URL: "http://governance:8000"  # separate pods, so approvals must go over HTTP
+  GOVERNANCE_URL: "http://governance:8000"
   HITL_POLL_TIMEOUT_SECONDS: "30"   # values-live raises this so a human has time to click Approve
   LLM_EXPLANATION_ENDPOINT: ""      # set in values-live (e.g. Groq/OpenAI base URL)
   LLM_EXPLANATION_MODEL: ""         # set in values-live
@@ -135,24 +119,23 @@ llm:
 # self-contained (dry-run) stack; the demo images must be built + loaded first.
 demoApp:
   enabled: true
-  image: ""              # "" → use image.repository:image.tag (the base image)
-  module: "services.demo_app.app:app"
+  image: ""              # "" → <image.prefix>-sim:<image.tag>
   port: 8080
 meridian:
   enabled: true
   # Bind the gateway to a host port so /api/ops/fault is reachable without a
   # kubectl port-forward. 0/empty keeps it cluster-internal.
   gatewayNodePort: 30808
-  image: ""              # "" → base image
+  image: ""              # "" → <image.prefix>-sim:<image.tag>
   # Stateless simulators with nothing to flush. Kept well below the health
   # check's deadline so a remediated pod stops counting toward status.replicas
   # quickly and verification can actually observe recovery.
   terminationGracePeriodSeconds: 5
   services:
-    - { name: meridian-gateway, module: "services.meridian.gateway.app:app" }
-    - { name: meridian-validation, module: "services.meridian.validation.app:app" }
-    - { name: meridian-aggregation, module: "services.meridian.aggregation.app:app" }
-    - { name: meridian-reporting, module: "services.meridian.reporting.app:app" }
+    - { name: meridian-gateway }
+    - { name: meridian-validation }
+    - { name: meridian-aggregation }
+    - { name: meridian-reporting }
 prometheus:
   enabled: true
   image: prom/prometheus:v2.54.1   # pinned for reproducibility (not :latest)

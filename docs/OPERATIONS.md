@@ -1,5 +1,7 @@
 # Operations
 
+> **Note:** this document describes the original Python implementation, kept on the [`python-legacy`](https://github.com/CodexManvik/intelliops/tree/python-legacy) branch. The platform is now Rust: the behaviour and settings carry over, but file paths and commands below that mention Python do not. See [docs/rust/DECISIONS.md](rust/DECISIONS.md) for what changed.
+
 Stream D (platform, security, CI/CD) owns this doc. Sections beyond auth
 (Kafka binding, K8s deploy, load/chaos numbers) land as those pieces ship.
 

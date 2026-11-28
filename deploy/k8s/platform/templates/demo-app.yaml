@@ -1,10 +1,9 @@
 {{/*
 demo-app.yaml
-The demo target workload remediation acts on. Runs the shared BASE image
-(launches services.demo_app.app via SERVICE_MODULE/PORT). Gated on demoApp.enabled.
+The demo target remediation acts on. Gated on demoApp.enabled.
 */}}
 {{- if .Values.demoApp.enabled }}
-{{- $img := .Values.demoApp.image | default (printf "%s:%s" .Values.image.repository .Values.image.tag) }}
+{{- $img := .Values.demoApp.image | default (printf "%s-sim:%s" .Values.image.prefix .Values.image.tag) }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -33,8 +32,8 @@ spec:
             - configMapRef:
                 name: intelliops-env
           env:
-            - name: SERVICE_MODULE
-              value: {{ .Values.demoApp.module | quote }}
+            - name: INTELLIOPS_SIM
+              value: demo-app
             - name: PORT
               value: {{ .Values.demoApp.port | quote }}
           ports:
@@ -46,8 +45,8 @@ spec:
             initialDelaySeconds: 2
             periodSeconds: 3
           resources:
-            requests: { cpu: "50m", memory: "64Mi" }
-            limits: { cpu: "250m", memory: "128Mi" }
+            requests: { cpu: "10m", memory: "8Mi" }
+            limits: { cpu: "250m", memory: "64Mi" }
 ---
 apiVersion: v1
 kind: Service

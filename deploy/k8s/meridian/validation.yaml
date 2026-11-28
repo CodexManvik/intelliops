@@ -17,7 +17,7 @@ spec:
           image: intelliops-demo-app:local
           imagePullPolicy: IfNotPresent
           env:
-            - { name: SERVICE_MODULE, value: "services.meridian.validation.app:app" }
+            - { name: INTELLIOPS_SIM, value: "meridian-validation" }
             - { name: PORT, value: "8000" }
           ports: [{ containerPort: 8000 }]
           readinessProbe:

@@ -16,10 +16,9 @@ spec:
         - name: demo-app
           image: intelliops-demo-app:local
           imagePullPolicy: IfNotPresent
-          # The shared image's CMD launches $SERVICE_MODULE on $PORT (see
-          # deploy/Dockerfile). Point it at the demo-app app + its port.
+          # One image plays every workload; INTELLIOPS_SIM picks which.
           env:
-            - { name: SERVICE_MODULE, value: "services.demo_app.app:app" }
+            - { name: INTELLIOPS_SIM, value: "demo-app" }
             - { name: PORT, value: "8080" }
           ports: [{ containerPort: 8080 }]
           readinessProbe:

@@ -22,7 +22,7 @@ echo "→ Waiting ~30s for detect → diagnose (Prometheus scrape + poll + anoma
 sleep 30
 
 echo "→ Current situations (read model):"
-curl -fsS "$READ/situations" | python -m json.tool || true
+curl -fsS "$READ/situations" || true
 
 echo
 echo "Now open the console (http://localhost:5173 with VITE_DATA_MODE=live) and"

@@ -4,7 +4,7 @@ on:
     branches: [master]
   pull_request:
 
-# Least privilege by default; the publish job widens it for itself only.
+# Least privilege by default; jobs that need more widen it for themselves.
 permissions:
   contents: read
 
@@ -14,41 +14,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lint:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-      - run: uv sync --frozen --extra ml --extra k8s
-      - run: uv run ruff check .
-      - run: uv run ruff format --check .
-
-  # The Rust port. Its tests replay what the Python implementation recorded.
   rust:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:16-alpine
         env:
           POSTGRES_PASSWORD: intelliops
-          POSTGRES_DB: rust_test
+          POSTGRES_DB: intelliops_test
         ports: ["5432:5432"]
         options: >-
           --health-cmd pg_isready --health-interval 5s --health-retries 10
-    defaults:
-      run:
-        working-directory: rust
     steps:
       - uses: actions/checkout@v7
       - run: rustup toolchain install stable --profile minimal -c rustfmt,clippy && rustup default stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
       - run: cargo fmt --all --check
       - run: cargo clippy --locked --all-targets -- -D warnings
       # The pinned embedding model, so its parity test runs instead of skipping.
@@ -64,26 +51,26 @@ jobs:
           SUMS
       - run: cargo test --locked
         env:
-          INTELLIOPS_TEST_DATABASE_URL: postgresql://postgres:intelliops@127.0.0.1:5432/rust_test
+          INTELLIOPS_TEST_DATABASE_URL: postgresql://postgres:intelliops@127.0.0.1:5432/intelliops_test
 
-  test:
+  # Real remediation against a real API server, in a throwaway cluster.
+  kubernetes:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v5
+      - run: rustup toolchain install stable --profile minimal && rustup default stable
+      - uses: actions/cache@v4
         with:
-          python-version: "3.11"
-      - uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-      - run: uv sync --frozen --extra ml --extra k8s
-      # `postgres`-marked tests (migrations + every Postgres store) run here:
-      # they start their own Postgres via testcontainers, and the runner has
-      # Docker. Postgres is the store backend in every deployment, so these must
-      # gate merges. Only the Kafka tests (optional bus backend) stay excluded.
-      - run: uv run pytest -q -m "not kafka"
+          path: |
+            ~/.cargo/registry
+            target
+          key: cargo-kube-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-kube-${{ runner.os }}-
+      - uses: helm/kind-action@v1
+      - run: cargo test --locked -p intelliops-action --test live_cluster -- --nocapture
+        env:
+          INTELLIOPS_KUBE_TEST: "1"
 
   frontend-build:
     runs-on: ubuntu-latest
@@ -123,15 +110,15 @@ jobs:
 
   # --- Dependency audits -----------------------------------------------------
   # Blocking: a known vulnerability in a locked dependency fails the PR.
-  audit-python:
+  audit-rust:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v7
-      - name: Export the locked dependency set (all extras, no dev)
-        run: uv export --frozen --all-extras --no-dev --no-emit-project --format requirements-txt -o requirements-audit.txt
-      - run: uvx pip-audit -r requirements-audit.txt --require-hashes --disable-pip
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - run: cargo audit
 
   audit-npm:
     runs-on: ubuntu-latest
@@ -139,211 +126,114 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        dir: [frontend, services/meridian/ui]
+        dir: [frontend, meridian-ui]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      # Audits the lockfile directly — no install needed. --omit=dev scopes it to
-      # what ships to the browser: the remaining dev-only findings are the
-      # braces/micromatch chain under tailwindcss 3 (build-time glob matching),
-      # whose only fix is the breaking tailwindcss 4 migration.
+      # Audits the lockfile directly. --omit=dev scopes it to what ships to the
+      # browser.
       - run: npm audit --omit=dev --audit-level=high
         working-directory: ${{ matrix.dir }}
-
-  slim-boundary:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: [lint, test]
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-      - name: Build base-only venv (no ml/k8s extras)
-        run: |
-          uv venv .slim
-          VIRTUAL_ENV=.slim uv sync --frozen --no-dev --active
-      - name: Every base-image service imports with zero heavy deps
-        run: |
-          for svc in ingestion read demo_app governance action feedback rca \
-                     meridian.gateway meridian.validation meridian.aggregation meridian.reporting; do
-            VIRTUAL_ENV=.slim .slim/bin/python -c "
-          import importlib, sys
-          importlib.import_module('services.${svc}.app')
-          leaked = {'numpy','scipy','sklearn','river','joblib','kubernetes','sentence_transformers','torch','transformers'} & set(sys.modules)
-          assert not leaked, f'${svc} leaked: {leaked}'
-          print('OK ${svc}')" || exit 1
-          done
-          VIRTUAL_ENV=.slim .slim/bin/python -c "from common.stores import make_stores; print('OK make_stores on slim')" || exit 1
-      - name: Grep-lint guards
-        run: |
-          ! grep -rEn 'numpy|scipy|sklearn|river|joblib' services/feedback/ || { echo 'feedback must not import heavy deps'; exit 1; }
-          ! grep -nE '^(import|from) .*(sklearn|joblib)' services/correlation/adapters/trained_correlator.py || { echo 'sklearn/joblib must stay lazy in trained_correlator'; exit 1; }
 
   compose-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    needs: [lint, test, frontend-build]
+    needs: [rust, frontend-build]
     steps:
       - uses: actions/checkout@v7
-      # Pre-build the three compose images with a persistent layer cache (the
-      # `full` target is ~4GB of torch — rebuilding it cold every run was most of
-      # this job). Tags match the `image:` names in deploy/docker-compose.yml, so
-      # `up --no-build` below starts exactly these.
       - uses: docker/setup-buildx-action@v3
-      - name: Build base image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: deploy/Dockerfile
-          target: base
-          tags: intelliops:latest
-          load: true
-          cache-from: type=gha,scope=base
-          cache-to: type=gha,scope=base
-      - name: Build full image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: deploy/Dockerfile
-          target: full
-          tags: intelliops:full
-          load: true
-          cache-from: type=gha,scope=full
-          cache-to: type=gha,scope=full
-      - name: Build Meridian gateway image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: deploy/Dockerfile.meridian
-          tags: intelliops-meridian:latest
-          load: true
-          cache-from: type=gha,scope=meridian
-          cache-to: type=gha,scope=meridian
-      - run: docker compose -f deploy/docker-compose.yml up -d --no-build
-      - name: Wait for all services, verify readiness
+      - run: docker compose -f deploy/docker-compose.yml build
+      - run: docker compose -f deploy/docker-compose.yml up -d --wait --wait-timeout 300
+      - run: bash scripts/smoke.sh
+      # Logs + metrics UI: Loki ready, Grafana up with all three datasources
+      # healthy, and Alloy actually shipping container logs into Loki.
+      - name: Observability stack
         run: |
-          # migrate is a one-shot with no HTTP port — assert it exited 0
-          mid=$(docker compose -f deploy/docker-compose.yml ps -aq migrate)
-          for attempt in $(seq 1 20); do
-            state=$(docker inspect -f '{{.State.Status}}' "$mid" 2>/dev/null || echo pending)
-            [ "$state" = "exited" ] && break
-            [ "$attempt" -eq 20 ] && { echo "migrate never exited"; exit 1; }
-            sleep 3
-          done
-          code=$(docker inspect -f '{{.State.ExitCode}}' "$mid")
-          [ "$code" = "0" ] || { echo "migrate exited $code"; exit 1; }
-          echo " ✓ migrate exited 0"
-          # /ready for the 7 IntelliOps HTTP services (runs bus.ping + db_ready)
-          for port in 8001 8002 8003 8004 8005 8006 8007; do
-            for attempt in $(seq 1 20); do
-              curl -sf "http://localhost:$port/ready" && { echo " ✓ $port /ready"; break; }
-              [ "$attempt" -eq 20 ] && { echo " ✗ $port /ready never 200"; exit 1; }
-              sleep 3
-            done
-          done
-          # /health for meridian (8008/8011/8012/8013) + demo-app (8080)
-          for port in 8008 8011 8012 8013 8080; do
-            for attempt in $(seq 1 20); do
-              curl -sf "http://localhost:$port/health" && { echo " ✓ $port /health"; break; }
-              [ "$attempt" -eq 20 ] && { echo " ✗ $port /health never 200"; exit 1; }
-              sleep 3
-            done
-          done
-          # /_metrics on a platform service (self-monitoring, scraped by Prometheus)
-          curl -sf "http://localhost:8007/_metrics" | grep -q intelliops_http_requests_total \
-            || { echo " ✗ 8007 /_metrics missing intelliops_http_requests_total"; exit 1; }
-          echo " ✓ 8007 /_metrics"
-          # images must run unprivileged (one service per image)
-          for svc in ingestion action meridian-gateway; do
-            uid=$(docker compose -f deploy/docker-compose.yml exec -T "$svc" id -u)
-            [ "$uid" != "0" ] || { echo " ✗ $svc runs as root"; exit 1; }
-            echo " ✓ $svc uid=$uid"
-          done
-          # Logs + metrics UI: Loki ready, Grafana up with all three datasources
-          # healthy, and Alloy actually shipping container logs into Loki.
           for url in http://localhost:3100/ready http://localhost:3000/api/health; do
             for attempt in $(seq 1 30); do
-              curl -sf "$url" >/dev/null && { echo " ✓ $url"; break; }
-              [ "$attempt" -eq 30 ] && { echo " ✗ $url never 200"; exit 1; }
+              curl -sf "$url" >/dev/null && { echo " ok $url"; break; }
+              [ "$attempt" -eq 30 ] && { echo "$url never answered 200"; exit 1; }
               sleep 3
             done
           done
           for uid in prometheus loki intelliops-postgres; do
-            curl -sf -u admin:admin "http://localhost:3000/api/datasources/uid/$uid/health" | grep -q '"status":"OK"' \
-              && echo " ✓ grafana datasource $uid" \
-              || { echo " ✗ grafana datasource $uid unhealthy"; exit 1; }
+            health=$(curl -sf -u admin:admin "http://localhost:3000/api/datasources/uid/$uid/health")
+            grep -q '"status":"OK"' <<<"$health" || { echo "grafana datasource $uid unhealthy"; exit 1; }
+            echo " ok grafana datasource $uid"
           done
           for attempt in $(seq 1 30); do
-            curl -sf "http://localhost:3100/loki/api/v1/label/service/values" | grep -q '"governance"' \
-              && { echo " ✓ loki is receiving service logs"; break; }
-            [ "$attempt" -eq 30 ] && { echo " ✗ no service logs reached loki"; exit 1; }
+            labels=$(curl -sf "http://localhost:3100/loki/api/v1/label/service/values" || true)
+            grep -q '"governance"' <<<"$labels" && { echo " ok loki is receiving service logs"; break; }
+            [ "$attempt" -eq 30 ] && { echo "no service logs reached loki"; exit 1; }
             sleep 3
           done
-      # Swap in the services ported to Rust and check they interoperate with the
-      # Python ones: published events are consumed and decoded.
-      - name: Rust services in the same stack
-        run: bash rust/harness/smoke.sh
       - if: failure()
         run: docker compose -f deploy/docker-compose.yml logs
       - if: always()
         run: docker compose -f deploy/docker-compose.yml down
 
-  # Immutable, CI-verified images: every master commit that passed the smoke
-  # test is pushed to GHCR tagged with its git SHA, so a deploy can name exactly
-  # what it runs and roll back to exactly what ran before. Deploy with:
-  #   --set image.repository=ghcr.io/<owner>/intelliops \
-  #   --set image.tag=<sha> --set image.fullTag=full-<sha> \
+  # Immutable, CI-verified images, built natively on each architecture so they
+  # run on a free ARM server as well as x86. Deploy with:
+  #   --set image.prefix=ghcr.io/<owner>/intelliops --set image.tag=<git-sha>
   #   --set console.repository=ghcr.io/<owner>/intelliops-console
   publish:
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    needs: [compose-smoke, slim-boundary, helm]
+    needs: [compose-smoke, kubernetes, helm]
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: write
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { name: intelliops, file: deploy/Dockerfile, target: base, prefix: "", scope: base }
-          - { name: intelliops, file: deploy/Dockerfile, target: full, prefix: "full-", scope: full }
-          - { name: intelliops-console, file: deploy/Dockerfile.frontend, target: "", prefix: "", scope: console }
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
-      - name: Image reference (GHCR requires a lowercase owner)
-        id: ref
-        run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${{ matrix.name }}:${{ matrix.prefix }}${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: ${{ matrix.file }}
-          target: ${{ matrix.target }}
-          tags: ${{ steps.ref.outputs.image }}
-          load: true
-          cache-from: type=gha,scope=${{ matrix.scope }}
-          cache-to: type=gha,scope=${{ matrix.scope }}
-      # Scan what is about to ship. Advisory for now (exit-code 0) for the same
-      # reason as the dependency audits above; set exit-code to 1 to make a
-      # fixable HIGH/CRITICAL block the push. Pinned to a commit SHA (v0.36.0).
-      - name: Trivy image scan
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
-        with:
-          image-ref: ${{ steps.ref.outputs.image }}
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: "0"
       - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - run: docker push "${{ steps.ref.outputs.image }}"
+      - name: Build and push every image for this architecture
+        run: |
+          owner=${GITHUB_REPOSITORY_OWNER,,}
+          arch=$(dpkg --print-architecture)
+          push() { # name, dockerfile, then extra build arguments
+            local image="ghcr.io/$owner/$1:${GITHUB_SHA}-$arch" file="$2"
+            shift 2
+            docker build -f "$file" "$@" -t "$image" .
+            docker push "$image"
+          }
+          for s in ingestion correlation action governance feedback read; do
+            push "intelliops-$s" deploy/Dockerfile --target service --build-arg "SERVICE=$s"
+          done
+          push intelliops-rca deploy/Dockerfile --target rca --build-arg SERVICE=rca
+          push intelliops-sim deploy/Dockerfile --target sim --build-arg SERVICE=sim
+          push intelliops-console deploy/Dockerfile.frontend
+
+  # One tag per commit that resolves to the right architecture.
+  manifests:
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - run: |
+          owner=${GITHUB_REPOSITORY_OWNER,,}
+          for s in ingestion correlation rca action governance feedback read sim console; do
+            image="ghcr.io/$owner/intelliops-$s"
+            docker buildx imagetools create -t "$image:$GITHUB_SHA" \
+              "$image:$GITHUB_SHA-amd64" "$image:$GITHUB_SHA-arm64"
+          done

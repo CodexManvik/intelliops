@@ -1,5 +1,7 @@
 # IntelliOps — Demo Walkthrough
 
+> **Note:** this document describes the original Python implementation, kept on the [`python-legacy`](https://github.com/CodexManvik/intelliops/tree/python-legacy) branch. The platform is now Rust: the behaviour and settings carry over, but file paths and commands below that mention Python do not. See [docs/rust/DECISIONS.md](rust/DECISIONS.md) for what changed.
+
 A guided, two-act demo from a cold checkout to "a real pod was remediated and verified." Act 1
 runs the whole closed loop on docker-compose with **auth on** and **Postgres persistence** — no
 cluster needed. Act 2 swaps in a real kind cluster so approving a fix restarts a **real pod**.

@@ -1,11 +1,10 @@
 {{/*
 meridian.yaml
-The Meridian sample production system (4 services) — a second, richer fault
-source. Each runs the shared BASE image launching its own module. Gated on
+The Meridian sample system: a second, richer fault source. One binary plays all four; INTELLIOPS_SIM picks which. Gated on
 meridian.enabled; ranges over meridian.services.
 */}}
 {{- if .Values.meridian.enabled }}
-{{- $img := .Values.meridian.image | default (printf "%s:%s" .Values.image.repository .Values.image.tag) }}
+{{- $img := .Values.meridian.image | default (printf "%s-sim:%s" .Values.image.prefix .Values.image.tag) }}
 {{- $root := . }}
 {{- range .Values.meridian.services }}
 ---
@@ -44,8 +43,8 @@ spec:
             - configMapRef:
                 name: intelliops-env
           env:
-            - name: SERVICE_MODULE
-              value: {{ .module | quote }}
+            - name: INTELLIOPS_SIM
+              value: {{ .name }}
             - name: PORT
               value: "8000"
           ports:
@@ -57,8 +56,8 @@ spec:
             initialDelaySeconds: 2
             periodSeconds: 3
           resources:
-            requests: { cpu: "50m", memory: "64Mi" }
-            limits: { cpu: "250m", memory: "128Mi" }
+            requests: { cpu: "10m", memory: "8Mi" }
+            limits: { cpu: "250m", memory: "64Mi" }
 ---
 apiVersion: v1
 kind: Service

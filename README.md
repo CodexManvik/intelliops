@@ -2,7 +2,9 @@
 
 **Agentic AIOps — real detection, diagnosis, and automated remediation with a human in the loop.**
 
-> A production-credible, end-to-end AIOps platform built from scratch: seven Python microservices, a React operator console, a real Kubernetes remediation path, a self-improving ML pipeline, and a Deloitte-style financial platform as its live target. Every number on the dashboard is real; every fix is reversible; every decision is audited.
+> A production-credible, end-to-end AIOps platform written in Rust: seven platform services, a React operator console, a real Kubernetes remediation path, anomaly detection and AI-assisted diagnosis, and a financial-reporting sample system as its live target. Every number on the dashboard is real; remediation is gated; every decision is audited.
+>
+> It began as a Python application and was [rebuilt in Rust](#python-vs-rust) against recordings of the original's behaviour. The Python version is preserved on the [`python-legacy`](https://github.com/CodexManvik/intelliops/tree/python-legacy) branch.
 
 ---
 
@@ -39,14 +41,14 @@ And the system **learns**: every outcome (success, rollback, escalation) feeds b
 
 ## What's actually running
 
-This isn't a mock dashboard. The full stack runs in a single `docker compose up`:
+This isn't a mock dashboard. The full stack runs with one `docker compose up`:
 
-- **Seven Python microservices** (FastAPI) talking over Redis Streams (or Kafka)
-- **Real Prometheus** scraping a real breakable target — every metric on the console is scraped, not generated
-- **A live SSE pipeline** that streams each incident through Detect → Correlate → Diagnose → Approve → Execute → Verify in real time
-- **Real Kubernetes remediation** on a local kind cluster — approving a fix restarts/scales a real pod; a real health check verifies it
-- **Postgres-backed durable state** — the audit trail, playbook registry, pending approvals, and the detector's learned baseline all survive a restart
-- **Meridian** — a four-service Deloitte-style financial/audit platform (gateway, validation, aggregation, reporting + its own portal UI) running alongside IntelliOps as a genuine production-shaped target, emitting 11 USE+RED gauges across 8 typed fault scenarios
+- **Seven platform services** (Rust: tokio and axum) talking over Redis Streams
+- **Real Prometheus** scraping real, breakable targets
+- **A live SSE pipeline** that streams each incident through Detect → Correlate → Diagnose → Approve → Execute → Verify
+- **Real Kubernetes remediation** on a kind or k3s cluster: approving a fix restarts or scales a real pod, and a real health check verifies it
+- **Postgres-backed durable state**: the audit trail, playbook registry, pending approvals and the detector's learned baseline survive a restart
+- **Meridian**, a four-service financial-reporting sample system with eight fault types, running alongside as the thing being watched
 
 ---
 
@@ -85,19 +87,78 @@ Six services communicate over an event bus. The only synchronous step is `action
 
 ## Tech stack
 
-| Concern | Default | Opt-in / swap path |
+| Concern | Default | Opt-in |
 |---|---|---|
-| Services | Python 3.11 · FastAPI · Pydantic v2 | — |
-| Event bus | Redis Streams | Kafka (`BUS_BACKEND=kafka`) |
-| Telemetry | Prometheus · Loki · OpenTelemetry | any, via `TelemetrySource` |
-| Correlation / ML | River (online z-score) | Robust seasonal z-score · scikit-learn IsolationForest (`CORRELATOR_KIND`) |
-| Runbook selection | Keyword rules | Embedding similarity — `sentence-transformers all-MiniLM-L6-v2` (`RUNBOOK_SELECTOR_MODE=embedding`, now on by default) |
-| Remediation | Dry-run (safe default) | Kubernetes API real pod ops (`REMEDIATOR_MODE=k8s`) |
-| Pre-flight | — | Sandbox rehearsal on isolated namespace clone (`SANDBOX_MODE=k8s`) |
-| Persistence | Postgres (SQLAlchemy Core + Alembic) | — |
-| Frontend | React 19 · TypeScript · Tailwind | — |
-| Auth | Off (dev default) | Bearer token (`AUTH_MODE=token`) |
-| Deploy | Docker Compose | Helm chart (`deploy/k8s/`) |
+| Services | Rust 2024 · tokio · axum · serde | — |
+| Event bus | Redis Streams (consumer groups, dead-letter, de-duplication) | at-least-once (`BUS_DELIVERY`) |
+| Telemetry | Prometheus polling and `POST /ingest` | OpenTelemetry collector overlay |
+| Detection | Online z-score | Robust seasonal, or isolation forest (`CORRELATOR_KIND`) |
+| Runbook selection | Keyword rules | Sentence embeddings in pure Rust with [candle](https://github.com/huggingface/candle) (on in compose) |
+| Remediation | Dry-run | Kubernetes API via [kube-rs](https://kube.rs) (`REMEDIATOR_MODE=k8s`) |
+| Pre-flight | — | Rehearsal in a throwaway namespace (`SANDBOX_MODE=k8s`) |
+| Persistence | Postgres (sqlx) | in-memory |
+| Frontend | React · TypeScript · Tailwind | — |
+| Auth | Off | Bearer token (`AUTH_MODE=token`) |
+| Deploy | Docker Compose | Helm chart; amd64 and arm64 images |
+
+---
+
+## Python vs Rust
+
+The backend was rebuilt from Python (FastAPI, SQLAlchemy, River, scikit-learn, sentence-transformers) to Rust. Both versions were measured with the same script on the same machine (a 12-thread laptop, Docker Desktop), on fresh containers, twice each. Ranges show both runs; raw results are in [docs/rust/baselines](docs/rust/baselines).
+
+| | Python | Rust |
+|---|---|---|
+| Image: most platform services | 495 MiB | 42–54 MiB |
+| Image: correlation and action | 3,916 MiB | 42 and 54 MiB |
+| Image: RCA (includes the embedding model) | 495 MiB, without the model | 219 MiB, with it |
+| Idle memory, seven platform services | 486–507 MiB | 111 MiB (97 of it RCA's model) |
+| Idle memory, demo app and Meridian | 287–288 MiB | 9 MiB |
+| `/ingest`, events accepted per second | 1,763–2,617 | 18,282–20,000 |
+| Events per second through detection | 1,195–1,877 | 10,235–10,241 |
+| `/ingest` p99 latency, 200-event batch | 156–234 ms | 31–32 ms |
+| Cold start to ready | 2.6–5.6 s | 1.8–5.4 s |
+
+**Read these honestly:**
+
+- Part of the ingest gain is a design change, not the language: the Rust service publishes a batch to Redis in one round trip, which Python could also have done.
+- Cold start is dominated by starting a container, so there is no meaningful difference to claim.
+- The end-to-end time from a fault to an incident is set by the scrape interval and correlation window. The rewrite does not change it.
+- The 3.9 GiB Python images were mostly PyTorch and scientific libraries.
+
+### Why Rust suits this project
+
+- **It fits on a free server.** About 120 MiB for every service and workload, against roughly 780 MiB before, plus multi-gigabyte images. Small ARM instances can run the whole platform.
+- **The safety property is a type.** Remediation actions are a closed `enum`. Neither a person, a stored playbook nor a language model can express an action that is not in it, and the compiler checks every place that handles one.
+- **A service that changes a live cluster should not fail late.** Every error path in action is explicit; unwraps are linted out of service code.
+- **Small images, small attack surface.** The images are distroless: one binary, no shell, no package manager, running unprivileged.
+
+**What Rust cost:** the first image build compiles everything and takes several minutes; there is no River or scikit-learn, so the isolation forest was written by hand; and trying out a new model is slower than in Python.
+
+### How the behaviour was preserved
+
+Before any Python was removed, its behaviour was recorded and the Rust code is tested against the recordings in [`testdata/`](testdata):
+
+| Area | Recorded and replayed |
+|---|---|
+| Correlation engine | 20,800 operations, including suppression |
+| Online detector | 9,000 samples (to 1e-12) |
+| Remediation gates | 2,500 cases, effects in the same order |
+| Health verification | 600 cases |
+| Permission matching | 3,015 `fnmatch` cases |
+| RCA ranking | 400 diagnoses |
+| Embeddings | vectors above 0.9999 cosine similarity with sentence-transformers |
+| `/ingest` | 93 well-formed and malformed requests |
+| Wire format | live bus messages and API responses round-trip |
+
+### Bugs the rewrite found
+
+- **Rolling back to a revision did not roll back.** The old pod template was merged, so settings added later (such as resource limits) survived. Found by testing against a real cluster.
+- **An approval could be recorded and still time out.** A decision landing as the wait ended was audited as approved while the outcome said `aborted:timeout`.
+- **Embedding-based runbook selection never ran** in the compose stack: the image lacked the library, and it silently fell back to keyword rules.
+- **One bad event half-published a batch** and answered 500 instead of refusing it.
+
+Every intentional behaviour change is listed in [docs/rust/DECISIONS.md](docs/rust/DECISIONS.md).
 
 ---
 
@@ -149,7 +210,7 @@ INTELLIOPS_LLM_MODEL=llama-3.3-70b-versatile
 
 ## The Meridian sample system
 
-Every incident in a demo needs a real target. **Meridian** (`services/meridian/`) is a four-service Deloitte-style financial/audit reporting platform — gateway, validation, aggregation, reporting — with its own client portal and ops panel. It runs alongside IntelliOps in the same compose file and gives the pipeline something genuinely production-shaped to watch.
+Every incident in a demo needs a real target. **Meridian** (`crates/sim`, with its UI in `meridian-ui/`) is a four-service financial/audit reporting sample platform — gateway, validation, aggregation, reporting — with its own client portal and ops panel. It runs alongside IntelliOps in the same compose file and gives the pipeline something genuinely production-shaped to watch.
 
 Each service emits a **USE+RED metric set** (11 gauges: CPU, memory, disk, queue depth, DB-pool, request rate, error rate, p50/p99 latency) and accepts **8 typed fault scenarios**, each moving a realistic cluster of those metrics rather than a single gauge.
 
@@ -168,7 +229,7 @@ Meridian is wired to IntelliOps through **additive-only** changes — a Promethe
 ## Safety & compliance
 
 - **HITL gate fails closed** — a timeout, rejection, or unreachable governance service means no action, never a default execute
-- **Destructive-action denylist** — a typed vocabulary gate prevents catastrophic actions from being expressed at all; the `Literal` action type is permanently closed
+- **Destructive-action denylist** — a typed vocabulary gate prevents catastrophic actions from being expressed at all; the action type is a closed Rust `enum`
 - **Pre-flight sandbox** — fixes are rehearsed on an isolated namespace clone; a failed rehearsal blocks auto-remediation and surfaces the verdict in the UI
 - **Immutable audit trail** — every RBAC decision, approval, execution, and outcome is recorded in Postgres, threaded by `correlation_id`
 - **AI is bounded** — the AI can *draft* a runbook for a gap, but it cannot join the registry without a human approval; it can *rank* vetted playbooks by embedding similarity, but it never chooses an unvetted fix
@@ -179,12 +240,19 @@ Meridian is wired to IntelliOps through **additive-only** changes — a Promethe
 ## Test suite & CI
 
 ```bash
-uv run pytest          # 433+ tests, no Docker needed for the core suite
-uv run ruff check .    # linting
-npm run build          # frontend type-check + contrast gate (112 checks)
+cargo test                                   # unit, recorded-behaviour and API tests
+cargo clippy --all-targets -- -D warnings
+bash scripts/smoke.sh                        # against a running compose stack
+npm --prefix frontend run build              # type-check and contrast gate
 ```
 
-CI runs on every PR: lint → test → frontend build → compose smoke test. The correlator improvement is covered by a [reproducible benchmark](docs/BENCHMARKS.md) committed to the repo.
+Optional tests, skipped unless enabled:
+
+- `INTELLIOPS_TEST_DATABASE_URL` runs the storage tests on a real Postgres.
+- `INTELLIOPS_KUBE_TEST=1` runs remediation and the sandbox against the current kube context. Use a throwaway cluster.
+- Model files in `models/minilm` run the embedding parity test.
+
+CI runs all of these, plus Helm rendering, dependency audits and a full compose smoke test. On `master` it publishes amd64 and arm64 images.
 
 ---
 
@@ -205,8 +273,8 @@ CI runs on every PR: lint → test → frontend build → compose smoke test. Th
 | Agent Activity trace — live step-by-step view of the AI runbook author as it works | ✅ |
 | Meridian sample financial platform — 4 services, 8 fault scenarios, verified live | ✅ |
 | Edge auth (bearer token, timing-safe), structured JSON logging, readiness probes | ✅ |
-| Kafka bus binding + whole-stack Helm deploy | ✅ |
-| 433+ tests · CI pipeline · ruff-clean | ✅ |
+| Whole-stack Helm deploy; multi-arch images | ✅ |
+| Rebuilt in Rust, checked against recorded behaviour | ✅ |
 
 ---
 
@@ -218,6 +286,7 @@ CI runs on every PR: lint → test → frontend build → compose smoke test. Th
 | [flow.md](flow.md) | One-incident journey, bus topics, data contracts, per-function service reference |
 | [docs/DEMO.md](docs/DEMO.md) | Guided two-act demo — live loop then real kind-cluster remediation |
 | [docs/MERIDIAN.md](docs/MERIDIAN.md) | The sample financial platform — services, fault scenarios, verified results, honest limits |
+| [docs/rust/DECISIONS.md](docs/rust/DECISIONS.md) | Decisions of the Rust rebuild and every intentional behaviour change |
 | [docs/BENCHMARKS.md](docs/BENCHMARKS.md) | Correlator benchmark — methodology, results table, where `robust`/`trained` win and cost |
 | [docs/PERSISTENCE.md](docs/PERSISTENCE.md) | Postgres backend — schema, `STORE_BACKEND` switch, migrations, durable runtime state |
 | [docs/UI.md](docs/UI.md) | Operator console — five views, mock vs. live mode, SSE architecture, theme system |
@@ -231,28 +300,23 @@ CI runs on every PR: lint → test → frontend build → compose smoke test. Th
 
 ```
 intelliops/
-├── README.md                  ← you are here
-├── architectural.md           ← why: 30 ADRs, layer model, compliance mapping
-├── flow.md                    ← how: data flow, bus contracts, per-function reference
-├── common/                    ← shared library: contracts, interfaces, bus client, config, auth
-├── services/
-│   ├── ingestion/             ← normalize, dedup, ingest from Prometheus/Loki
-│   ├── correlation/           ← detect anomalies, cluster into Situations
-│   ├── rca/                   ← enrich, rank hypotheses, select + embed runbooks, explain
-│   ├── action/                ← HITL gate, sandbox, execute, verify, rollback
-│   ├── governance/            ← RBAC, audit log, playbook registry, AI runbook author
-│   ├── feedback/              ← label outcomes, retrain, graduate playbooks, compute KPIs
-│   ├── read/                  ← CQRS read model, SSE push, Prometheus proxy
-│   └── meridian/              ← 4-service sample financial platform + portal UI
-├── frontend/                  ← React 19 operator console (TypeScript, Tailwind)
-├── playbooks/                 ← YAML playbook definitions
-├── alembic/                   ← Postgres schema migrations
-├── deploy/
-│   ├── docker-compose.yml     ← full dev stack
-│   └── k8s/                   ← Helm chart + kind demo
-├── tests/                     ← 433+ tests (pytest)
-├── docs/                      ← DEMO, MERIDIAN, BENCHMARKS, PERSISTENCE, UI, OPERATIONS
-└── pyproject.toml
+├── crates/
+│   ├── contracts/      wire types and ids
+│   ├── bus/ store/     Redis Streams; Postgres
+│   ├── service/        config, probes, metrics, auth, shutdown
+│   ├── ingestion/      normalize and publish telemetry
+│   ├── detect/ correlation/   anomaly detection and incident windows
+│   ├── rca/ embed/     ranking, embeddings, explanations
+│   ├── action/         safety gates, Kubernetes, sandbox
+│   ├── governance/ llm/       RBAC, audit, registry, AI runbook author
+│   ├── feedback/       labelled outcomes, graduation
+│   ├── read/           read model, live stream
+│   └── sim/            demo app and Meridian
+├── frontend/           React operator console
+├── meridian-ui/        Meridian ops panel
+├── deploy/             Dockerfile, compose, Helm chart, kind
+├── testdata/           recorded behaviour of the original
+└── docs/
 ```
 
 ---

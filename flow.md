@@ -1,5 +1,7 @@
 # IntelliOps CoE — Flow & Function Reference
 
+> **Note:** this document describes the original Python implementation, kept on the [`python-legacy`](https://github.com/CodexManvik/intelliops/tree/python-legacy) branch. The platform is now Rust: the behaviour and settings carry over, but file paths and commands below that mention Python do not. See [docs/rust/DECISIONS.md](docs/rust/DECISIONS.md) for what changed.
+
 This document tracks **how a signal flows through the system** and **what each function does
 and why**. Read it alongside:
 
