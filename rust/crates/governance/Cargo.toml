@@ -1,0 +1,29 @@
+[package]
+name = "intelliops-governance"
+version = "0.1.0"
+description = "RBAC, audit, the playbook registry, approvals and the AI runbook author"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+axum.workspace = true
+futures-util.workspace = true
+intelliops-bus = { path = "../bus" }
+intelliops-contracts = { path = "../contracts" }
+intelliops-llm = { path = "../llm" }
+intelliops-service = { path = "../service" }
+intelliops-store = { path = "../store" }
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml_ng.workspace = true
+subtle.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+tracing.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+
+[lints]
+workspace = true

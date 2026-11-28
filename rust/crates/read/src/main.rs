@@ -182,7 +182,8 @@ async fn run(config: Config) -> Result<(), Failure> {
         |m, _: Situation| m.apply_suppressed(),
     ));
 
-    let service = Service::new("read-service", config, bus).with_open_get("/stream");
+    let service = Service::new("read-service", config, bus)
+        .with_open_paths(|method, path| method == "GET" && path == "/stream");
     serve(app(Arc::new(service), read.routes()), port()).await?;
     Ok(())
 }

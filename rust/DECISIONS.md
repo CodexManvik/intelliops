@@ -107,6 +107,9 @@ Consequences: "Matches Python" is a claim only for what the cases cover.
 - Deciding an approval or proposal is a single conditional update, so two
   deciders cannot both win.
 - `memory` idempotency mode uses Redis, like `redis` mode.
+- A runbook draft is validated without Pydantic's type coercion: `"2"` is not
+  accepted where an integer is required; the model is asked to resubmit.
+- Storage failures answer 503 instead of 500.
 - `handling` is a closed type ("normal" | "quiet"); Python accepted any string.
 
 ## ADR-011: The per-service switch is a compose override

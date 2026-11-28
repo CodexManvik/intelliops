@@ -15,7 +15,7 @@ streamlen() {
   compose exec -T redis redis-cli XLEN telemetry.raw | tr -d '\r'
 }
 
-compose up -d --build --wait --wait-timeout 300 ingestion correlation feedback read
+compose up -d --build --wait --wait-timeout 300 ingestion correlation feedback read governance
 [ "$(docker inspect -f '{{.Config.Image}}' "$(compose ps -q ingestion)")" = intelliops-ingestion-rs:latest ] ||
   fail "ingestion is not the Rust image"
 [ "$(docker inspect -f '{{.Config.User}}' "$(compose ps -q ingestion)")" = 10001 ] ||
@@ -45,3 +45,8 @@ curl -fsS http://localhost:8007/metrics | grep -q '"situationsOpen"' || fail "re
 curl -fsS http://localhost:8007/system | grep -q '"llm"' || fail "read /system"
 curl -fsS http://localhost:8006/metrics | grep -q '"total_outcomes"' || fail "feedback /metrics"
 echo " ✓ Rust read and feedback answer"
+
+curl -fsS http://localhost:8005/playbooks | grep -q restart-pod || fail "governance /playbooks"
+code=$(curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json'   -d '{"id":"x","name":"x","match_rule":"x","hitl_mode":"auto"}'   'http://localhost:8005/playbooks?registered_by=nobody')
+[ "$code" = 403 ] || fail "an unknown actor registered a playbook ($code)"
+echo " ✓ Rust governance serves playbooks and refuses strangers"

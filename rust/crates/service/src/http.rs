@@ -64,7 +64,7 @@ pub struct Service {
     config: Config,
     bus: Bus,
     database: Option<Store>,
-    open_get: Option<&'static str>,
+    open: Option<fn(&str, &str) -> bool>,
     registry: Registry,
     requests: Family<Handled, Counter>,
     duration: Family<Route, Histogram>,
@@ -93,7 +93,7 @@ impl Service {
             config,
             bus,
             database: None,
-            open_get: None,
+            open: None,
             registry,
             requests,
             duration,
@@ -107,10 +107,10 @@ impl Service {
         self
     }
 
-    /// A GET route that authenticates itself.
+    /// `(method, path)` pairs that authenticate themselves or are internal.
     #[must_use]
-    pub fn with_open_get(mut self, path: &'static str) -> Self {
-        self.open_get = Some(path);
+    pub fn with_open_paths(mut self, open: fn(&str, &str) -> bool) -> Self {
+        self.open = Some(open);
         self
     }
 
@@ -164,7 +164,9 @@ pub fn app(service: Arc<Service>, routes: Router) -> Router {
 async fn auth(State(service): State<Arc<Service>>, request: Request, next: Next) -> Response {
     let open = request.method() == Method::OPTIONS
         || PROBE_PATHS.contains(&request.uri().path())
-        || (request.method() == Method::GET && service.open_get == Some(request.uri().path()))
+        || service
+            .open
+            .is_some_and(|open| open(request.method().as_str(), request.uri().path()))
         || service.authorized(&request);
     if open {
         next.run(request).await

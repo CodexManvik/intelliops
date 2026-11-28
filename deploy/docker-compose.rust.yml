@@ -51,3 +51,13 @@ services:
         SERVICE: read
       target: !reset null
     healthcheck: *rust-healthcheck
+
+  governance:
+    image: intelliops-governance-rs:latest
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.rust
+      args:
+        SERVICE: governance
+      target: !reset null
+    healthcheck: *rust-healthcheck
