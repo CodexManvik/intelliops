@@ -15,7 +15,7 @@ streamlen() {
   compose exec -T redis redis-cli XLEN telemetry.raw | tr -d '\r'
 }
 
-compose up -d --build --wait --wait-timeout 180 ingestion correlation
+compose up -d --build --wait --wait-timeout 300 ingestion correlation feedback read
 [ "$(docker inspect -f '{{.Config.Image}}' "$(compose ps -q ingestion)")" = intelliops-ingestion-rs:latest ] ||
   fail "ingestion is not the Rust image"
 [ "$(docker inspect -f '{{.Config.User}}' "$(compose ps -q ingestion)")" = 10001 ] ||
@@ -40,3 +40,8 @@ if compose logs --since "$since" correlation | grep -E 'undecodable|panicked|"le
   fail "correlation reported errors"
 fi
 echo " ✓ Rust correlation consumes Rust events"
+
+curl -fsS http://localhost:8007/metrics | grep -q '"situationsOpen"' || fail "read /metrics"
+curl -fsS http://localhost:8007/system | grep -q '"llm"' || fail "read /system"
+curl -fsS http://localhost:8006/metrics | grep -q '"total_outcomes"' || fail "feedback /metrics"
+echo " ✓ Rust read and feedback answer"

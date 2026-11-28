@@ -31,3 +31,23 @@ services:
         SERVICE: correlation
       target: !reset null
     healthcheck: *rust-healthcheck
+
+  feedback:
+    image: intelliops-feedback-rs:latest
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.rust
+      args:
+        SERVICE: feedback
+      target: !reset null
+    healthcheck: *rust-healthcheck
+
+  read:
+    image: intelliops-read-rs:latest
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.rust
+      args:
+        SERVICE: read
+      target: !reset null
+    healthcheck: *rust-healthcheck

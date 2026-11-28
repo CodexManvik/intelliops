@@ -10,6 +10,7 @@ rust-version = "1.97"
 publish = false
 
 [workspace.dependencies]
+futures-util = "0.3"
 serde_yaml_ng = "0.10"
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "postgres", "json", "chrono", "derive"] }
 indexmap = "2"

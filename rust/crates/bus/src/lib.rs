@@ -1,8 +1,10 @@
 //! Redis Streams: publishing and consumer groups.
 
 mod consumer;
+mod replay;
 
 pub use consumer::{Consumer, ConsumerConfig};
+pub use replay::{RawEntry, id_order};
 
 use std::time::Duration;
 
@@ -80,6 +82,10 @@ impl Bus {
     /// A consumer with a connection of its own, since its reads block.
     pub fn consumer(&self, config: ConsumerConfig) -> Result<Consumer, BusError> {
         Consumer::new(&self.url, config)
+    }
+
+    pub(crate) fn connection(&self) -> ConnectionManager {
+        self.connection.clone()
     }
 
     pub async fn ping(&self) -> Result<(), BusError> {

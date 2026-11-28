@@ -13,7 +13,8 @@ Goal: all backend code in Rust, deployed free on ARM, one service at a time
 | Correlation service | `crates/correlation` | 20,800 recorded engine ops; live | done except the `trained` detector |
 | Service base: probes, metrics, auth, logging | `crates/service` | unit tests | done |
 | Ingestion service | `crates/ingestion` | 93 recorded `/ingest` cases; live in the compose stack | done (compose switch only) |
-| Read, feedback | | | open |
+| Feedback service | `crates/feedback` | recorded rules; live | done |
+| Read service | `crates/read` | recorded projection; live | done |
 | Governance (RBAC fnmatch, stores, migrations, runbook author) | | | open |
 | RCA (rules, embeddings, LLM explainer) | | | open |
 | Action (kube-rs remediation, health, sandbox) | | | open |
@@ -22,7 +23,7 @@ Goal: all backend code in Rust, deployed free on ARM, one service at a time
 | Public demo mode, auth fix (#59, #60), Docs page rewrite | | | open |
 | Free deployment | | | open |
 
-Ingestion and correlation run on Rust when `deploy/docker-compose.rust.yml` is added.
+Ingestion, correlation, feedback and read run on Rust when `deploy/docker-compose.rust.yml` is added.
 
 ## Working on it
 - Oracles: `app-cases/golden/` (live traffic), `app-cases/detector.json`
@@ -32,7 +33,7 @@ Ingestion and correlation run on Rust when `deploy/docker-compose.rust.yml` is a
   `cargo test` in `rust/`.
 
 ## Next, in order
-1. Feedback and read, then governance, rca, action, demo_app, Meridian.
+1. Governance, rca, action, demo_app, Meridian.
 2. The `trained` (isolation forest) detector, before Python is removed.
 
 ## Limits of the golden recording
