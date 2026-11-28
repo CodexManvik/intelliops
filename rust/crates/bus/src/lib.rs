@@ -88,6 +88,42 @@ impl Bus {
         self.connection.clone()
     }
 
+    /// `true` for the first claimant of `key`.
+    pub async fn claim(&self, key: &str, ttl_seconds: u64) -> Result<bool, BusError> {
+        let reply: Option<String> = redis::cmd("SET")
+            .arg(format!("idem:{key}"))
+            .arg("1")
+            .arg("NX")
+            .arg("EX")
+            .arg(ttl_seconds)
+            .query_async(&mut self.connection())
+            .await?;
+        Ok(reply.is_some())
+    }
+
+    pub async fn state(&self, key: &str) -> Result<Option<String>, BusError> {
+        Ok(redis::cmd("GET")
+            .arg(format!("idem:{key}"))
+            .query_async(&mut self.connection())
+            .await?)
+    }
+
+    pub async fn set_state(
+        &self,
+        key: &str,
+        value: &str,
+        ttl_seconds: u64,
+    ) -> Result<(), BusError> {
+        let () = redis::cmd("SET")
+            .arg(format!("idem:{key}"))
+            .arg(value)
+            .arg("EX")
+            .arg(ttl_seconds)
+            .query_async(&mut self.connection())
+            .await?;
+        Ok(())
+    }
+
     pub async fn ping(&self) -> Result<(), BusError> {
         redis::cmd("PING")
             .query_async::<()>(&mut self.connection.clone())

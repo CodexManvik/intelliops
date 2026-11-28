@@ -17,13 +17,13 @@ Goal: all backend code in Rust, deployed free on ARM, one service at a time
 | Read service | `crates/read` | recorded projection; live | done |
 | Governance service and AI runbook author | `crates/governance`, `crates/llm` | 3,015 fnmatch cases, API tests, scripted model; live incident approval and live draft | done |
 | RCA service (rules, embeddings, explainer) | `crates/rca`, `crates/embed` | 400 recorded diagnoses; vectors match sentence-transformers; live | done |
-| Action (kube-rs remediation, health, sandbox) | | | open |
+| Action service: gates, Kubernetes, health, sandbox | `crates/action` | 2,500 recorded gate cases, 600 health cases, mock API server; live dry run | done; real-cluster test pending |
 | demo_app, Meridian | | | open |
 | Per-service switch (Helm), arm64 images | | | open (compose switch done) |
 | Public demo mode, auth fix (#59, #60), Docs page rewrite | | | open |
 | Free deployment | | | open |
 
-Ingestion, correlation, feedback, read, governance and rca run on Rust when `deploy/docker-compose.rust.yml` is added.
+Ingestion, correlation, feedback, read, governance, rca and action (all platform services) run on Rust when `deploy/docker-compose.rust.yml` is added.
 
 ## Working on it
 - Oracles: `app-cases/golden/` (live traffic), `app-cases/detector.json`
@@ -33,7 +33,7 @@ Ingestion, correlation, feedback, read, governance and rca run on Rust when `dep
   `cargo test` in `rust/`.
 
 ## Next, in order
-1. Action, demo_app, Meridian.
+1. Real-cluster test of action, then demo_app and Meridian.
 2. The `trained` (isolation forest) detector, before Python is removed.
 
 ## Limits of the golden recording

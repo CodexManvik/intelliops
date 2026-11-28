@@ -15,7 +15,7 @@ streamlen() {
   compose exec -T redis redis-cli XLEN telemetry.raw | tr -d '\r'
 }
 
-compose up -d --build --wait --wait-timeout 300 ingestion correlation feedback read governance rca
+compose up -d --build --wait --wait-timeout 300 ingestion correlation feedback read governance rca action
 [ "$(docker inspect -f '{{.Config.Image}}' "$(compose ps -q ingestion)")" = intelliops-ingestion-rs:latest ] ||
   fail "ingestion is not the Rust image"
 [ "$(docker inspect -f '{{.Config.User}}' "$(compose ps -q ingestion)")" = 10001 ] ||
@@ -53,3 +53,5 @@ echo " ✓ Rust governance serves playbooks and refuses strangers"
 
 curl -fsS http://localhost:8003/config/llm | grep -q '"provider"' || fail "rca /config/llm"
 echo " ✓ Rust rca is serving"
+curl -fsS http://localhost:8004/config/posture | grep -q '"remediator_mode"' || fail "action posture"
+echo " ✓ Rust action is serving"

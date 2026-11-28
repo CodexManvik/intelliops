@@ -71,3 +71,13 @@ services:
         SERVICE: rca
       target: rca
     healthcheck: *rust-healthcheck
+
+  action:
+    image: intelliops-action-rs:latest
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.rust
+      args:
+        SERVICE: action
+      target: service
+    healthcheck: *rust-healthcheck

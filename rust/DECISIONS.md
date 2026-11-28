@@ -113,6 +113,14 @@ Consequences: "Matches Python" is a claim only for what the cases cover.
 - RCA's embedding selector now runs. In the Python compose stack it was enabled
   but the image lacked the library, so ranking silently used rules only.
 - With embedding selection configured and no model present, RCA refuses to start.
+- Action always asks governance over HTTP. The in-process approval table, which
+  nobody could approve, is gone (`GOVERNANCE_MODE` is ignored).
+- A resource-limit or probe step with no container named patches the first one
+  (the Python patch was rejected by the API server).
+- Rolling back to a revision drops the old `pod-template-hash` label.
+- A quantity like `nan` is refused by the denylist.
+- Configured for a real cluster but unable to reach one, action refuses to start.
+- An unwritable audit record is retried, then logged, instead of crashing.
 - `handling` is a closed type ("normal" | "quiet"); Python accepted any string.
 
 ## ADR-011: The per-service switch is a compose override
