@@ -38,7 +38,6 @@ test holds it within a small tolerance of the original.
   at a much higher false-positive rate. It is a trade-off, not an upgrade.
 - On the seasonal stream the robust detector does **not** beat the plain
   z-score (0.018 against 0.014). An earlier version of this page claimed it was
-  about seven times better; that no longer holds since the detector began
-  borrowing a warm window from another hour.
+  about seven times better; the current results do not show that.
 - These are synthetic streams, each isolating one failure mode. They are not a
   claim about noise reduction on real traffic.
