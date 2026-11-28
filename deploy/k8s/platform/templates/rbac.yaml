@@ -3,12 +3,19 @@ rbac.yaml
 Scoped RBAC for the action service's real k8s remediation + sandbox pre-flight.
 Rendered only when rbac.create (the live posture); dry-run needs no cluster access.
 
-The verbs below are exactly what the action adapters call (k8s_remediator, sandbox,
-k8s_health): patch/scale/rollback Deployments, read rollout status, and clone into
-a THROWAWAY namespace for the sandbox rehearsal. Namespace create/delete is
-cluster-scoped, so this must be a ClusterRole (a namespaced Role cannot grant it).
+Two shapes, least privilege first:
+  - rbac.sandbox=false (default): a namespaced Role in the RELEASE namespace —
+    exactly what real remediation + health verification call (k8s_remediator,
+    k8s_health): read/patch/scale Deployments, read ReplicaSets and Pods. The
+    action service cannot touch any other namespace.
+  - rbac.sandbox=true: a ClusterRole that additionally lets the sandbox rehearsal
+    create/delete a THROWAWAY namespace and clone the workload into it. Namespace
+    create/delete is cluster-scoped, so this cannot be a namespaced Role. Only
+    enable it together with SANDBOX_MODE=k8s.
 */}}
 {{- if .Values.rbac.create }}
+{{- $kind := ternary "ClusterRole" "Role" .Values.rbac.sandbox }}
+{{- $name := printf "%s-intelliops-action" .Release.Name }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -17,22 +24,27 @@ metadata:
     {{- include "intelliops.labels" . | nindent 4 }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
+kind: {{ $kind }}
 metadata:
-  name: {{ .Release.Name }}-intelliops-action
+  name: {{ $name }}
   labels:
     {{- include "intelliops.labels" . | nindent 4 }}
 rules:
-  # Deployments: scale / restart (rollout restart via patch) / rollback + clone.
+  # Deployments: scale / restart (rollout restart via patch) / rollback.
   - apiGroups: ["apps"]
     resources: ["deployments", "replicasets"]
-    verbs: ["get", "list", "create", "patch"]
+    verbs: ["get", "list", "patch"{{ if .Values.rbac.sandbox }}, "create"{{ end }}]
   - apiGroups: ["apps"]
     resources: ["deployments/scale"]
     verbs: ["get", "patch"]
   - apiGroups: ["apps"]
     resources: ["deployments/status"]
     verbs: ["get"]
+  # Diagnostics / health.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  {{- if .Values.rbac.sandbox }}
   # Sandbox pre-flight: create/delete a throwaway namespace + clone config/service.
   - apiGroups: [""]
     resources: ["namespaces"]
@@ -40,21 +52,18 @@ rules:
   - apiGroups: [""]
     resources: ["configmaps", "services"]
     verbs: ["get", "create"]
-  # Diagnostics / health.
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list"]
+  {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: {{ $kind }}Binding
 metadata:
-  name: {{ .Release.Name }}-intelliops-action
+  name: {{ $name }}
   labels:
     {{- include "intelliops.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: {{ .Release.Name }}-intelliops-action
+  kind: {{ $kind }}
+  name: {{ $name }}
 subjects:
   - kind: ServiceAccount
     name: intelliops-action

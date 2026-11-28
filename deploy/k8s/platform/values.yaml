@@ -1,4 +1,10 @@
 image:
+  # Local kind flow: scripts/kind-up-full.sh builds + loads `intelliops:latest`
+  # / `intelliops:full`. For a real cluster use the immutable, CI-published
+  # images instead (pushed by .github/workflows/ci.yml on every master commit):
+  #   --set image.repository=ghcr.io/<owner>/intelliops \
+  #   --set image.tag=<git-sha> --set image.fullTag=full-<git-sha> \
+  #   --set console.repository=ghcr.io/<owner>/intelliops-console
   repository: intelliops
   tag: latest
   # The `full` image target (base + ml + k8s extras, CPU torch + baked embedding
@@ -40,6 +46,16 @@ services:
     module: "services.read.app:app"
     port: 8000
     externalPort: 8007
+
+# Per-pod resources for the platform services. `fullResources` applies to the
+# `image: full` services (torch + the embedding model / river are loaded in-process).
+# Memory limits only: a CPU limit just throttles a single-replica service.
+resources:
+  requests: { cpu: "50m", memory: "128Mi" }
+  limits: { memory: "512Mi" }
+fullResources:
+  requests: { cpu: "100m", memory: "512Mi" }
+  limits: { memory: "2Gi" }
 
 # Platform env — SAFE DEFAULTS (dry-run / off / template). The LIVE posture is
 # strictly opt-in via values-live.yaml. A plain `helm install` never touches a
@@ -102,6 +118,10 @@ env:
 # creates/deletes throwaway sandbox namespaces). Off by default (dry-run needs none).
 rbac:
   create: false
+  # false → namespaced Role (remediate only in the release namespace).
+  # true  → ClusterRole that can also create/delete the throwaway sandbox
+  #         namespace. Enable only together with SANDBOX_MODE=k8s.
+  sandbox: false
 
 # LLM API key. NEVER commit a key here. Supply at install:
 #   helm install ... --set-string llm.apiKey=$GROQ_API_KEY
@@ -151,9 +171,22 @@ readNodePort: 30007      # NodePort for the read service (browser reaches SSE/RE
 
 redis:
   image: redis:7
+  # The bus is durable: AOF on a PVC, so un-consumed events survive a restart.
+  storage: 1Gi
+  # Fail publishes loudly when full rather than get OOM-killed. Keep this
+  # comfortably below the memory limit (AOF rewrite forks).
+  maxmemory: 256mb
+  resources:
+    requests: { cpu: "50m", memory: "64Mi" }
+    limits: { memory: "512Mi" }
 
 postgres:
   image: postgres:16
+  # DEMO credentials. For anything real, pre-create a Secret holding
+  # POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB and INTELLIOPS_DATABASE_URL
+  # (postgresql+psycopg://<user>:<password>@postgres:5432/<db>) and name it here;
+  # the chart then renders no Secret and ignores `password` below.
+  existingSecret: ""
   user: intelliops
   password: intelliops
   db: intelliops

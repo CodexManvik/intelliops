@@ -39,6 +39,8 @@ spec:
               value: {{ .Values.demoApp.port | quote }}
           ports:
             - containerPort: {{ .Values.demoApp.port }}
+          securityContext:
+            {{- include "intelliops.securityContext" . | nindent 12 }}
           readinessProbe:
             httpGet: { path: /health, port: {{ .Values.demoApp.port }} }
             initialDelaySeconds: 2

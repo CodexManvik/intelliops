@@ -1,10 +1,29 @@
 name: intelliops
 
+# /health variant of the anchor's default healthcheck, for services with no
+# /ready dependency checks to run (Meridian).
+x-health-check: &health-check
+  test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)\""]
+  interval: 10s
+  timeout: 3s
+  retries: 5
+  start_period: 20s
+
 x-service: &service
+  # Explicit tags so every service built from the same target shares ONE image
+  # (and CI can pre-build them with a layer cache, then `up` without --build).
+  image: intelliops:latest
   build:
     context: ..
     dockerfile: deploy/Dockerfile
     target: base
+  # Default: /ready (bus ping + db check). Services override where that's wrong.
+  healthcheck:
+    test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/ready').status==200 else 1)\""]
+    interval: 10s
+    timeout: 3s
+    retries: 5
+    start_period: 20s
   environment:
     INTELLIOPS_REDIS_URL: redis://redis:6379
   depends_on:
@@ -15,7 +34,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -29,7 +48,7 @@ services:
       POSTGRES_PASSWORD: intelliops
       POSTGRES_DB: intelliops
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -43,6 +62,8 @@ services:
   migrate:
     <<: *service
     command: alembic upgrade head
+    healthcheck:
+      disable: true
     environment:
       INTELLIOPS_DATABASE_URL: postgresql+psycopg://intelliops:intelliops@postgres:5432/intelliops
     depends_on:
@@ -66,15 +87,10 @@ services:
       INTELLIOPS_PROMETHEUS_QUERY: '{__name__=~"cpu_usage|meridian_error_rate|request_rate|latency_p50_ms|latency_p99_ms|memory_usage_mb|saturation|queue_depth|db_pool_in_use|db_pool_max|disk_usage_percent|service_up|tls_handshake_failures"}'
     ports:
       - "8001:8000"
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/ready').status==200 else 1)\""]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 20s
 
   correlation:
     <<: *service
+    image: intelliops:full
     build:
       context: ..
       dockerfile: deploy/Dockerfile
@@ -94,12 +110,6 @@ services:
       INTELLIOPS_CORRELATION_Z_THRESHOLD: "2.0"
     ports:
       - "8002:8000"
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/ready').status==200 else 1)\""]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 20s
     depends_on:
       redis:
         condition: service_healthy
@@ -135,12 +145,6 @@ services:
       # Shared with the Meridian gateway (Task 3) so its rollback path and
       # RCA's on-disk context store see the same rca_context_path directory.
       - rca-context:/app/data/rca_context
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/ready').status==200 else 1)\""]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 20s
     depends_on:
       redis:
         condition: service_healthy
@@ -151,6 +155,7 @@ services:
 
   action:
     <<: *service
+    image: intelliops:full
     build:
       context: ..
       dockerfile: deploy/Dockerfile
@@ -166,12 +171,6 @@ services:
       INTELLIOPS_DATABASE_URL: postgresql+psycopg://intelliops:intelliops@postgres:5432/intelliops
     ports:
       - "8004:8000"
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/ready').status==200 else 1)\""]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 20s
     depends_on:
       redis:
         condition: service_healthy
@@ -198,12 +197,6 @@ services:
       INTELLIOPS_LLM_RUNBOOK_TIMEOUT_SECONDS: "${INTELLIOPS_LLM_TIMEOUT_SECONDS:-30}"
     ports:
       - "8005:8000"
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/ready').status==200 else 1)\""]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 20s
     depends_on:
       redis:
         condition: service_healthy
@@ -223,12 +216,6 @@ services:
       INTELLIOPS_DATABASE_URL: postgresql+psycopg://intelliops:intelliops@postgres:5432/intelliops
     ports:
       - "8006:8000"
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/ready').status==200 else 1)\""]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 20s
     depends_on:
       redis:
         condition: service_healthy
@@ -252,7 +239,7 @@ services:
       start_period: 20s
 
   prometheus:
-    image: prom/prometheus
+    image: prom/prometheus:v2.54.1 # pinned, matches the Helm chart
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
     ports:
@@ -333,12 +320,6 @@ services:
       PORT: "8000"
     ports:
       - "8007:8000"
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/ready').status==200 else 1)\""]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 20s
 
   # Meridian sample system: stateless backend services (no DB) that mirror
   # the `read`/`demo-app` shape — inherit the anchor's redis depends_on,
@@ -348,6 +329,7 @@ services:
   # Meridian UI, and it shares the rca-context volume with rca (Task 2) so
   # /admin/deploy's deploy markers are visible to RCA's rollback scenario.
   meridian-gateway:
+    image: intelliops-meridian:latest
     build:
       context: ..
       dockerfile: deploy/Dockerfile.meridian
@@ -385,12 +367,7 @@ services:
       PORT: "8000"
     ports:
       - "8011:8000"
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)\""]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 20s
+    healthcheck: *health-check
 
   meridian-aggregation:
     <<: *service
@@ -401,12 +378,7 @@ services:
       PORT: "8000"
     ports:
       - "8012:8000"
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)\""]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 20s
+    healthcheck: *health-check
 
   meridian-reporting:
     <<: *service
@@ -417,12 +389,7 @@ services:
       PORT: "8000"
     ports:
       - "8013:8000"
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)\""]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 20s
+    healthcheck: *health-check
 
   kafka:
     image: bitnami/kafka:3.7

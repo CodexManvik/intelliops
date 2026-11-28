@@ -31,6 +31,16 @@ data:
             labels: { service: {{ .name }} }
       {{- end }}
       {{- end }}
+      # The platform's own services (request rate / errors / latency from
+      # services/base.py). No `service:` label on purpose: RCA keys on it for
+      # the MONITORED workloads above; `job`/`instance` identify these.
+      - job_name: intelliops
+        metrics_path: /_metrics
+        static_configs:
+          - targets:
+              {{- range .Values.services }}
+              - "{{ .name }}.{{ $ns }}:{{ .port }}"
+              {{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
