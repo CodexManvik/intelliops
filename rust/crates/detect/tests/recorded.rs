@@ -27,9 +27,10 @@ fn scores_decisions_and_baselines_match_python() {
             let value = step["value"].as_f64();
             let score = detector.detect(name, value);
             let expected = step["score"].as_f64().unwrap();
-            assert_eq!(
-                score.to_bits(),
-                expected.to_bits(),
+            // The only inexact operation is `** 0.5`, whose last bit depends on
+            // the platform's libm (for Python too). Recorded on Windows.
+            assert!(
+                score.to_bits().abs_diff(expected.to_bits()) <= 1,
                 "scenario {index} step {step_no}: {score} vs {expected}"
             );
             assert_eq!(
