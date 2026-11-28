@@ -4,7 +4,7 @@
 # uv setup exactly — see that file for why `uv sync` runs twice and why
 # uvicorn is invoked directly from the venv instead of via `uv run`).
 
-FROM node:20-slim AS ui
+FROM node:26-slim AS ui
 WORKDIR /ui
 COPY services/meridian/ui/package*.json ./
 RUN npm ci
