@@ -1,0 +1,55 @@
+{
+  "label": "python-2",
+  "measured_at": "2026-11-28T17:03:17+00:00",
+  "host": 12,
+  "image_mib": {
+    "ingestion": 494.7,
+    "correlation": 3916.2,
+    "rca": 494.7,
+    "action": 3916.2,
+    "governance": 494.7,
+    "feedback": 494.7,
+    "read": 494.7
+  },
+  "idle_memory_mib": {
+    "ingestion": 64.1,
+    "correlation": 74.5,
+    "rca": 71.0,
+    "action": 74.0,
+    "governance": 71.5,
+    "feedback": 70.1,
+    "read": 61.1
+  },
+  "ingest": {
+    "events": 20000,
+    "ingest_events_per_s": 1763,
+    "end_to_end_events_per_s": 1195,
+    "ingest_batch_p50_ms": 109.0,
+    "ingest_batch_p99_ms": 234.0
+  },
+  "loaded_memory_mib": {
+    "ingestion": 64.5,
+    "correlation": 74.6,
+    "rca": 71.1,
+    "action": 74.0,
+    "governance": 71.5,
+    "feedback": 70.2,
+    "read": 61.2
+  },
+  "cold_start_s": {
+    "ingestion": 2.83,
+    "correlation": 4.92,
+    "rca": 4.78,
+    "action": 4.97,
+    "governance": 5.28,
+    "feedback": 5.62,
+    "read": 2.86
+  },
+  "workload_memory_mib": {
+    "demo-app": 44.3,
+    "meridian-gateway": 58.0,
+    "meridian-validation": 59.0,
+    "meridian-aggregation": 67.9,
+    "meridian-reporting": 58.1
+  }
+}

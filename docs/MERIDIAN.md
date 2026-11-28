@@ -1,5 +1,7 @@
 # Meridian — a sample production system for IntelliOps to operate
 
+> **Note:** this document describes the original Python implementation, kept on the [`python-legacy`](https://github.com/CodexManvik/intelliops/tree/python-legacy) branch. The platform is now Rust: the behaviour and settings carry over, but file paths and commands below that mention Python do not. See [docs/rust/DECISIONS.md](rust/DECISIONS.md) for what changed.
+
 Meridian is a small, realistic **Deloitte-style financial/audit reporting platform**: four
 backend services plus a client portal, running in the same `docker compose` stack as IntelliOps.
 It exists for one reason — to give IntelliOps something **real** to watch. Its services emit

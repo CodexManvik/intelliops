@@ -1,0 +1,2135 @@
+[
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z"
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z"
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05.123Z"
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05.123000Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05.123456789Z"
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05.123456Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05+05:30"
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05+05:30",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05+0530"
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05+05:30",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02 03:04:05"
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05"
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02t03:04:05z"
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02_03:04:05"
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04"
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:00",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02"
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T00:00:00",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": " 2026-01-02T03:04:05Z"
+    }
+   ]
+  },
+  "status": 500,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "1767323045"
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "1767323045.5"
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05.500000Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": 1767323045
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": 1767323045.1234567
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05.123457Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": 1767323045123
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05.123000Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": -1
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "1969-12-31T23:59:59Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": 0
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "1970-01-01T00:00:00Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": true
+    }
+   ]
+  },
+  "status": 500,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": ""
+    }
+   ]
+  },
+  "status": 500,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "yesterday"
+    }
+   ]
+  },
+  "status": 500,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": null
+    }
+   ]
+  },
+  "status": 500,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": []
+    }
+   ]
+  },
+  "status": 500,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n"
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-11-28T14:20:22.980938Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "value": 1
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": 1.0,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "value": 1.5
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": 1.5,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "value": 0
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": 0.0,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "value": -3
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": -3.0,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "value": 1e+308
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": 1e+308,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "value": "1.5"
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": 1.5,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "value": " 2 "
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": 2.0,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "value": "1_000"
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": 1000.0,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "value": "1e3"
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": 1000.0,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "value": "abc"
+    }
+   ]
+  },
+  "status": 500,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "value": ""
+    }
+   ]
+  },
+  "status": 500,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "value": true
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": 1.0,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "value": false
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": 0.0,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "value": null
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "value": []
+    }
+   ]
+  },
+  "status": 500,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "value": {}
+    }
+   ]
+  },
+  "status": 500,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z"
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "labels": {}
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "labels": {
+      "a": "b"
+     }
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {
+     "a": "b"
+    },
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "1e9a8b9569588f76"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "labels": {
+      "service": "x",
+      "a": ""
+     }
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {
+     "service": "x",
+     "a": ""
+    },
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "9a3ee66755d52259"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "labels": {
+      "a": 1
+     }
+    }
+   ]
+  },
+  "status": 500,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "labels": {
+      "a": null
+     }
+    }
+   ]
+  },
+  "status": 500,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "labels": {
+      "a": true
+     }
+    }
+   ]
+  },
+  "status": 500,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "labels": null
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "labels": []
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "labels": ""
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "labels": 0
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "labels": "x"
+    }
+   ]
+  },
+  "status": 500,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "labels": [
+      1
+     ]
+    }
+   ]
+  },
+  "status": 500,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z"
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "payload": null
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "payload": {}
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": {},
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "payload": {
+      "a": [
+       1,
+       {
+        "b": null
+       }
+      ]
+     }
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": {
+     "a": [
+      1,
+      {
+       "b": null
+      }
+     ]
+    },
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "payload": []
+    }
+   ]
+  },
+  "status": 500,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "payload": "x"
+    }
+   ]
+  },
+  "status": 500,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "payload": 1
+    }
+   ]
+  },
+  "status": 500,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z"
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z"
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "log",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z"
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "log",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "trace",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z"
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "trace",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "METRIC",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z"
+    }
+   ]
+  },
+  "status": 500,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "other",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z"
+    }
+   ]
+  },
+  "status": 500,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z"
+    }
+   ]
+  },
+  "status": 500,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": 1,
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z"
+    }
+   ]
+  },
+  "status": 500,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": null,
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z"
+    }
+   ]
+  },
+  "status": 500,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z"
+    }
+   ]
+  },
+  "status": 500,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z"
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z"
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "9ff427ad40fda0c0"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": 1,
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z"
+    }
+   ]
+  },
+  "status": 500,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": null,
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z"
+    }
+   ]
+  },
+  "status": 500,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": true,
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z"
+    }
+   ]
+  },
+  "status": 500,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z"
+    }
+   ]
+  },
+  "status": 500,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z"
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "métrique 📈",
+     "ts": "2026-01-02T03:04:05Z"
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "métrique 📈",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "242bdf6d79fa3181"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "",
+     "ts": "2026-01-02T03:04:05Z"
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "9dd56117d02f3543"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": 1,
+     "ts": "2026-01-02T03:04:05Z"
+    }
+   ]
+  },
+  "status": 500,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": null,
+     "ts": "2026-01-02T03:04:05Z"
+    }
+   ]
+  },
+  "status": 500,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "ts": "2026-01-02T03:04:05Z"
+    }
+   ]
+  },
+  "status": 500,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z",
+     "extra": 1,
+     "fingerprint": "forged"
+    }
+   ]
+  },
+  "status": 200,
+  "response": {
+   "accepted": 1
+  },
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ },
+ {
+  "body": {
+   "events": []
+  },
+  "status": 200,
+  "response": {
+   "accepted": 0
+  },
+  "published": []
+ },
+ {
+  "body": {},
+  "status": 422,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": null
+  },
+  "status": 422,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": {}
+  },
+  "status": 422,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": [
+    1
+   ]
+  },
+  "status": 422,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": [],
+  "status": 422,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": "x",
+  "status": 422,
+  "response": null,
+  "published": []
+ },
+ {
+  "body": {
+   "events": [
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z"
+    },
+    {
+     "source": "s",
+     "kind": "nope",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z"
+    },
+    {
+     "source": "s",
+     "kind": "metric",
+     "name": "n",
+     "ts": "2026-01-02T03:04:05Z"
+    }
+   ]
+  },
+  "status": 500,
+  "response": null,
+  "published": [
+   {
+    "source": "s",
+    "kind": "metric",
+    "name": "n",
+    "value": null,
+    "payload": null,
+    "labels": {},
+    "ts": "2026-01-02T03:04:05Z",
+    "fingerprint": "ffd77c4645c16a15"
+   }
+  ]
+ }
+]

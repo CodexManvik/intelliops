@@ -1,5 +1,7 @@
 # Real Kubernetes remediation demo
 
+> **Note:** this document describes the original Python implementation, kept on the [`python-legacy`](https://github.com/CodexManvik/intelliops/tree/python-legacy) branch. The platform is now Rust: the behaviour and settings carry over, but file paths and commands below that mention Python do not. See [docs/rust/DECISIONS.md](../../docs/rust/DECISIONS.md) for what changed.
+
 This is the "real remediation" path: a live kind cluster running the demo-app
 and Prometheus, with the action service's remediator flipped from its default
 `dry_run` mode to `k8s` mode, so approving a remediation restarts an actual

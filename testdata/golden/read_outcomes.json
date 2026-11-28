@@ -1,0 +1,38 @@
+[
+ {
+  "situation_id": "sit-5c025fa0200c747c",
+  "playbook_id": "restart-pod",
+  "result": "failure",
+  "reason": "aborted:timeout",
+  "ts": 1795874147011,
+  "service": "demo-app",
+  "hitl_mode": "hitl",
+  "mode": "dry_run",
+  "handling": "normal",
+  "mttr_ms": null
+ },
+ {
+  "situation_id": "sit-5c025fa0200c747c",
+  "playbook_id": "restart-pod",
+  "result": "failure",
+  "reason": "aborted:timeout",
+  "ts": 1795874087429,
+  "service": "unknown",
+  "hitl_mode": "hitl",
+  "mode": "dry_run",
+  "handling": "normal",
+  "mttr_ms": null
+ },
+ {
+  "situation_id": "sit-5c025fa0200c747c",
+  "playbook_id": "restart-pod",
+  "result": "failure",
+  "reason": "aborted:timeout",
+  "ts": 1795874056932,
+  "service": "unknown",
+  "hitl_mode": "hitl",
+  "mode": "dry_run",
+  "handling": "normal",
+  "mttr_ms": null
+ }
+]

@@ -4,7 +4,7 @@
 // Labels: `service` is the compose service name (ingestion, correlation, ...,
 // meridian-gateway), `container` the container name. The IntelliOps services
 // log JSON in compose (INTELLIOPS_LOG_FORMAT=json), so `level` is lifted out of
-// each line into a label; plain-text lines (redis, postgres, uvicorn access
+// each line into a label; plain-text lines (redis, postgres, some access
 // logs) pass through untouched.
 
 discovery.docker "containers" {

@@ -1,0 +1,25 @@
+[package]
+name = "intelliops-read"
+version = "0.1.0"
+description = "The console's live read model, projected from the event stream"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+axum.workspace = true
+futures-util.workspace = true
+indexmap.workspace = true
+intelliops-bus = { path = "../bus" }
+intelliops-contracts = { path = "../contracts" }
+intelliops-llm = { path = "../llm" }
+intelliops-service = { path = "../service" }
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+subtle.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+tracing.workspace = true
+
+[lints]
+workspace = true

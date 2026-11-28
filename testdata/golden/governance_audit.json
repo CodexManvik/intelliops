@@ -1,0 +1,370 @@
+[
+ {
+  "actor": "rca-service",
+  "action": "diagnose",
+  "resource": "situation:sit-5c025fa0200c747c",
+  "decision": "allow",
+  "ts": "2026-11-28T13:46:01.357933Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "oncall-alice",
+  "action": "approve",
+  "resource": "playbook:restart-pod",
+  "decision": "allow",
+  "ts": "2026-11-28T13:46:01.571095Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "action-service",
+  "action": "execute",
+  "resource": "playbook:restart-pod",
+  "decision": "allow",
+  "ts": "2026-11-28T13:46:01.924479Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "rca-service",
+  "action": "diagnose",
+  "resource": "situation:sit-5c025fa0200c747c",
+  "decision": "allow",
+  "ts": "2026-11-28T13:46:16.061049Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "rca-service",
+  "action": "diagnose",
+  "resource": "situation:sit-5c025fa0200c747c",
+  "decision": "allow",
+  "ts": "2026-11-28T13:46:31.527361Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "action-service",
+  "action": "execute",
+  "resource": "playbook:restart-pod",
+  "decision": "abort",
+  "ts": "2026-11-28T13:46:46.523374Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "action-service",
+  "action": "expire",
+  "resource": "playbook:restart-pod",
+  "decision": "allow",
+  "ts": "2026-11-28T13:47:16.925028Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "action-service",
+  "action": "execute",
+  "resource": "playbook:restart-pod",
+  "decision": "abort",
+  "ts": "2026-11-28T13:47:16.929322Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "rca-service",
+  "action": "diagnose",
+  "resource": "situation:sit-5c025fa0200c747c",
+  "decision": "allow",
+  "ts": "2026-11-28T13:47:45.655977Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "oncall-alice",
+  "action": "reject",
+  "resource": "playbook:restart-pod",
+  "decision": "allow",
+  "ts": "2026-11-28T13:47:45.854818Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "action-service",
+  "action": "execute",
+  "resource": "playbook:restart-pod",
+  "decision": "abort",
+  "ts": "2026-11-28T13:47:46.180555Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "rca-service",
+  "action": "diagnose",
+  "resource": "situation:sit-5c025fa0200c747c",
+  "decision": "allow",
+  "ts": "2026-11-28T13:48:01.097231Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "rca-service",
+  "action": "diagnose",
+  "resource": "situation:sit-5c025fa0200c747c",
+  "decision": "allow",
+  "ts": "2026-11-28T13:48:16.128544Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "action-service",
+  "action": "execute",
+  "resource": "playbook:restart-pod",
+  "decision": "abort",
+  "ts": "2026-11-28T13:48:31.435392Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "action-service",
+  "action": "expire",
+  "resource": "playbook:restart-pod",
+  "decision": "allow",
+  "ts": "2026-11-28T13:49:01.934302Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "action-service",
+  "action": "execute",
+  "resource": "playbook:restart-pod",
+  "decision": "abort",
+  "ts": "2026-11-28T13:49:01.944771Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "rca-service",
+  "action": "diagnose",
+  "resource": "situation:sit-5c025fa0200c747c",
+  "decision": "allow",
+  "ts": "2026-11-28T13:49:30.552980Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "rca-service",
+  "action": "diagnose",
+  "resource": "situation:sit-5c025fa0200c747c",
+  "decision": "allow",
+  "ts": "2026-11-28T13:49:46.227861Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "action-service",
+  "action": "expire",
+  "resource": "playbook:restart-pod",
+  "decision": "allow",
+  "ts": "2026-11-28T13:50:00.673530Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "action-service",
+  "action": "execute",
+  "resource": "playbook:restart-pod",
+  "decision": "abort",
+  "ts": "2026-11-28T13:50:00.687251Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "rca-service",
+  "action": "diagnose",
+  "resource": "situation:sit-5c025fa0200c747c",
+  "decision": "allow",
+  "ts": "2026-11-28T13:50:01.335397Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "rca-service",
+  "action": "diagnose",
+  "resource": "situation:sit-5c025fa0200c747c",
+  "decision": "allow",
+  "ts": "2026-11-28T13:50:15.714380Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "action-service",
+  "action": "expire",
+  "resource": "playbook:restart-pod",
+  "decision": "allow",
+  "ts": "2026-11-28T13:50:30.823968Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "action-service",
+  "action": "execute",
+  "resource": "playbook:restart-pod",
+  "decision": "abort",
+  "ts": "2026-11-28T13:50:30.830105Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "rca-service",
+  "action": "diagnose",
+  "resource": "situation:sit-5c025fa0200c747c",
+  "decision": "allow",
+  "ts": "2026-11-28T13:50:31.490726Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "action-service",
+  "action": "execute",
+  "resource": "playbook:restart-pod",
+  "decision": "abort",
+  "ts": "2026-11-28T13:51:01.235379Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "action-service",
+  "action": "expire",
+  "resource": "playbook:restart-pod",
+  "decision": "allow",
+  "ts": "2026-11-28T13:51:31.761477Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "action-service",
+  "action": "execute",
+  "resource": "playbook:restart-pod",
+  "decision": "abort",
+  "ts": "2026-11-28T13:51:31.770175Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "oncall-alice",
+  "action": "approve",
+  "resource": "playbook:restart-pod",
+  "decision": "allow",
+  "ts": "2026-11-28T13:51:39.827383Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "action-service",
+  "action": "execute",
+  "resource": "playbook:restart-pod",
+  "decision": "allow",
+  "ts": "2026-11-28T13:51:39.950605Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "rca-service",
+  "action": "diagnose",
+  "resource": "situation:sit-5c025fa0200c747c",
+  "decision": "allow",
+  "ts": "2026-11-28T13:52:01.449164Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "action-service",
+  "action": "execute",
+  "resource": "playbook:restart-pod",
+  "decision": "abort",
+  "ts": "2026-11-28T13:52:31.815391Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "rca-service",
+  "action": "diagnose",
+  "resource": "situation:sit-5c025fa0200c747c",
+  "decision": "allow",
+  "ts": "2026-11-28T13:53:32.108255Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "oncall-alice",
+  "action": "reject",
+  "resource": "playbook:restart-pod",
+  "decision": "allow",
+  "ts": "2026-11-28T13:53:32.419316Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "action-service",
+  "action": "execute",
+  "resource": "playbook:restart-pod",
+  "decision": "abort",
+  "ts": "2026-11-28T13:53:32.627923Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "rca-service",
+  "action": "diagnose",
+  "resource": "situation:sit-5c025fa0200c747c",
+  "decision": "allow",
+  "ts": "2026-11-28T13:53:46.411905Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "rca-service",
+  "action": "diagnose",
+  "resource": "situation:sit-5c025fa0200c747c",
+  "decision": "allow",
+  "ts": "2026-11-28T13:54:01.842573Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "action-service",
+  "action": "execute",
+  "resource": "playbook:restart-pod",
+  "decision": "abort",
+  "ts": "2026-11-28T13:54:16.914045Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "action-service",
+  "action": "expire",
+  "resource": "playbook:restart-pod",
+  "decision": "allow",
+  "ts": "2026-11-28T13:54:47.420652Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "action-service",
+  "action": "execute",
+  "resource": "playbook:restart-pod",
+  "decision": "abort",
+  "ts": "2026-11-28T13:54:47.423905Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "rca-service",
+  "action": "diagnose",
+  "resource": "situation:sit-5c025fa0200c747c",
+  "decision": "allow",
+  "ts": "2026-11-28T13:55:16.718319Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "rca-service",
+  "action": "diagnose",
+  "resource": "situation:sit-5c025fa0200c747c",
+  "decision": "allow",
+  "ts": "2026-11-28T13:55:31.087565Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "rca-service",
+  "action": "diagnose",
+  "resource": "situation:sit-5c025fa0200c747c",
+  "decision": "allow",
+  "ts": "2026-11-28T13:55:46.170075Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "action-service",
+  "action": "expire",
+  "resource": "playbook:restart-pod",
+  "decision": "allow",
+  "ts": "2026-11-28T13:55:46.964570Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "action-service",
+  "action": "execute",
+  "resource": "playbook:restart-pod",
+  "decision": "abort",
+  "ts": "2026-11-28T13:55:46.991176Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ },
+ {
+  "actor": "rca-service",
+  "action": "diagnose",
+  "resource": "situation:sit-5c025fa0200c747c",
+  "decision": "allow",
+  "ts": "2026-11-28T13:56:01.077271Z",
+  "correlation_id": "sit-5c025fa0200c747c"
+ }
+]

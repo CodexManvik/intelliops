@@ -1,5 +1,7 @@
 # IntelliOps CoE — Persistence
 
+> **Note:** this document describes the original Python implementation, kept on the [`python-legacy`](https://github.com/CodexManvik/intelliops/tree/python-legacy) branch. The platform is now Rust: the behaviour and settings carry over, but file paths and commands below that mention Python do not. See [docs/rust/DECISIONS.md](rust/DECISIONS.md) for what changed.
+
 This document covers **where durable state lives and how it is stored**: the three
 store adapters that can be backed by Postgres (Tier 1a), the two pieces of durable *runtime*
 state (Tier 1b — pending approvals and the z-score baseline), the schema they share, how

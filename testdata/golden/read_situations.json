@@ -1,0 +1,286 @@
+[
+ {
+  "id": "sit-5c025fa0200c747c",
+  "signature": "5c025fa0200c747c",
+  "service": "demo-app",
+  "title": "memory pressure / leak \u2014 recycle the process \u00b7 demo-app",
+  "status": "diagnosed",
+  "severity": "low",
+  "memberCount": 18,
+  "member_events": [
+   {
+    "name": "cpu_usage",
+    "value": 92.0,
+    "labels": {
+     "instance": "demo-app:8080",
+     "job": "demo-app",
+     "service": "demo-app"
+    },
+    "kind": "metric",
+    "ts": 1795874148598
+   },
+   {
+    "name": "latency_p50_ms",
+    "value": 220.0,
+    "labels": {
+     "instance": "demo-app:8080",
+     "job": "demo-app",
+     "service": "demo-app"
+    },
+    "kind": "metric",
+    "ts": 1795874148598
+   },
+   {
+    "name": "latency_p99_ms",
+    "value": 950.0,
+    "labels": {
+     "instance": "demo-app:8080",
+     "job": "demo-app",
+     "service": "demo-app"
+    },
+    "kind": "metric",
+    "ts": 1795874148598
+   },
+   {
+    "name": "memory_usage_mb",
+    "value": 700.0,
+    "labels": {
+     "instance": "demo-app:8080",
+     "job": "demo-app",
+     "service": "demo-app"
+    },
+    "kind": "metric",
+    "ts": 1795874148598
+   },
+   {
+    "name": "saturation",
+    "value": 0.9,
+    "labels": {
+     "instance": "demo-app:8080",
+     "job": "demo-app",
+     "service": "demo-app"
+    },
+    "kind": "metric",
+    "ts": 1795874148598
+   },
+   {
+    "name": "queue_depth",
+    "value": 180.0,
+    "labels": {
+     "instance": "demo-app:8080",
+     "job": "demo-app",
+     "service": "demo-app"
+    },
+    "kind": "metric",
+    "ts": 1795874148598
+   },
+   {
+    "name": "cpu_usage",
+    "value": 92.0,
+    "labels": {
+     "instance": "demo-app:8080",
+     "job": "demo-app",
+     "service": "demo-app"
+    },
+    "kind": "metric",
+    "ts": 1795874153664
+   },
+   {
+    "name": "latency_p50_ms",
+    "value": 220.0,
+    "labels": {
+     "instance": "demo-app:8080",
+     "job": "demo-app",
+     "service": "demo-app"
+    },
+    "kind": "metric",
+    "ts": 1795874153664
+   },
+   {
+    "name": "latency_p99_ms",
+    "value": 950.0,
+    "labels": {
+     "instance": "demo-app:8080",
+     "job": "demo-app",
+     "service": "demo-app"
+    },
+    "kind": "metric",
+    "ts": 1795874153664
+   },
+   {
+    "name": "memory_usage_mb",
+    "value": 700.0,
+    "labels": {
+     "instance": "demo-app:8080",
+     "job": "demo-app",
+     "service": "demo-app"
+    },
+    "kind": "metric",
+    "ts": 1795874153664
+   },
+   {
+    "name": "saturation",
+    "value": 0.9,
+    "labels": {
+     "instance": "demo-app:8080",
+     "job": "demo-app",
+     "service": "demo-app"
+    },
+    "kind": "metric",
+    "ts": 1795874153664
+   },
+   {
+    "name": "queue_depth",
+    "value": 180.0,
+    "labels": {
+     "instance": "demo-app:8080",
+     "job": "demo-app",
+     "service": "demo-app"
+    },
+    "kind": "metric",
+    "ts": 1795874153664
+   },
+   {
+    "name": "cpu_usage",
+    "value": 92.0,
+    "labels": {
+     "instance": "demo-app:8080",
+     "job": "demo-app",
+     "service": "demo-app"
+    },
+    "kind": "metric",
+    "ts": 1795874158688
+   },
+   {
+    "name": "latency_p50_ms",
+    "value": 220.0,
+    "labels": {
+     "instance": "demo-app:8080",
+     "job": "demo-app",
+     "service": "demo-app"
+    },
+    "kind": "metric",
+    "ts": 1795874158688
+   },
+   {
+    "name": "latency_p99_ms",
+    "value": 950.0,
+    "labels": {
+     "instance": "demo-app:8080",
+     "job": "demo-app",
+     "service": "demo-app"
+    },
+    "kind": "metric",
+    "ts": 1795874158688
+   },
+   {
+    "name": "memory_usage_mb",
+    "value": 700.0,
+    "labels": {
+     "instance": "demo-app:8080",
+     "job": "demo-app",
+     "service": "demo-app"
+    },
+    "kind": "metric",
+    "ts": 1795874158688
+   },
+   {
+    "name": "saturation",
+    "value": 0.9,
+    "labels": {
+     "instance": "demo-app:8080",
+     "job": "demo-app",
+     "service": "demo-app"
+    },
+    "kind": "metric",
+    "ts": 1795874158688
+   },
+   {
+    "name": "queue_depth",
+    "value": 180.0,
+    "labels": {
+     "instance": "demo-app:8080",
+     "job": "demo-app",
+     "service": "demo-app"
+    },
+    "kind": "metric",
+    "ts": 1795874158688
+   }
+  ],
+  "peak_score": 3.2674302791231553,
+  "baseline": {
+   "cpu_usage": {
+    "mean": 25.4,
+    "std": 22.293082169252465
+   },
+   "latency_p50_ms": {
+    "mean": 39.99999999999999,
+    "std": 60.25157343041205
+   },
+   "latency_p99_ms": {
+    "mean": 167.00000000000006,
+    "std": 262.09434442229247
+   },
+   "memory_usage_mb": {
+    "mean": 300.40000000000003,
+    "std": 133.75849301551474
+   },
+   "saturation": {
+    "mean": 0.18,
+    "std": 0.24100629372164822
+   },
+   "queue_depth": {
+    "mean": 19.8,
+    "std": 53.62390035306673
+   }
+  },
+  "first_seen": 1795874148598,
+  "last_seen": 1795874158688,
+  "hypotheses": [
+   {
+    "description": "memory pressure / leak \u2014 recycle the process",
+    "confidence": 0.65,
+    "suggested_runbook_id": "restart-pod",
+    "evidence": [
+     "metrics: cpu_usage latency_p50_ms latency_p99_ms memory_usage_mb saturation queue_depth cpu_usage latency_p50_ms latency_p99_ms memory_usage_mb saturation queue_depth cpu_usage latency_p50_ms latency_p99_ms memory_usage_mb saturation queue_depth"
+    ],
+    "explanation": "**Incident Summary (sit\u20115c025fa0200c747c \u2013 low severity)**  \n\n**Likely root cause:** The service is experiencing memory pressure, possibly a leak, that is gradually eating up RAM. As the process runs longer it hits its memory limit, which in turn degrades performance (higher latency, higher CPU as the system fights for resources) and fills internal queues.  \n\n**Why we think this:**  \n- Repeated metrics show rising **memory_usage_mb** alongside spikes in **cpu_usage**, **latency_p50_ms**, **latency_p99_ms**, and growing **queue_depth**.  \n- The pattern appears across multiple collection windows, suggesting the issue is persistent rather than a one\u2011off spike.  \n- No recent code deploys were made, so the change is likely environmental (e.g., a runaway allocation) rather than a new bug.\n\n**Confidence:** 65\u202f% (reasonable, but not certain).  \n\n**Immediate action (runbook):**  \n1. **Restart the pod** to flush the current memory state and restore normal latency.  \n2. After the restart, monitor the same metrics for the next 30\u202f\u2013\u202f60\u202fminutes to verify that memory usage stabilizes.  \n3. If the problem recurs, consider adding a memory\u2011limit alert, enabling a longer\u2011term memory\u2011leak investigation (e.g., heap profiling), or adjusting the pod\u2019s resource requests/limits.\n\n**Next steps for post\u2011mortem:**  \n- Capture a heap dump or enable a profiling tool on the next run.  \n- Review recent code changes (even if not deployed) for any patterns that could allocate memory in loops or retain large objects.  \n- Check if any external load spikes coincide with the memory growth.  \n\nThat\u2019s the current best guess\u2014restart the pod now and keep an eye on the memory metric. If the issue persists, we\u2019ll need deeper diagnostics.",
+    "explanation_source": "llm",
+    "confidence_source": "rule"
+   },
+   {
+    "description": "resource saturation across the affected service",
+    "confidence": 0.6,
+    "suggested_runbook_id": "scale-service",
+    "evidence": [
+     "metrics: cpu_usage latency_p50_ms latency_p99_ms memory_usage_mb saturation queue_depth cpu_usage latency_p50_ms latency_p99_ms memory_usage_mb saturation queue_depth cpu_usage latency_p50_ms latency_p99_ms memory_usage_mb saturation queue_depth"
+    ],
+    "explanation": null,
+    "explanation_source": null,
+    "confidence_source": "rule"
+   },
+   {
+    "description": "latency/queueing under load \u2014 capacity contention",
+    "confidence": 0.55,
+    "suggested_runbook_id": "scale-service",
+    "evidence": [
+     "metrics: cpu_usage latency_p50_ms latency_p99_ms memory_usage_mb saturation queue_depth cpu_usage latency_p50_ms latency_p99_ms memory_usage_mb saturation queue_depth cpu_usage latency_p50_ms latency_p99_ms memory_usage_mb saturation queue_depth"
+    ],
+    "explanation": null,
+    "explanation_source": null,
+    "confidence_source": "rule"
+   }
+  ],
+  "suggested_runbook_id": "restart-pod",
+  "hitl_mode": "hitl",
+  "reversible": true,
+  "reliability": 0.0,
+  "suppressed": false,
+  "handling": "normal",
+  "last_activity": 1795874148598,
+  "stages": {
+   "detected": 1795874148598,
+   "diagnosed": 1795874158688
+  }
+ }
+]

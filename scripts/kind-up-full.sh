@@ -40,23 +40,28 @@ else
 fi
 
 # --- 2. images -------------------------------------------------------------
-# base: the 11 lean services + demo-app + Meridian (all run $SERVICE_MODULE).
-# full: rca + action (ml + k8s extras, CPU torch + baked embedding model).
-# console: the React UI (nginx + same-origin backend proxy).
-echo "→ Building images (base, full, console)… (full pulls torch CPU + bakes the model; first build is slow)"
-docker build -t "intelliops:latest"          -f "$HERE/deploy/Dockerfile" --target base "$HERE"
-docker build -t "intelliops:full"            -f "$HERE/deploy/Dockerfile" --target full "$HERE"
-docker build -t "intelliops-console:latest"  -f "$HERE/deploy/Dockerfile.frontend"      "$HERE"
+SERVICES="ingestion correlation rca action governance feedback read sim"
+echo "→ Building the images (the first build compiles everything)…"
+for s in $SERVICES; do
+  case "$s" in
+    rca) target=rca ;;
+    sim) target=sim ;;
+    *) target=service ;;
+  esac
+  docker build -t "intelliops-$s:latest" -f "$HERE/deploy/Dockerfile" \
+    --target "$target" --build-arg "SERVICE=$s" "$HERE"
+done
+docker build -t "intelliops-console:latest" -f "$HERE/deploy/Dockerfile.frontend" "$HERE"
 
 echo "→ Loading images into kind…"
-kind load docker-image intelliops:latest         --name "$CLUSTER"
-kind load docker-image intelliops:full           --name "$CLUSTER"
-kind load docker-image intelliops-console:latest --name "$CLUSTER"
+for s in $SERVICES console; do
+  kind load docker-image "intelliops-$s:latest" --name "$CLUSTER"
+done
 
 # --- 3. helm install -------------------------------------------------------
 HELM_ARGS=(upgrade --install "$RELEASE" "$HERE/deploy/k8s/platform"
   --namespace "$NAMESPACE" --create-namespace
-  --set image.tag=latest --set image.fullTag=full
+  --set image.tag=latest
   --set console.repository=intelliops-console)
 
 if [ "${SAFE:-0}" = "1" ]; then

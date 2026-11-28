@@ -1,0 +1,48 @@
+{
+  "label": "python",
+  "measured_at": "2026-11-28T14:32:11+00:00",
+  "host": 12,
+  "image_mib": {
+    "ingestion": 492.8,
+    "correlation": 3916.2,
+    "rca": 492.8,
+    "action": 3916.2,
+    "governance": 492.8,
+    "feedback": 492.8,
+    "read": 492.8
+  },
+  "idle_memory_mib": {
+    "ingestion": 64.0,
+    "correlation": 98.2,
+    "rca": 69.8,
+    "action": 74.2,
+    "governance": 70.3,
+    "feedback": 69.6,
+    "read": 59.9
+  },
+  "ingest": {
+    "events": 20000,
+    "ingest_events_per_s": 3536,
+    "end_to_end_events_per_s": 2411,
+    "ingest_batch_p50_ms": 47.0,
+    "ingest_batch_p99_ms": 125.0
+  },
+  "loaded_memory_mib": {
+    "ingestion": 64.5,
+    "correlation": 98.4,
+    "rca": 69.9,
+    "action": 74.4,
+    "governance": 70.3,
+    "feedback": 69.7,
+    "read": 59.9
+  },
+  "cold_start_s": {
+    "ingestion": 2.7,
+    "correlation": 3.8,
+    "rca": 3.88,
+    "action": 3.48,
+    "governance": 3.86,
+    "feedback": 4.89,
+    "read": 2.81
+  }
+}

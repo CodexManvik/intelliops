@@ -1,19 +1,15 @@
-# Python
-__pycache__/
-*.py[cod]
-*.egg-info/
-.venv/
-venv/
+# Rust
+/target/
+
+# Node
+node_modules/
+dist/
+
+# Secrets and local env
 .env
 .env.*
 !.env.example
-
-# Tooling
-.pytest_cache/
-.ruff_cache/
-.mypy_cache/
-.coverage
-htmlcov/
+deploy/.kubeconfig
 
 # IDE / OS
 .vscode/
@@ -24,13 +20,21 @@ Thumbs.db
 # Data / models / local state (not committed)
 /data/
 !frontend/src/data/
-models/
+/models/
 *.log
+
+# Leftovers of the Python version (now on the python-legacy branch)
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+.uv-cache/
 
 # Claude Code harness local state
 .claude/
 .superpowers/
-deploy/.kubeconfig
 
 # /brag run output: a rendered launch film plus its composition, screenshots
 # and bundled audio. Large binaries, regenerated per run, never a build input.

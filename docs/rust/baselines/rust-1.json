@@ -1,0 +1,55 @@
+{
+  "label": "rust-1",
+  "measured_at": "2026-11-28T16:59:23+00:00",
+  "host": 12,
+  "image_mib": {
+    "ingestion": 46.1,
+    "correlation": 42.3,
+    "rca": 218.9,
+    "action": 53.5,
+    "governance": 48.3,
+    "feedback": 47.0,
+    "read": 46.6
+  },
+  "idle_memory_mib": {
+    "ingestion": 2.6,
+    "correlation": 2.4,
+    "rca": 96.8,
+    "action": 2.2,
+    "governance": 2.2,
+    "feedback": 2.1,
+    "read": 2.4
+  },
+  "ingest": {
+    "events": 20000,
+    "ingest_events_per_s": 20000,
+    "end_to_end_events_per_s": 10241,
+    "ingest_batch_p50_ms": 15.0,
+    "ingest_batch_p99_ms": 32.0
+  },
+  "loaded_memory_mib": {
+    "ingestion": 4.4,
+    "correlation": 2.5,
+    "rca": 96.8,
+    "action": 2.2,
+    "governance": 2.2,
+    "feedback": 2.1,
+    "read": 2.4
+  },
+  "cold_start_s": {
+    "ingestion": 1.83,
+    "correlation": 3.16,
+    "rca": 3.55,
+    "action": 3.25,
+    "governance": 5.38,
+    "feedback": 5.23,
+    "read": 2.55
+  },
+  "workload_memory_mib": {
+    "demo-app": 1.8,
+    "meridian-gateway": 1.8,
+    "meridian-validation": 1.8,
+    "meridian-aggregation": 1.8,
+    "meridian-reporting": 1.8
+  }
+}

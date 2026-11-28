@@ -9,10 +9,9 @@ echo "→ Creating kind cluster '$CLUSTER'…"
 kind create cluster --name "$CLUSTER" --config "$HERE/deploy/k8s/kind-config.yaml"
 
 echo "→ Building + loading the demo-app image…"
-# The shared image runs whatever $SERVICE_MODULE the container env sets (the
-# demo-app deployment sets it to services.demo_app.app:app), so one plain build
-# of deploy/Dockerfile is all that's needed.
-docker build -t intelliops-demo-app:local -f "$HERE/deploy/Dockerfile" "$HERE"
+# One image plays the demo app and Meridian; INTELLIOPS_SIM picks which.
+docker build -t intelliops-demo-app:local -f "$HERE/deploy/Dockerfile" \
+  --target sim --build-arg SERVICE=sim "$HERE"
 kind load docker-image intelliops-demo-app:local --name "$CLUSTER"
 
 echo "→ Applying manifests…"

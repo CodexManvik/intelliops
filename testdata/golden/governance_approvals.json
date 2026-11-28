@@ -1,0 +1,16 @@
+[
+ {
+  "id": "appr-sit-5c025fa0200c747c",
+  "situation_id": "sit-5c025fa0200c747c",
+  "playbook_id": "restart-pod",
+  "requested_by": "action-service",
+  "status": "pending",
+  "decided_by": null,
+  "preflight": {
+   "passed": true,
+   "detail": "not rehearsed (sandbox off)",
+   "mode": "off",
+   "sandbox_namespace": null
+  }
+ }
+]

@@ -1,5 +1,7 @@
 # Where the ML training data lives (Stream B)
 
+> **Note:** this document describes the original Python implementation, kept on the [`python-legacy`](https://github.com/CodexManvik/intelliops/tree/python-legacy) branch. The platform is now Rust: the behaviour and settings carry over, but file paths and commands below that mention Python do not. See [docs/rust/DECISIONS.md](rust/DECISIONS.md) for what changed.
+
 Short version: your training data is in Postgres, in the `training_records` table. You don't need Kafka for any of this. Read straight from the table (or from the training store's `read_all()`), train your model, and point the result at the existing `CORRELATOR_KIND` seam. Kafka is a separate, still-unbuilt swap for the live message bus and it doesn't touch where anything is stored.
 
 Here's the whole picture so nothing is ambiguous.

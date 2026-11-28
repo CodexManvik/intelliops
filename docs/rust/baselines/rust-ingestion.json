@@ -1,0 +1,48 @@
+{
+  "label": "rust-ingestion",
+  "measured_at": "2026-11-28T14:35:53+00:00",
+  "host": 12,
+  "image_mib": {
+    "ingestion": 40.6,
+    "correlation": 3916.2,
+    "rca": 492.8,
+    "action": 3916.2,
+    "governance": 492.8,
+    "feedback": 492.8,
+    "read": 492.8
+  },
+  "idle_memory_mib": {
+    "ingestion": 2.2,
+    "correlation": 73.3,
+    "rca": 70.1,
+    "action": 74.1,
+    "governance": 70.4,
+    "feedback": 69.0,
+    "read": 59.8
+  },
+  "ingest": {
+    "events": 20000,
+    "ingest_events_per_s": 18034,
+    "end_to_end_events_per_s": 1847,
+    "ingest_batch_p50_ms": 15.0,
+    "ingest_batch_p99_ms": 32.0
+  },
+  "loaded_memory_mib": {
+    "ingestion": 3.8,
+    "correlation": 73.3,
+    "rca": 70.1,
+    "action": 74.1,
+    "governance": 70.5,
+    "feedback": 69.0,
+    "read": 59.9
+  },
+  "cold_start_s": {
+    "ingestion": 1.81,
+    "correlation": 4.11,
+    "rca": 5.42,
+    "action": 6.47,
+    "governance": 5.97,
+    "feedback": 5.55,
+    "read": 3.14
+  }
+}

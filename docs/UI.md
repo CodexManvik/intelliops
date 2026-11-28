@@ -1,5 +1,7 @@
 # docs/UI.md — The React operator console
 
+> **Note:** this document describes the original Python implementation, kept on the [`python-legacy`](https://github.com/CodexManvik/intelliops/tree/python-legacy) branch. The platform is now Rust: the behaviour and settings carry over, but file paths and commands below that mention Python do not. See [docs/rust/DECISIONS.md](rust/DECISIONS.md) for what changed.
+
 A guide to the console for the demo and the report: what each view shows, how mock vs. live
 mode differ, the real-time transport underneath, and the Apple-light visual repaint. Read this
 alongside [docs/OPERATIONS.md](OPERATIONS.md) (env switches, the auth model) and

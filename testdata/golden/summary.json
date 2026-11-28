@@ -1,0 +1,14 @@
+{
+  "scenarios": {
+    "approve": "appr-sit-5c025fa0200c747c: approved",
+    "reject": "appr-sit-5c025fa0200c747c: rejected",
+    "timeout": "appr-sit-5c025fa0200c747c: left to time out"
+  },
+  "stream_entries": {
+    "telemetry.raw": 500,
+    "situations.detected": 19,
+    "situations.suppressed": 0,
+    "situations.diagnosed": 19,
+    "remediation.outcomes": 16
+  }
+}

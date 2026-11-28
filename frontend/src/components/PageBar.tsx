@@ -7,7 +7,7 @@ export type PageId = "dashboard" | "audit-log" | "product" | "docs";
    the running stack. The audit log is the real governance trail, so it is not. */
 export const PAGE_LINKS: { id: PageId; label: string; sample: boolean }[] = [
   { id: "product", label: "Product", sample: true },
-  { id: "docs", label: "Docs", sample: true },
+  { id: "docs", label: "Docs", sample: false },
   { id: "dashboard", label: "Demo dashboard", sample: true },
   { id: "audit-log", label: "Audit log", sample: false },
 ];

@@ -17,7 +17,7 @@ spec:
           image: intelliops-demo-app:local
           imagePullPolicy: IfNotPresent
           env:
-            - { name: SERVICE_MODULE, value: "services.meridian.reporting.app:app" }
+            - { name: INTELLIOPS_SIM, value: "meridian-reporting" }
             - { name: PORT, value: "8000" }
           ports: [{ containerPort: 8000 }]
           readinessProbe:

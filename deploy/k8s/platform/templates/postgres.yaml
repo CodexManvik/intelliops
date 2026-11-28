@@ -28,7 +28,7 @@ stringData:
   # The app-side connection string (password embedded) lives here too, NOT in the
   # ConfigMap — every service picks it up via `envFrom: secretRef` (issue #57).
   # psycopg (v3) driver + the plain `postgres` Service host.
-  INTELLIOPS_DATABASE_URL: {{ printf "postgresql+psycopg://%s:%s@postgres:5432/%s" .Values.postgres.user .Values.postgres.password .Values.postgres.db | quote }}
+  INTELLIOPS_DATABASE_URL: {{ printf "postgresql://%s:%s@postgres:5432/%s" .Values.postgres.user .Values.postgres.password .Values.postgres.db | quote }}
 {{- end }}
 ---
 apiVersion: apps/v1
